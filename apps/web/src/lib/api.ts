@@ -76,6 +76,8 @@ export interface RunDetail extends RunSummary {
     branch: string | null;
     error: string | null;
     dependsOn: string[];
+    executorKind: string | null;
+    agentCostUsd: number;
   }[];
 }
 

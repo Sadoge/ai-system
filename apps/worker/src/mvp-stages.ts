@@ -42,7 +42,9 @@ import {
   pushBranch,
   transitionJiraIssue,
 } from '@ai-system/integrations';
+import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
+import { recordExecutorUsage } from './executors.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
 
@@ -246,22 +248,33 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     kind: 'task_spec',
     content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
   });
+  const executor = services.executorFor(repo);
   await db.insert(agentRuns).values({
     id: agentRunId,
     runId: run.id,
     agentKind: 'coding',
-    executorKind: services.executor.executorKind,
+    executorKind: executor.executorKind,
     status: 'running',
     contextBundleArtifactId: bundleId,
     startedAt: new Date(),
   });
 
-  const result = await services.executor.execute({
+  const startedAt = Date.now();
+  const result = await executor.execute({
     runId: run.id,
     agentRunId,
     worktreeDir,
     taskSpec,
     limits: { timeoutMs: services.codingTimeoutMs },
+  });
+  await recordExecutorUsage(db, {
+    runId: run.id,
+    agentRunId,
+    executorKind: executor.executorKind,
+    ...(executor instanceof CliAgentExecutor ? { cliName: executor.cliName } : {}),
+    usage: result.usage,
+    status: result.status === 'succeeded' ? 'succeeded' : 'failed',
+    latencyMs: Date.now() - startedAt,
   });
 
   const { artifactId: transcriptId } = await createArtifact(db, {
@@ -276,7 +289,9 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
       .update(agentRuns)
       .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
       .where(eq(agentRuns.id, agentRunId));
-    throw new Error(`coding agent failed: ${result.failureReason}`);
+    throw new Error(
+      `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
+    );
   }
 
   await commitAll(worktreeDir, `ai-system: ${ticket.title} (iteration ${run.iterationCount})`);

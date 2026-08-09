@@ -73,6 +73,25 @@ describe('worktree lifecycle with scripted executor', () => {
     expect(diff2).toContain('FIX: Missing FIX marker');
   });
 
+  it('keeps the platform prompt file out of the committed change', async () => {
+    const origin = makeOriginRepo();
+    const base = mkdtempSync(join(tmpdir(), 'exec-exclude-'));
+    const checkout = join(base, 'checkout');
+    const worktree = join(base, 'wt');
+    await ensureCheckout(origin, checkout);
+    await ensureWorktree(checkout, worktree, 'ai/run-exclude', 'main');
+
+    // The CLI executor writes this next to the work so a human can inspect it;
+    // it must never reach the user's diff or PR.
+    writeFileSync(join(worktree, '.ai-system-prompt.md'), '# prompt');
+    writeFileSync(join(worktree, 'real-change.txt'), 'the actual work');
+    await commitAll(worktree, 'agent: work');
+
+    const diff = await diffAgainst(worktree, 'main');
+    expect(diff).toContain('real-change.txt');
+    expect(diff).not.toContain('.ai-system-prompt.md');
+  });
+
   it('writes each task to its own file so parallel task branches do not collide', async () => {
     const origin = makeOriginRepo();
     const base = mkdtempSync(join(tmpdir(), 'exec-parallel-'));

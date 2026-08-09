@@ -14,7 +14,7 @@ interface AgentDefinition<I, O> {
 }
 
 interface AgentExecutor {
-  executorKind: 'cli' | 'api_loop';
+  executorKind: 'cli' | 'scripted' | 'api_loop';
   supports(kind: AgentKind): boolean;
   execute(input: AgentExecutionInput): Promise<AgentExecutionResult>;
 }
@@ -113,6 +113,43 @@ Selection is layered (detail in [08-project-brain.md](08-project-brain.md)):
 | Cleanup | worktree pruned on release, always | container destroyed |
 
 Integration is deterministic git, not an LLM merge: the integration stage octopus-merges task branches into the run branch in dependency order; only on conflict does the integration *agent* get involved, in a scratch worktree, and its resolution goes through review like any other change.
+
+## 4b. Coding agents: which CLI runs the work
+
+The coding agent is **pluggable per repository**, because different projects
+(and different teams) standardize on different tools. Three executors ship:
+
+| Executor | What it is | When to use it |
+|---|---|---|
+| `claude_code` | Claude Code CLI, non-interactive (`-p --output-format json --permission-mode acceptEdits`), prompt over stdin | default; strongest coding agent available today |
+| `codex` | OpenAI Codex CLI (`codex exec --full-auto`), prompt over stdin | teams standardized on Codex |
+| `api_loop` | the platform's own tool loop through the Model Gateway | no CLI dependency; full control over tools and limits |
+| `scripted` | deterministic stand-in | tests and offline demos |
+
+Selection is `repositories.settings.executor` → `CODING_EXECUTOR` env →
+`claude_code`. `executorBinary` and `executorArgs` override the preset
+entirely, so a CLI flag change never requires a platform release.
+
+**Invocation rules, common to every CLI preset:**
+
+- The binary is spawned **directly, never through a shell**, so prompt text can
+  never be interpreted as shell syntax.
+- The prompt goes over **stdin**, so its size is bounded only by the CLI, and
+  it is also written to `.ai-system-prompt.md` in the worktree so a human can
+  see exactly what ran.
+- The subprocess gets `PATH`, `HOME`, and only the variables the preset's
+  `envAllowlist` names. Repository credentials are never among them.
+- CLIs report their own spend. That usage is written into `model_calls` under
+  provider `cli:<name>`, so budgets and cost dashboards count CLI-driven work
+  the same as gateway calls — otherwise every cost view would silently
+  under-report.
+- A CLI that exits non-zero is a `sandbox_error`; a CLI that runs cleanly but
+  reports its own failure (`is_error: true`) is a `model_error`. The engine's
+  retry decision depends on that distinction.
+
+Availability is probed at worker startup and via `ai-system repo check-agents`,
+so a missing binary is reported before a run needs it rather than as an opaque
+task failure.
 
 ## 5. Parallelism
 

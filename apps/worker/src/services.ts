@@ -11,7 +11,11 @@ export interface StageServices {
    * cascade project > org > platform default (docs/07 §4).
    */
   agents: (run: typeof pipelineRuns.$inferSelect) => Promise<Agents>;
-  executor: AgentExecutor;
+  /**
+   * Resolved per repository, so different projects can run different coding
+   * agents (Claude Code, Codex, the platform's own api_loop).
+   */
+  executorFor: (repo: { settings: unknown } | null) => AgentExecutor;
   /** Absent only if embeddings are unavailable; retrieval degrades to structural + rules. */
   embedder: Embedder | undefined;
   /** Root for cached checkouts (repos/<id>) and run worktrees (worktrees/<runId>). */

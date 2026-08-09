@@ -17,7 +17,9 @@ import {
   startMerge,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
+import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
+import { recordExecutorUsage } from './executors.js';
 import {
   agentCtx,
   getBrainContext,
@@ -151,6 +153,7 @@ export async function executeTask(
   const { checkoutDir, worktreeDir: runWorktree } = repoPaths(services, repo.id, run.id);
   const worktreeDir = taskWorktreeDir(services, run.id, task.id);
   const agentRunId = uuidv7();
+  const executor = services.executorFor(repo);
 
   try {
     await ensureCheckout(repo.remoteUrl, checkoutDir);
@@ -184,7 +187,7 @@ export async function executeTask(
       runId: run.id,
       taskId: task.id,
       agentKind: 'coding',
-      executorKind: services.executor.executorKind,
+      executorKind: executor.executorKind,
       status: 'running',
       contextBundleArtifactId: bundleId,
       startedAt: new Date(),
@@ -194,13 +197,23 @@ export async function executeTask(
       payload: { runId: run.id, taskId: task.id, attempt: task.attemptCount },
     });
 
-    const result = await services.executor.execute({
+    const startedAt = Date.now();
+    const result = await executor.execute({
       runId: run.id,
       agentRunId,
       taskId: task.id,
       worktreeDir,
       taskSpec,
       limits: { timeoutMs: services.codingTimeoutMs },
+    });
+    await recordExecutorUsage(db, {
+      runId: run.id,
+      agentRunId,
+      executorKind: executor.executorKind,
+      ...(executor instanceof CliAgentExecutor ? { cliName: executor.cliName } : {}),
+      usage: result.usage,
+      status: result.status === 'succeeded' ? 'succeeded' : 'failed',
+      latencyMs: Date.now() - startedAt,
     });
 
     await createArtifact(db, {
@@ -215,7 +228,12 @@ export async function executeTask(
         .update(agentRuns)
         .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
         .where(eq(agentRuns.id, agentRunId));
-      await failTask(services, run.id, task.id, `coding agent failed: ${result.failureReason}`);
+      await failTask(
+        services,
+        run.id,
+        task.id,
+        `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
+      );
       return;
     }
 
@@ -330,16 +348,17 @@ async function resolveConflicts(
   worktreeDir: string,
 ): Promise<{ resolved: boolean; reason: string }> {
   const agentRunId = uuidv7();
+  const executor = services.executorFor(null);
   await services.db.insert(agentRuns).values({
     id: agentRunId,
     runId: run.id,
     agentKind: 'conflict_resolution',
-    executorKind: services.executor.executorKind,
+    executorKind: executor.executorKind,
     status: 'running',
     startedAt: new Date(),
   });
 
-  const result = await services.executor.execute({
+  const result = await executor.execute({
     runId: run.id,
     agentRunId,
     worktreeDir,

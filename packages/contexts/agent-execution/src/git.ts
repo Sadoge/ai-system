@@ -41,6 +41,24 @@ export async function ensureWorktree(
   } else {
     await git(checkoutDir, 'worktree', 'add', '-b', branch, worktreeDir, baseBranch);
   }
+  await excludePlatformFiles(worktreeDir);
+}
+
+/** Files the platform writes into the worktree for its own purposes. */
+export const PLATFORM_WORKTREE_FILES = ['.ai-system-prompt.md'];
+
+/**
+ * Keep platform scaffolding out of the user's change. `info/exclude` is
+ * local to this worktree and never committed, so the prompt file stays
+ * available for a human to inspect without ever appearing in a diff or PR.
+ */
+async function excludePlatformFiles(worktreeDir: string): Promise<void> {
+  const { appendFile, mkdir } = await import('node:fs/promises');
+  const { dirname } = await import('node:path');
+  const excludePath = (await git(worktreeDir, 'rev-parse', '--git-path', 'info/exclude')).trim();
+  const absolute = excludePath.startsWith('/') ? excludePath : `${worktreeDir}/${excludePath}`;
+  await mkdir(dirname(absolute), { recursive: true });
+  await appendFile(absolute, `\n${PLATFORM_WORKTREE_FILES.join('\n')}\n`, 'utf8');
 }
 
 export async function commitAll(worktreeDir: string, message: string): Promise<boolean> {

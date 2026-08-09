@@ -42,6 +42,7 @@ import {
   LocalHashEmbeddingAdapter,
   ModelGateway,
 } from '@ai-system/model-gateway';
+import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
 import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 
@@ -103,12 +104,24 @@ repoCmd
   .option('--name <name>', 'display name')
   .option('--default-branch <branch>', 'default branch', 'main')
   .option('--test-command <cmd>', 'allowlisted test command run in the sandbox')
+  .option(
+    '--executor <name>',
+    'coding agent: claude_code | codex | api_loop | scripted (default: claude_code)',
+  )
+  .option('--executor-model <model>', 'model passed to the coding agent CLI')
   .action(
     withDb(
       async (
         db,
         remoteUrl: string,
-        opts: { project?: string; name?: string; defaultBranch: string; testCommand?: string },
+        opts: {
+          project?: string;
+          name?: string;
+          defaultBranch: string;
+          testCommand?: string;
+          executor?: string;
+          executorModel?: string;
+        },
       ) => {
         const project = await pickProject(db, opts.project);
         const repositoryId = uuidv7();
@@ -119,12 +132,47 @@ repoCmd
           name: opts.name ?? remoteUrl.split('/').pop() ?? remoteUrl,
           remoteUrl,
           defaultBranch: opts.defaultBranch,
-          settings: opts.testCommand ? { testCommand: opts.testCommand } : {},
+          settings: {
+            ...(opts.testCommand ? { testCommand: opts.testCommand } : {}),
+            ...(opts.executor ? { executor: opts.executor } : {}),
+            ...(opts.executorModel ? { executorModel: opts.executorModel } : {}),
+          },
         });
         console.log(`repository registered: ${repositoryId}`);
       },
     ),
   );
+
+repoCmd
+  .command('list')
+  .description('list registered repositories and their coding agent')
+  .action(
+    withDb(async (db) => {
+      const rows = await db.select().from(repositories);
+      if (rows.length === 0) {
+        console.log('no repositories registered');
+        return;
+      }
+      for (const repo of rows) {
+        const settings = (repo.settings ?? {}) as { executor?: string; testCommand?: string };
+        console.log(
+          `${repo.id}  ${repo.name.padEnd(20)} executor=${settings.executor ?? 'claude_code (default)'}${
+            settings.testCommand ? `  test="${settings.testCommand}"` : ''
+          }`,
+        );
+      }
+    }),
+  );
+
+repoCmd
+  .command('check-agents')
+  .description('report which coding agent CLIs are installed on this machine')
+  .action(async () => {
+    for (const name of ['claude_code', 'codex'] as const) {
+      const available = await new CliAgentExecutor({ preset: name }).isAvailable();
+      console.log(`${name.padEnd(12)} ${available ? 'available' : 'NOT installed'}`);
+    }
+  });
 
 const runCmd = program.command('run').description('pipeline runs');
 

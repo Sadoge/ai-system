@@ -18,15 +18,11 @@ import {
 } from '@ai-system/model-gateway';
 import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
-import {
-  ApiLoopAgentExecutor,
-  CliAgentExecutor,
-  ScriptedAgentExecutor,
-  type AgentExecutor,
-} from '@ai-system/agent-execution';
+import { ApiLoopAgentExecutor, CliAgentExecutor } from '@ai-system/agent-execution';
 import { OutboxDispatcher } from './outbox-dispatcher.js';
 import { executeStage, runTask } from './stages.js';
 import { distillKnowledge } from './learning.js';
+import { resolveExecutor } from './executors.js';
 import type { StageServices } from './services.js';
 // (Agents type is used for the mock roster's explicit annotation.)
 
@@ -61,7 +57,6 @@ const QUEUES = ['stage.execute', 'task.execute', 'knowledge.distill', 'gate.requ
 function buildServices(db: Db): StageServices {
   const mock = process.env.MOCK_MODELS === 'true';
   let agents: StageServices['agents'];
-  let executor: AgentExecutor;
 
   // Embeddings always run through the gateway; in mock mode (and as a fallback
   // when no OpenAI key is set) that resolves to the deterministic local
@@ -84,11 +79,25 @@ function buildServices(db: Db): StageServices {
         .vectors,
   };
 
+  // Coding executors are resolved per repository, so different projects can
+  // run different agents (Claude Code, Codex, or the platform's own loop).
+  let gatewayForLoop: ModelGateway | null = null;
+  const executorFor: StageServices['executorFor'] = (repo) =>
+    resolveExecutor(repo as never, {
+      mock,
+      apiLoop: () => {
+        gatewayForLoop ??= new ModelGateway(
+          [new AnthropicAdapter(), new OpenAiAdapter()],
+          new DrizzleCallLedger(db),
+        );
+        return new ApiLoopAgentExecutor(gatewayForLoop, PLATFORM_DEFAULT_PROFILES.planning!);
+      },
+    });
+
   if (mock) {
     log.warn('MOCK_MODELS=true — deterministic agents and scripted executor (no LLM calls)');
     const mockAgents: Agents = createMockAgents();
     agents = async () => mockAgents;
-    executor = new ScriptedAgentExecutor();
   } else {
     const gateway = new ModelGateway(
       [new AnthropicAdapter(), new OpenAiAdapter()],
@@ -112,22 +121,12 @@ function buildServices(db: Db): StageServices {
       if (cache.size > 500) cache.clear();
       return built;
     };
-    // CODING_EXECUTOR=api_loop switches from a headless CLI to the
-    // platform-owned tool loop (docs/06 §1).
-    executor =
-      process.env.CODING_EXECUTOR === 'api_loop'
-        ? new ApiLoopAgentExecutor(gateway, PLATFORM_DEFAULT_PROFILES.planning!)
-        : new CliAgentExecutor({
-            ...(process.env.CODING_AGENT_CMD
-              ? { commandTemplate: process.env.CODING_AGENT_CMD }
-              : {}),
-          });
   }
 
   return {
     db,
     agents,
-    executor,
+    executorFor,
     embedder,
     dataDir: process.env.AI_DATA_DIR ?? join(process.cwd(), 'data'),
     codingTimeoutMs: Number(process.env.CODING_TIMEOUT_MS ?? 15 * 60 * 1000),
@@ -220,6 +219,13 @@ async function main(): Promise<void> {
       await createGateRequest(db, { runId: parsed.runId, gate: parsed.gate, payload });
     }
   });
+
+  // Tell the operator which coding CLIs are actually usable, at startup,
+  // instead of letting the first run discover a missing binary.
+  for (const name of ['claude_code', 'codex'] as const) {
+    const available = await new CliAgentExecutor({ preset: name }).isAvailable();
+    log[available ? 'info' : 'warn']({ cli: name, available }, 'coding agent CLI probe');
+  }
 
   const dispatcher = new OutboxDispatcher(db, boss, log);
   dispatcher.start();

@@ -39,9 +39,16 @@ several, and the Project Brain starts compounding:
 - **Learning loop** — on completion a distiller proposes evidence-cited knowledge. Proposals are
   never embedded, so they cannot reach an agent until a human approves them in the inbox
   (`ai-system knowledge inbox`, or the UI). Rejected proposals are kept as negative examples.
-- **`api_loop` executor** — a platform-owned tool loop (read/write/list files) as an alternative
-  to wrapping a CLI, bounded by iterations, tool calls, and the run's cost budget. Set
-  `CODING_EXECUTOR=api_loop`.
+- **Pluggable coding agents** — the agent that writes code is chosen **per repository**:
+  `claude_code` (Claude Code CLI), `codex` (OpenAI Codex CLI), `api_loop` (the platform's own
+  tool loop through the Model Gateway), or `scripted`. CLIs are spawned directly (never through a
+  shell) with the prompt on stdin, get only an allowlisted environment, and their self-reported
+  spend is written into the same cost ledger as gateway calls.
+
+  ```bash
+  ai-system repo check-agents                          # what's installed here
+  ai-system repo register <url> --executor codex       # per repository
+  ```
 - **Also** — documentation stage, optional pre-merge gate, Jira status transitions, and UI for the
   task graph, findings dashboard, knowledge approval inbox, and brain inspector.
 

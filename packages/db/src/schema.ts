@@ -1,0 +1,316 @@
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+
+// Schema follows docs/04-database-design.md. Conventions: UUIDv7 ids generated
+// in application code; every tenant-scoped table carries organization_id;
+// timestamps are timestamptz.
+
+const id = () => uuid('id').primaryKey();
+const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+
+// ── Identity & Tenancy ────────────────────────────────────────────────
+
+export const organizations = pgTable('organizations', {
+  id: id(),
+  name: text('name').notNull(),
+  createdAt: createdAt(),
+});
+
+export const users = pgTable(
+  'users',
+  {
+    id: id(),
+    email: text('email').notNull(),
+    displayName: text('display_name').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('users_email_idx').on(t.email)],
+);
+
+export const memberships = pgTable(
+  'memberships',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    role: text('role').notNull().default('member'),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.userId] })],
+);
+
+// ── Project & Repository ──────────────────────────────────────────────
+
+export const projects = pgTable('projects', {
+  id: id(),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id),
+  name: text('name').notNull(),
+  automationLevel: text('automation_level').notNull().default('plan_gated'),
+  settings: jsonb('settings').notNull().default({}),
+  createdAt: createdAt(),
+});
+
+export const repositories = pgTable('repositories', {
+  id: id(),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id),
+  projectId: uuid('project_id')
+    .notNull()
+    .references(() => projects.id),
+  name: text('name').notNull(),
+  remoteUrl: text('remote_url').notNull(),
+  defaultBranch: text('default_branch').notNull().default('main'),
+  // Pointer into the secret store — the credential itself never lives here.
+  credentialsRef: text('credentials_ref'),
+  createdAt: createdAt(),
+});
+
+// ── Orchestration ─────────────────────────────────────────────────────
+
+export const pipelineRuns = pgTable(
+  'pipeline_runs',
+  {
+    id: id(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id),
+    repositoryId: uuid('repository_id').references(() => repositories.id),
+    status: text('status').notNull().default('created'),
+    currentStage: text('current_stage'),
+    // Optimistic-concurrency token: every transition does
+    // UPDATE ... SET version = version + 1 WHERE version = $expected.
+    version: integer('version').notNull().default(1),
+    complexity: text('complexity'),
+    policySnapshot: jsonb('policy_snapshot').notNull(),
+    ticket: jsonb('ticket').notNull(),
+    iterationCount: integer('iteration_count').notNull().default(0),
+    error: text('error'),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('pipeline_runs_project_idx').on(t.projectId, t.createdAt)],
+);
+
+export const stageExecutions = pgTable(
+  'stage_executions',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    stage: text('stage').notNull(),
+    status: text('status').notNull().default('queued'),
+    attempt: integer('attempt').notNull().default(1),
+    output: jsonb('output'),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('stage_executions_run_idx').on(t.runId, t.createdAt)],
+);
+
+export const tasks = pgTable(
+  'tasks',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    title: text('title').notNull(),
+    spec: jsonb('spec').notNull(),
+    status: text('status').notNull().default('created'),
+    origin: text('origin').notNull().default('decomposition'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(2),
+    createdAt: createdAt(),
+  },
+  (t) => [index('tasks_run_idx').on(t.runId)],
+);
+
+export const taskDependencies = pgTable(
+  'task_dependencies',
+  {
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    dependsOnTaskId: uuid('depends_on_task_id')
+      .notNull()
+      .references(() => tasks.id),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.dependsOnTaskId] })],
+);
+
+// ── Agent Execution ───────────────────────────────────────────────────
+
+export const agentRuns = pgTable(
+  'agent_runs',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    stageExecutionId: uuid('stage_execution_id').references(() => stageExecutions.id),
+    taskId: uuid('task_id').references(() => tasks.id),
+    agentKind: text('agent_kind').notNull(),
+    executorKind: text('executor_kind').notNull(),
+    status: text('status').notNull().default('queued'),
+    failureReason: text('failure_reason'),
+    // The exact context bundle is persisted (as an artifact) BEFORE execution
+    // so every agent run is reproducible.
+    contextBundleArtifactId: uuid('context_bundle_artifact_id'),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('agent_runs_run_idx').on(t.runId)],
+);
+
+export const artifacts = pgTable(
+  'artifacts',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    kind: text('kind').notNull(),
+    // Small artifacts inline; large ones in object storage. Exactly one is set.
+    content: jsonb('content'),
+    storageRef: text('storage_ref'),
+    contentHash: text('content_hash').notNull(),
+    createdByAgentRunId: uuid('created_by_agent_run_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('artifacts_run_idx').on(t.runId, t.kind)],
+);
+
+// ── Review & Gates ────────────────────────────────────────────────────
+
+export const gateRequests = pgTable(
+  'gate_requests',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    gate: text('gate').notNull(),
+    status: text('status').notNull().default('pending'),
+    payload: jsonb('payload').notNull().default({}),
+    createdAt: createdAt(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => [index('gate_requests_run_idx').on(t.runId, t.status)],
+);
+
+export const gateDecisions = pgTable('gate_decisions', {
+  id: id(),
+  gateRequestId: uuid('gate_request_id')
+    .notNull()
+    .references(() => gateRequests.id),
+  decision: text('decision').notNull(),
+  comment: text('comment'),
+  decidedByUserId: uuid('decided_by_user_id').references(() => users.id),
+  createdAt: createdAt(),
+});
+
+// ── Model Gateway ─────────────────────────────────────────────────────
+
+export const modelProfiles = pgTable('model_profiles', {
+  id: id(),
+  organizationId: uuid('organization_id').references(() => organizations.id),
+  projectId: uuid('project_id').references(() => projects.id),
+  purpose: text('purpose').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  params: jsonb('params').notNull().default({}),
+  fallbacks: jsonb('fallbacks').notNull().default([]),
+  active: boolean('active').notNull().default(true),
+  createdAt: createdAt(),
+});
+
+export const modelCalls = pgTable(
+  'model_calls',
+  {
+    id: id(),
+    runId: uuid('run_id').references(() => pipelineRuns.id),
+    agentRunId: uuid('agent_run_id').references(() => agentRuns.id),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    purpose: text('purpose').notNull(),
+    promptHash: text('prompt_hash').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    latencyMs: integer('latency_ms'),
+    status: text('status').notNull(),
+    error: text('error'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('model_calls_run_idx').on(t.runId, t.createdAt)],
+);
+
+// ── Events, Outbox, Audit ─────────────────────────────────────────────
+
+export const domainEvents = pgTable(
+  'domain_events',
+  {
+    id: id(),
+    runId: uuid('run_id'),
+    name: text('name').notNull(),
+    payload: jsonb('payload').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('domain_events_run_idx').on(t.runId, t.createdAt)],
+);
+
+// Transactional outbox: command rows written in the SAME transaction as the
+// state change; the dispatcher publishes them to pg-boss and marks them done.
+export const outbox = pgTable(
+  'outbox',
+  {
+    id: id(),
+    jobName: text('job_name').notNull(),
+    payload: jsonb('payload').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('outbox_pending_idx').on(t.processedAt, t.createdAt)],
+);
+
+export const auditRecords = pgTable(
+  'audit_records',
+  {
+    id: id(),
+    organizationId: uuid('organization_id'),
+    actorType: text('actor_type').notNull(),
+    actorId: uuid('actor_id'),
+    action: text('action').notNull(),
+    subjectType: text('subject_type').notNull(),
+    subjectId: uuid('subject_id'),
+    data: jsonb('data').notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index('audit_records_org_idx').on(t.organizationId, t.createdAt)],
+);

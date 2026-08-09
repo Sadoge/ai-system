@@ -36,8 +36,56 @@ export function createMockAgents(): Agents {
             detail: `Document the intended change for: ${input.ticket.title}`,
             files: ['IMPLEMENTATION_NOTES.md'],
           },
+          {
+            title: 'Record design notes',
+            detail: 'Capture the design considerations for the change',
+            files: ['DESIGN_NOTES.md'],
+          },
+          {
+            title: 'Summarize the change set',
+            detail: 'Roll the notes up into a summary once both exist',
+            files: ['SUMMARY.md'],
+          },
         ],
         testStrategy: 'Run the repository test command if configured.',
+      };
+    },
+
+    /**
+     * Produces a deliberately shaped DAG: two independent tasks plus a third
+     * that depends on both, so parallel dispatch and fan-in both get exercised.
+     */
+    async decompose(input) {
+      if ((input.findings && input.findings.length > 0) || input.feedback) {
+        const items = input.findings ?? [];
+        const fixes = items.length > 0 ? items : [{ title: input.feedback ?? 'address feedback', detail: '', filePath: null, severity: 'major' }];
+        return {
+          summary: 'Mock fix decomposition',
+          tasks: fixes.slice(0, input.maxTasks).map((f, i) => ({
+            key: `fix-${i + 1}`,
+            title: `Fix: ${f.title}`,
+            detail: f.detail,
+            files: f.filePath ? [f.filePath] : [],
+            dependsOn: [],
+          })),
+        };
+      }
+      const steps = input.plan.steps.slice(0, Math.max(1, input.maxTasks));
+      const tasks = steps.map((step, i) => ({
+        key: `t${i + 1}`,
+        title: step.title,
+        detail: step.detail,
+        files: step.files,
+        // The last task rolls up the others (only when there are others).
+        dependsOn: i === steps.length - 1 && steps.length > 1 ? steps.slice(0, -1).map((_, j) => `t${j + 1}`) : [],
+      }));
+      return { summary: 'Mock decomposition', tasks };
+    },
+
+    async document(input) {
+      return {
+        summary: `Mock documentation for "${input.ticket.title}"`,
+        changelog: input.plan.steps.map((s) => s.title),
       };
     },
 

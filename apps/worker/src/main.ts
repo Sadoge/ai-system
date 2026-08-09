@@ -20,7 +20,7 @@ import {
   type AgentExecutor,
 } from '@ai-system/agent-execution';
 import { OutboxDispatcher } from './outbox-dispatcher.js';
-import { executeStage } from './stages.js';
+import { executeStage, runTask } from './stages.js';
 import type { StageServices } from './services.js';
 // (Agents type is used for the mock roster's explicit annotation.)
 
@@ -39,7 +39,13 @@ const RequestGatePayload = z.object({
   payload: z.record(z.unknown()).optional(),
 });
 
-const QUEUES = ['stage.execute', 'gate.request'] as const;
+const ExecuteTaskPayload = z.object({
+  kind: z.literal('execute_task'),
+  runId: z.string().uuid(),
+  taskId: z.string().uuid(),
+});
+
+const QUEUES = ['stage.execute', 'task.execute', 'gate.request'] as const;
 
 function buildServices(db: Db): StageServices {
   const mock = process.env.MOCK_MODELS === 'true';
@@ -133,6 +139,24 @@ async function main(): Promise<void> {
       await executeStage(services, payload);
     }
   });
+
+  // Parallel coding agents. The engine already caps in-flight tasks per run
+  // (policy.maxParallelTasks); this is the worker's own capacity, and the
+  // batch is executed concurrently rather than one job per poll.
+  const taskConcurrency = Number(process.env.TASK_CONCURRENCY ?? 4);
+  await boss.work(
+    'task.execute',
+    { batchSize: taskConcurrency, pollingIntervalSeconds: 1 },
+    async (jobs) => {
+      await Promise.all(
+        jobs.map(async (job) => {
+          const payload = ExecuteTaskPayload.parse(job.data);
+          log.info({ runId: payload.runId, taskId: payload.taskId }, 'executing task');
+          await runTask(services, payload);
+        }),
+      );
+    },
+  );
 
   await boss.work('gate.request', async (jobs) => {
     for (const job of jobs) {

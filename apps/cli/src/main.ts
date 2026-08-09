@@ -28,12 +28,13 @@ import {
   KnowledgeKind,
   TicketSnapshot,
   defaultMvpPolicy,
+  defaultTeamPolicy,
   defaultTrivialPolicy,
   uuidv7,
 } from '@ai-system/domain';
 import { addManualKnowledge } from '@ai-system/brain';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
-import { resolveGate, startRun } from '@ai-system/orchestration';
+import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 
 // Phase 0: the CLI is the UI before the UI (docs/10). It talks to the same
 // context facades the API app will use in Phase 1 — no logic lives here.
@@ -122,7 +123,7 @@ runCmd
   .command('start [ticket-file]')
   .description('start a run from a ticket file (JSON or plain text) or a Jira issue (--jira)')
   .option('--project <id>', 'project id (defaults to the only project)')
-  .option('--pipeline <name>', 'trivial | mvp', 'trivial')
+  .option('--pipeline <name>', 'trivial | mvp | team', 'trivial')
   .option('--automation <level>', 'plan_gated | autonomous (mvp only)', 'plan_gated')
   .option('--repo <id>', 'repository id (defaults to the only repo of the project)')
   .option('--jira <issue-key>', 'fetch the ticket from Jira (needs JIRA_BASE_URL/EMAIL/API_TOKEN)')
@@ -145,13 +146,16 @@ runCmd
         }
         const project = await pickProject(db, opts.project);
         let repositoryId: string | undefined;
-        if (opts.pipeline === 'mvp') {
+        if (opts.pipeline !== 'trivial') {
           repositoryId = await pickRepository(db, project.id, opts.repo);
         }
+        const automation = opts.automation === 'autonomous' ? 'autonomous' : 'plan_gated';
         const policy =
-          opts.pipeline === 'mvp'
-            ? defaultMvpPolicy(opts.automation === 'autonomous' ? 'autonomous' : 'plan_gated')
-            : defaultTrivialPolicy();
+          opts.pipeline === 'team'
+            ? defaultTeamPolicy(automation)
+            : opts.pipeline === 'mvp'
+              ? defaultMvpPolicy(automation)
+              : defaultTrivialPolicy();
         const { runId } = await startRun(db, {
           organizationId: project.organizationId,
           projectId: project.id,
@@ -200,6 +204,20 @@ runCmd
         .orderBy(asc(artifacts.createdAt));
       console.log('  artifacts:');
       for (const a of arts) console.log(`    ${a.kind.padEnd(16)} ${a.id}`);
+
+      const taskRows = await listTasks(db, runId);
+      if (taskRows.length > 0) {
+        const byId = new Map(taskRows.map((t) => [t.id, t.title]));
+        console.log('  tasks:');
+        for (const t of taskRows) {
+          const deps = t.dependsOn.map((d) => byId.get(d) ?? d.slice(-8)).join(', ');
+          console.log(
+            `    ${t.status.padEnd(10)} ${t.title}${deps ? ` (after: ${deps})` : ''}${
+              t.error ? ` — ${t.error}` : ''
+            }`,
+          );
+        }
+      }
 
       const findings = await db
         .select()

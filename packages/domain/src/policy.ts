@@ -7,7 +7,7 @@ import { AutomationLevel, Complexity, GateKind } from './enums.js';
  * settings mid-run never affects a running pipeline.
  */
 export const PolicySnapshot = z.object({
-  pipeline: z.enum(['trivial', 'mvp_linear']),
+  pipeline: z.enum(['trivial', 'mvp_linear', 'team']),
   automationLevel: AutomationLevel,
   enabledGates: z.array(GateKind),
   maxParallelTasks: z.number().int().min(1),
@@ -44,6 +44,33 @@ export function gatesForAutomationLevel(level: AutomationLevel): GateKind[] {
     case 'autonomous':
       return ['final_pr'];
   }
+}
+
+/**
+ * The complexity-derived half of a run's policy. Frozen policy is set at run
+ * start; these two fields are specialized exactly once, by the engine, when
+ * classification lands (see engine.ts — a stage handler must never write policy).
+ */
+export function policyForComplexity(
+  complexity: Complexity,
+): Pick<PolicySnapshot, 'maxParallelTasks' | 'iterationBudget'> | null {
+  if (complexity === 'epic') return null; // epic never runs — it goes back to a human
+  return COMPLEXITY_POLICY[complexity];
+}
+
+export function defaultTeamPolicy(
+  automationLevel: AutomationLevel = 'plan_gated',
+): PolicySnapshot {
+  return {
+    pipeline: 'team',
+    automationLevel,
+    enabledGates: gatesForAutomationLevel(automationLevel),
+    // Specialized from complexity at classification; these are the pre-classification defaults.
+    maxParallelTasks: 1,
+    iterationBudget: 2,
+    maxTaskAttempts: 2,
+    budgetUsd: null,
+  };
 }
 
 export function defaultMvpPolicy(

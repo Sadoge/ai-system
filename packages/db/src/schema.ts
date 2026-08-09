@@ -146,6 +146,9 @@ export const tasks = pgTable(
     origin: text('origin').notNull().default('decomposition'),
     attemptCount: integer('attempt_count').notNull().default(0),
     maxAttempts: integer('max_attempts').notNull().default(2),
+    // Each task gets its own branch + worktree so agents never collide (docs/06 §4).
+    branch: text('branch'),
+    error: text('error'),
     createdAt: createdAt(),
   },
   (t) => [index('tasks_run_idx').on(t.runId)],

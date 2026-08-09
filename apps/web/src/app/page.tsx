@@ -25,6 +25,7 @@ export default async function RunsPage() {
             <label className="text-xs text-zinc-500">Pipeline</label>
             <select name="pipeline" className={inputCls} defaultValue="mvp">
               <option value="mvp">mvp</option>
+              <option value="team">team</option>
               <option value="trivial">trivial</option>
             </select>
           </div>

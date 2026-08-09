@@ -1,6 +1,17 @@
-import { TERMINAL_RUN_STATUSES, type GateKind, type RunStatus } from '@ai-system/domain';
-import { nextStage, pipelineFor } from './pipelines.js';
-import type { AdvanceResult, Command, EngineEvent, RunSnapshot } from './types.js';
+import {
+  TERMINAL_RUN_STATUSES,
+  policyForComplexity,
+  type Complexity,
+  type GateKind,
+  type RunStatus,
+  type StageKind,
+  type TaskStatus,
+} from '@ai-system/domain';
+import { nextStage, pipelineFor, type PipelineDefinition } from './pipelines.js';
+import type { AdvanceResult, Command, EngineEvent, RunSnapshot, TaskSnapshot } from './types.js';
+
+type Stage = NonNullable<RunSnapshot['currentStage']>;
+type TaskUpdate = { taskId: string; status: TaskStatus };
 
 /**
  * The single transition function (docs/05 §1): state + event → next state +
@@ -18,11 +29,11 @@ export function advance(run: RunSnapshot, event: EngineEvent): AdvanceResult {
     case 'run.stage.completed':
       return onStageCompleted(run, event.payload.stage);
     case 'run.complexity.classified':
-      // Non-epic complexity is data (recorded by the classify handler);
-      // epic is a control decision: reject and hand back to the human.
-      if (event.payload.complexity !== 'epic') return ignored('complexity recorded, not a transition');
-      if (run.status !== 'classifying') return ignored(`epic classification in status ${run.status}`);
-      return transitioned('awaiting_split', run.currentStage, []);
+      return onComplexityClassified(run, event.payload.complexity);
+    case 'task.completed':
+      return onTaskCompleted(run, event.payload.taskId);
+    case 'task.failed':
+      return onTaskFailed(run, event.payload.taskId, event.payload.reason);
     case 'run.iteration.needed':
       return onIterationNeeded(run);
     case 'run.stage.failed':
@@ -40,8 +51,8 @@ export function advance(run: RunSnapshot, event: EngineEvent): AdvanceResult {
       if (run.status === 'paused') return ignored('already paused');
       return transitioned('paused', run.currentStage, []);
     default:
-      // Observability events (stage.started, artifact.created, model.call.*)
-      // are record, not engine input.
+      // Observability events (stage.started, task.created, artifact.created,
+      // model.call.*) are record, not engine input.
       return ignored(`event ${event.name} does not drive transitions`);
   }
 }
@@ -51,10 +62,29 @@ function onRunCreated(run: RunSnapshot): AdvanceResult {
   const def = pipelineFor(run.policy);
   const first = nextStage(def, null);
   if (!first) return transitioned('completed', null, []);
-  return transitioned(def.statusDuring(first), first, [executeStage(run.runId, first)]);
+  return enterStage(run, def, first);
 }
 
-function onStageCompleted(run: RunSnapshot, stage: RunSnapshot['currentStage']): AdvanceResult {
+/**
+ * Complexity is the one input that specializes a run's frozen policy, and the
+ * engine applies it — never a stage handler (docs/03 §4). Epic is a control
+ * decision: the work is too big to run, so it goes back to a human to split.
+ */
+function onComplexityClassified(run: RunSnapshot, complexity: Complexity): AdvanceResult {
+  if (run.status !== 'classifying') return ignored(`classification in status ${run.status}`);
+  if (complexity === 'epic') return transitioned('awaiting_split', run.currentStage, []);
+  const patch = policyForComplexity(complexity);
+  if (!patch) return ignored('no policy for complexity');
+  return {
+    outcome: 'transitioned',
+    status: run.status,
+    currentStage: run.currentStage,
+    commands: [],
+    policyPatch: patch,
+  };
+}
+
+function onStageCompleted(run: RunSnapshot, stage: StageKind): AdvanceResult {
   if (stage !== run.currentStage) {
     return ignored(`stage.completed for ${stage} but current stage is ${run.currentStage}`);
   }
@@ -62,8 +92,126 @@ function onStageCompleted(run: RunSnapshot, stage: RunSnapshot['currentStage']):
     return ignored(`stage.completed while parked in ${run.status} (duplicate delivery)`);
   }
   const def = pipelineFor(run.policy);
-  if (stage === null) return ignored('no active stage');
+  if (def.taskStage === stage) {
+    return ignored(`stage.completed for the task stage ${stage} — tasks drive this stage`);
+  }
+  return afterStage(run, def, stage);
+}
 
+function onStageFailed(run: RunSnapshot, stage: StageKind, reason: string): AdvanceResult {
+  if (stage !== run.currentStage) {
+    return ignored(`stage.failed for ${stage} but current stage is ${run.currentStage}`);
+  }
+  return { outcome: 'transitioned', status: 'failed', currentStage: stage, commands: [], error: reason };
+}
+
+// ── task DAG (Phase 2) ────────────────────────────────────────────────
+
+function onTaskCompleted(run: RunSnapshot, taskId: string): AdvanceResult {
+  const def = pipelineFor(run.policy);
+  const stage = def.taskStage;
+  if (!stage || run.currentStage !== stage) {
+    return ignored(`task.completed outside the task stage (status ${run.status})`);
+  }
+  const task = run.tasks.find((t) => t.id === taskId);
+  if (!task) return ignored(`unknown task ${taskId}`);
+  if (task.status === 'completed') return ignored(`duplicate completion of task ${taskId}`);
+
+  const tasks = replaceTask(run.tasks, taskId, { status: 'completed' });
+  return withTaskUpdates([{ taskId, status: 'completed' }], dispatchOrAdvance(run, def, stage, tasks));
+}
+
+function onTaskFailed(run: RunSnapshot, taskId: string, reason: string): AdvanceResult {
+  const def = pipelineFor(run.policy);
+  const stage = def.taskStage;
+  if (!stage || run.currentStage !== stage) {
+    return ignored(`task.failed outside the task stage (status ${run.status})`);
+  }
+  const task = run.tasks.find((t) => t.id === taskId);
+  if (!task) return ignored(`unknown task ${taskId}`);
+  if (task.status !== 'running') return ignored(`task ${taskId} is not running`);
+
+  if (task.attemptCount < task.maxAttempts) {
+    // Retry: back to the ready pool, re-dispatched below if a slot is free.
+    const tasks = replaceTask(run.tasks, taskId, { status: 'created' });
+    return withTaskUpdates([{ taskId, status: 'created' }], dispatchOrAdvance(run, def, stage, tasks));
+  }
+  return {
+    outcome: 'transitioned',
+    status: 'failed',
+    currentStage: stage,
+    commands: [],
+    taskUpdates: [{ taskId, status: 'failed' }],
+    error: `task ${taskId} failed after ${task.attemptCount} attempts: ${reason}`,
+  };
+}
+
+/**
+ * Fan-out/fan-in, deterministically: dispatch every ready task up to
+ * policy.maxParallelTasks, and leave the task stage only when the whole DAG
+ * has completed. A task is ready when it is unstarted and all of its
+ * dependencies are completed.
+ */
+function dispatchOrAdvance(
+  run: RunSnapshot,
+  def: PipelineDefinition,
+  stage: Stage,
+  tasks: TaskSnapshot[],
+): AdvanceResult {
+  const outstanding = tasks.filter((t) => t.status !== 'completed');
+  if (outstanding.length === 0) return afterStage(run, def, stage);
+
+  const running = tasks.filter((t) => t.status === 'running');
+  const slots = Math.max(0, run.policy.maxParallelTasks - running.length);
+  const ready = tasks
+    .filter((t) => t.status === 'created' && t.dependsOn.every((id) => isCompleted(tasks, id)))
+    .slice(0, slots);
+
+  if (ready.length === 0) {
+    if (running.length > 0) {
+      // Still waiting on in-flight tasks — hold position (the caller's task
+      // updates are what actually get persisted).
+      return transitioned(def.statusDuring(stage), stage, []);
+    }
+    return {
+      outcome: 'transitioned',
+      status: 'failed',
+      currentStage: stage,
+      commands: [],
+      error: 'task DAG cannot progress: no runnable tasks and unmet dependencies remain',
+    };
+  }
+
+  return {
+    outcome: 'transitioned',
+    status: def.statusDuring(stage),
+    currentStage: stage,
+    commands: ready.map((t) => ({ kind: 'execute_task', runId: run.runId, taskId: t.id }) as Command),
+    taskUpdates: ready.map((t) => ({ taskId: t.id, status: 'running' as TaskStatus })),
+  };
+}
+
+function isCompleted(tasks: TaskSnapshot[], id: string): boolean {
+  return tasks.find((t) => t.id === id)?.status === 'completed';
+}
+
+function replaceTask(
+  tasks: TaskSnapshot[],
+  taskId: string,
+  patch: Partial<TaskSnapshot>,
+): TaskSnapshot[] {
+  return tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t));
+}
+
+function withTaskUpdates(updates: TaskUpdate[], result: AdvanceResult): AdvanceResult {
+  if (result.outcome === 'ignored') return result;
+  return { ...result, taskUpdates: [...updates, ...(result.taskUpdates ?? [])] };
+}
+
+// ── stage sequencing ──────────────────────────────────────────────────
+
+/** What happens once `stage` is done: a gate, the next stage, or completion. */
+function afterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): AdvanceResult {
   const gate = def.gateAfter(stage, run.policy);
   if (gate) {
     return transitioned(awaitingStatusFor(gate), stage, [
@@ -72,31 +220,28 @@ function onStageCompleted(run: RunSnapshot, stage: RunSnapshot['currentStage']):
   }
   const next = nextStage(def, stage);
   if (!next) return transitioned('completed', null, []);
-  return transitioned(def.statusDuring(next), next, [executeStage(run.runId, next)]);
+  return enterStage(run, def, next);
 }
 
-function onStageFailed(
-  run: RunSnapshot,
-  stage: RunSnapshot['currentStage'],
-  reason: string,
-): AdvanceResult {
-  if (stage !== run.currentStage) {
-    return ignored(`stage.failed for ${stage} but current stage is ${run.currentStage}`);
-  }
-  return { outcome: 'transitioned', status: 'failed', currentStage: stage, commands: [], error: reason };
+/** Entering the task stage fans out over the DAG; every other stage runs once. */
+function enterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): AdvanceResult {
+  if (def.taskStage === stage) return dispatchOrAdvance(run, def, stage, run.tasks);
+  return transitioned(def.statusDuring(stage), stage, [executeStage(run.runId, stage)]);
 }
 
 /**
  * The iteration decision (docs/05 §5), deterministically: budget remaining →
- * consume one iteration and re-enter coding; exhausted → hand to a human.
+ * consume one iteration and re-enter the pipeline's fix stage; exhausted →
+ * hand to a human.
  */
 function onIterationNeeded(run: RunSnapshot): AdvanceResult {
   if (run.status !== 'testing' || run.currentStage !== 'test') {
     return ignored(`iteration.needed in status ${run.status}`);
   }
+  const def = pipelineFor(run.policy);
   if (run.iterationCount < run.policy.iterationBudget) {
     return {
-      ...reenter(run, 'code'),
+      ...reenter(run, def, def.iterationReentryStage),
       iterationCount: run.iterationCount + 1,
     } as AdvanceResult;
   }
@@ -120,45 +265,59 @@ function onGateResolved(
   }
   const def = pipelineFor(run.policy);
 
-  if (gate === 'final_pr') {
-    if (decision === 'approved') return transitioned('completed', null, []);
-    // Changes requested → re-enter the coding stage (docs/05 §6).
-    return reenter(run, 'code');
+  switch (gate) {
+    case 'final_pr':
+      if (decision === 'approved') return transitioned('completed', null, []);
+      // Changes requested → a fresh fix round (docs/05 §6).
+      return reenter(run, def, def.iterationReentryStage);
+
+    case 'iteration_extension':
+      if (decision === 'approved') {
+        // One more iteration, explicitly human-granted — bypasses the budget check once.
+        return {
+          ...reenter(run, def, def.iterationReentryStage),
+          iterationCount: run.iterationCount + 1,
+        } as AdvanceResult;
+      }
+      // Accept as-is: remaining findings are explicitly waived; carry on from `test`.
+      return afterStageIgnoringGate(run, def, 'test');
+
+    case 'plan_approval':
+      if (decision === 'approved') return afterStageIgnoringGate(run, def, 'plan');
+      // Rejected with feedback → back to planning.
+      return reenter(run, def, 'plan');
+
+    case 'pre_merge':
+      if (decision === 'approved') return afterStageIgnoringGate(run, def, 'integrate');
+      return reenter(run, def, def.iterationReentryStage);
+
+    default:
+      return ignored(`gate ${gate} is not part of the ${def.name} pipeline`);
   }
-  if (gate === 'iteration_extension') {
-    if (decision === 'approved') {
-      // One more iteration, explicitly human-granted — bypasses the budget check once.
-      return { ...reenter(run, 'code'), iterationCount: run.iterationCount + 1 } as AdvanceResult;
-    }
-    // Accept as-is: remaining findings are explicitly waived; continue to packaging.
-    const afterTest = nextStage(def, 'test');
-    if (!afterTest) return transitioned('completed', null, []);
-    return transitioned(def.statusDuring(afterTest), afterTest, [executeStage(run.runId, afterTest)]);
-  }
-  if (gate === 'plan_approval') {
-    if (decision === 'approved') {
-      const next = nextStage(def, 'plan');
-      if (!next) return transitioned('completed', null, []);
-      return transitioned(def.statusDuring(next), next, [executeStage(run.runId, next)]);
-    }
-    // Rejected with feedback → back to planning.
-    return reenter(run, 'plan');
-  }
-  return ignored(`gate ${gate} is not part of the ${def.name} pipeline`);
+}
+
+/** Continue past a stage whose gate has just been resolved (don't re-request it). */
+function afterStageIgnoringGate(
+  run: RunSnapshot,
+  def: PipelineDefinition,
+  stage: Stage,
+): AdvanceResult {
+  const next = nextStage(def, stage);
+  if (!next) return transitioned('completed', null, []);
+  return enterStage(run, def, next);
 }
 
 function onResumed(run: RunSnapshot): AdvanceResult {
   if (run.status !== 'paused') return ignored(`run.resumed in status ${run.status}`);
   const def = pipelineFor(run.policy);
   if (!run.currentStage) return ignored('paused run has no stage to resume');
-  return transitioned(def.statusDuring(run.currentStage), run.currentStage, [
-    executeStage(run.runId, run.currentStage),
-  ]);
+  return enterStage(run, def, run.currentStage);
 }
 
-function reenter(run: RunSnapshot, stage: NonNullable<RunSnapshot['currentStage']>): AdvanceResult {
-  const def = pipelineFor(run.policy);
+function reenter(run: RunSnapshot, def: PipelineDefinition, stage: Stage): AdvanceResult {
   if (!def.stages.includes(stage)) return ignored(`stage ${stage} not in pipeline ${def.name}`);
+  // Re-entry always runs the stage itself (even the task stage's producer),
+  // so fix tasks exist before the DAG fans out again.
   return transitioned(def.statusDuring(stage), stage, [executeStage(run.runId, stage)]);
 }
 
@@ -170,6 +329,8 @@ function awaitingStatusFor(gate: GateKind): RunStatus {
       return 'awaiting_final_approval';
     case 'iteration_extension':
       return 'awaiting_iteration_gate';
+    case 'pre_merge':
+      return 'awaiting_pre_merge';
     default:
       return 'paused';
   }
@@ -179,7 +340,7 @@ function isAwaiting(status: RunStatus): boolean {
   return status.startsWith('awaiting_');
 }
 
-function executeStage(runId: string, stage: NonNullable<RunSnapshot['currentStage']>): Command {
+function executeStage(runId: string, stage: Stage): Command {
   return { kind: 'execute_stage', runId, stage };
 }
 

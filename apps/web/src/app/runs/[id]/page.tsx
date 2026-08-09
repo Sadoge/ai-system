@@ -79,6 +79,51 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </div>
       </Section>
 
+      {run.tasks.length > 0 && (
+        <Section title={`Tasks (${run.tasks.filter((t) => t.status === 'completed').length}/${run.tasks.length})`}>
+          <ul className="space-y-2">
+            {run.tasks.map((task) => {
+              const deps = task.dependsOn
+                .map((id) => run.tasks.find((t) => t.id === id)?.title ?? id.slice(-8))
+                .join(', ');
+              return (
+                <li
+                  key={task.id}
+                  className="flex items-center gap-3 rounded border border-zinc-800 px-4 py-2 text-sm"
+                >
+                  <span
+                    className={`rounded px-2 py-0.5 font-mono text-xs ${
+                      task.status === 'completed'
+                        ? 'bg-emerald-950 text-emerald-400'
+                        : task.status === 'failed'
+                          ? 'bg-red-950 text-red-400'
+                          : task.status === 'running'
+                            ? 'bg-indigo-950 text-indigo-300'
+                            : 'bg-zinc-900 text-zinc-400'
+                    }`}
+                  >
+                    {task.status}
+                  </span>
+                  <span className="flex-1">
+                    {task.title}
+                    {deps && <span className="ml-2 text-xs text-zinc-500">after: {deps}</span>}
+                    {task.error && <span className="ml-2 text-xs text-red-400">{task.error}</span>}
+                  </span>
+                  {task.origin === 'fix_iteration' && (
+                    <span className="rounded bg-amber-950 px-2 py-0.5 font-mono text-xs text-amber-300">
+                      fix
+                    </span>
+                  )}
+                  <span className="font-mono text-xs text-zinc-600">
+                    {task.attemptCount}/{task.maxAttempts}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
+
       {run.findings.length > 0 && (
         <Section title="Review findings">
           <ul className="space-y-2">

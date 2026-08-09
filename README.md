@@ -24,6 +24,21 @@ worker). Phase 1 delivers:
   editor, model profile settings, per-run cost
 - **Per-project model profiles** — resolution cascade project → org → platform default
 
+**Phase 2 (in progress) — the team.** A third pipeline, `team`, turns one agent into several:
+planning is decomposed into a **task DAG**, independent tasks run as **parallel coding agents** in
+their own branches and worktrees (bounded by a parallelism limit derived from the ticket's
+complexity), and an **integration stage** merges the task branches back — reporting conflicts
+rather than force-resolving them. Fix iterations re-enter at decomposition, turning review
+findings into fix tasks. Adds a documentation stage and an optional pre-merge gate.
+
+```bash
+node apps/cli/dist/main.js run start ticket.md --pipeline team
+```
+
+Still to come in Phase 2: pgvector semantic retrieval, episodic memory, the learning loop
+(distilled knowledge queued for human approval), a conflict-resolution agent, and the `api_loop`
+executor.
+
 ### Quickstart
 
 ```bash

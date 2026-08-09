@@ -17,12 +17,13 @@ import {
 import {
   TicketSnapshot,
   defaultMvpPolicy,
+  defaultTeamPolicy,
   defaultTrivialPolicy,
   uuidv7,
   type GateDecisionKind,
   type KnowledgeKind,
 } from '@ai-system/domain';
-import { resolveGate, startRun } from '@ai-system/orchestration';
+import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 import { addManualKnowledge } from '@ai-system/brain';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
 import { DB } from './db.provider.js';
@@ -86,7 +87,7 @@ export class ApiService {
   async startRun(input: {
     ticket?: TicketSnapshot | undefined;
     jiraKey?: string | undefined;
-    pipeline: 'trivial' | 'mvp';
+    pipeline: 'trivial' | 'mvp' | 'team';
     automation: 'plan_gated' | 'autonomous';
     projectId?: string | undefined;
     repositoryId?: string | undefined;
@@ -101,7 +102,7 @@ export class ApiService {
 
     const project = await this.pickProject(input.projectId);
     let repositoryId = input.repositoryId;
-    if (input.pipeline === 'mvp' && !repositoryId) {
+    if (input.pipeline !== 'trivial' && !repositoryId) {
       const repos = await this.db
         .select()
         .from(repositories)
@@ -111,7 +112,11 @@ export class ApiService {
       repositoryId = repos[0]!.id;
     }
     const policy =
-      input.pipeline === 'mvp' ? defaultMvpPolicy(input.automation) : defaultTrivialPolicy();
+      input.pipeline === 'team'
+        ? defaultTeamPolicy(input.automation)
+        : input.pipeline === 'mvp'
+          ? defaultMvpPolicy(input.automation)
+          : defaultTrivialPolicy();
     return startRun(this.db, {
       organizationId: project.organizationId,
       projectId: project.id,
@@ -125,7 +130,7 @@ export class ApiService {
     const runRows = await this.db.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId));
     const run = runRows[0];
     if (!run) throw new NotFoundException(`unknown run ${runId}`);
-    const [stages, arts, findings, gates, cost] = await Promise.all([
+    const [stages, arts, findings, gates, cost, taskRows] = await Promise.all([
       this.db
         .select()
         .from(stageExecutions)
@@ -152,8 +157,9 @@ export class ApiService {
         .where(eq(gateRequests.runId, runId))
         .orderBy(asc(gateRequests.createdAt)),
       this.runCostUsd(runId),
+      listTasks(this.db, runId),
     ]);
-    return { ...run, stages, artifacts: arts, findings, gates, costUsd: cost };
+    return { ...run, stages, artifacts: arts, findings, gates, costUsd: cost, tasks: taskRows };
   }
 
   async getArtifact(runId: string, artifactId: string) {

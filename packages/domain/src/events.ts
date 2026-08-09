@@ -72,6 +72,26 @@ export const EventPayloads = {
     outputTokens: z.number().int().nonnegative(),
     costUsd: z.number().nonnegative(),
   }),
+  'task.created': z.object({
+    runId: z.string().uuid(),
+    taskId: z.string().uuid(),
+    title: z.string(),
+    dependsOn: z.array(z.string().uuid()).default([]),
+  }),
+  'task.started': z.object({
+    runId: z.string().uuid(),
+    taskId: z.string().uuid(),
+    attempt: z.number().int().positive(),
+  }),
+  'task.completed': z.object({
+    runId: z.string().uuid(),
+    taskId: z.string().uuid(),
+  }),
+  'task.failed': z.object({
+    runId: z.string().uuid(),
+    taskId: z.string().uuid(),
+    reason: z.string(),
+  }),
   // Emitted by the test stage when blocking findings or failing tests remain.
   // The engine — not the emitter — decides between a fix iteration and the
   // iteration gate (docs/05 §5).

@@ -10,7 +10,15 @@ const STAGE_EXEC_ID = '01936b00-0000-7000-8000-000000000003';
 const GATE_REQ_ID = '01936b00-0000-7000-8000-000000000004';
 
 function initialRun(policy: PolicySnapshot): RunSnapshot {
-  return { runId: RUN_ID, status: 'created', currentStage: null, version: 1, policy, iterationCount: 0 };
+  return {
+    runId: RUN_ID,
+    status: 'created',
+    currentStage: null,
+    version: 1,
+    policy,
+    iterationCount: 0,
+    tasks: [],
+  };
 }
 
 /** Fold a recorded event sequence through advance(), asserting every step transitions. */
@@ -209,10 +217,26 @@ describe('mvp_linear pipeline gates', () => {
     expect(advance(parked, stageCompleted('classify'))).toMatchObject({ outcome: 'ignored' });
   });
 
-  it('records non-epic classification without transitioning', () => {
+  it('specializes the frozen policy from complexity, exactly once', () => {
     const { run } = replay(initialRun(mvpPolicy('autonomous')), [created, stageCompleted('intake')]);
+    const result = advance(run, {
+      name: 'run.complexity.classified',
+      payload: { runId: RUN_ID, complexity: 'large' },
+    });
+    // Stays in `classifying` — this transition exists to write policy, not to move the run.
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'classifying',
+      policyPatch: { maxParallelTasks: 5, iterationBudget: 4 },
+    });
+
+    // Once the run has left `classifying`, a late duplicate cannot rewrite policy.
+    const later: RunSnapshot = { ...run, status: 'planning', currentStage: 'plan' };
     expect(
-      advance(run, { name: 'run.complexity.classified', payload: { runId: RUN_ID, complexity: 'medium' } }),
+      advance(later, {
+        name: 'run.complexity.classified',
+        payload: { runId: RUN_ID, complexity: 'tiny' },
+      }),
     ).toMatchObject({ outcome: 'ignored' });
   });
 

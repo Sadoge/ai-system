@@ -32,6 +32,32 @@ export const ImplementationPlan = z.object({
 });
 export type ImplementationPlan = z.infer<typeof ImplementationPlan>;
 
+/**
+ * The task DAG a decomposition produces. `key` is local to this response and
+ * only used to express `dependsOn`; the platform assigns real ids.
+ */
+export const TaskPlan = z.object({
+  summary: z.string(),
+  tasks: z
+    .array(
+      z.object({
+        key: z.string().min(1),
+        title: z.string().min(1),
+        detail: z.string(),
+        files: z.array(z.string()).default([]),
+        dependsOn: z.array(z.string()).default([]),
+      }),
+    )
+    .min(1),
+});
+export type TaskPlan = z.infer<typeof TaskPlan>;
+
+export const DocumentationOutput = z.object({
+  summary: z.string(),
+  changelog: z.array(z.string()).default([]),
+});
+export type DocumentationOutput = z.infer<typeof DocumentationOutput>;
+
 export const ReviewReport = z.object({
   summary: z.string(),
   findings: z.array(
@@ -65,6 +91,23 @@ export interface PlanInput {
   rejectionFeedback?: string;
 }
 
+export interface DecomposeInput {
+  ticket: TicketSnapshot;
+  plan: ImplementationPlan;
+  brain: BrainContext;
+  maxTasks: number;
+  /** Present on a fix iteration: decompose findings into fix tasks instead of planning fresh. */
+  findings?: { severity: string; title: string; detail: string; filePath: string | null }[];
+  /** Present when a human rejected the PR: their comment is the work to do. */
+  feedback?: string;
+}
+
+export interface DocumentInput {
+  ticket: TicketSnapshot;
+  plan: ImplementationPlan;
+  diff: string;
+}
+
 export interface ReviewInput {
   ticket: TicketSnapshot;
   plan: ImplementationPlan;
@@ -83,5 +126,7 @@ export interface Agents {
   classify(input: ClassifyInput, ctx: AgentContext): Promise<ClassifierOutput>;
   research(input: ResearchInput, ctx: AgentContext): Promise<ResearchReport>;
   plan(input: PlanInput, ctx: AgentContext): Promise<ImplementationPlan>;
+  decompose(input: DecomposeInput, ctx: AgentContext): Promise<TaskPlan>;
   review(input: ReviewInput, ctx: AgentContext): Promise<ReviewReport>;
+  document(input: DocumentInput, ctx: AgentContext): Promise<DocumentationOutput>;
 }

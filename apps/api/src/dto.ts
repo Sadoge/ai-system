@@ -15,7 +15,7 @@ export const StartRunBody = z
   .object({
     ticket: TicketSnapshot.optional(),
     jiraKey: z.string().optional(),
-    pipeline: z.enum(['trivial', 'mvp']).default('mvp'),
+    pipeline: z.enum(['trivial', 'mvp', 'team']).default('mvp'),
     automation: z.enum(['plan_gated', 'autonomous']).default('plan_gated'),
     projectId: z.string().uuid().optional(),
     repositoryId: z.string().uuid().optional(),

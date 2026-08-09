@@ -3,9 +3,11 @@ import type { BrainContext } from '@ai-system/brain';
 import { runJsonAgent } from './runner.js';
 import {
   ClassifierOutput,
+  DocumentationOutput,
   ImplementationPlan,
   ResearchReport,
   ReviewReport,
+  TaskPlan,
   type AgentContext,
   type Agents,
 } from './schemas.js';
@@ -67,6 +69,41 @@ export function createLlmAgents(gateway: ModelGateway, profiles: AgentProfiles):
         user: `Ticket: ${input.ticket.title}\n\n${input.ticket.description}\n\nResearch findings:\n${input.research.summary}\nRelevant files: ${input.research.relevantFiles.join(', ')}\nRisks: ${input.research.risks.join('; ') || '(none)'}\n\n${renderBrain(input.brain)}${feedback}`,
         schema: ImplementationPlan,
         meta: meta('planning', ctx),
+      });
+    },
+
+    async decompose(input, ctx) {
+      const fixMode =
+        (input.findings && input.findings.length > 0) || input.feedback !== undefined;
+      const work = fixMode
+        ? `This is a FIX iteration. Turn the following into the smallest set of independent fix tasks — do not restate the original plan.\n${(input.findings ?? [])
+            .map((f) => `- [${f.severity}] ${f.title}${f.filePath ? ` (${f.filePath})` : ''}: ${f.detail}`)
+            .join('\n')}${input.feedback ? `\nHuman feedback: ${input.feedback}` : ''}`
+        : `Plan to decompose:\n${input.plan.summary}\n${input.plan.steps
+            .map((s, i) => `${i + 1}. ${s.title}: ${s.detail}${s.files.length ? ` (files: ${s.files.join(', ')})` : ''}`)
+            .join('\n')}`;
+
+      return runJsonAgent(gateway, profiles.planning, {
+        system: `You split an implementation plan into tasks that separate coding agents can execute independently, each in its own git worktree.
+
+Rules:
+- At most ${input.maxTasks} tasks. Fewer is better — only split work that is genuinely independent.
+- Two tasks that would edit the same file MUST be sequenced with dependsOn, never run in parallel.
+- Every task must be independently meaningful and verifiable.
+- dependsOn refers to the "key" of another task in this same response; the graph must be acyclic.`,
+        user: `Ticket: ${input.ticket.title}\n\n${work}\n\n${renderBrain(input.brain)}`,
+        schema: TaskPlan,
+        meta: meta('decomposition', ctx),
+      });
+    },
+
+    async document(input, ctx) {
+      return runJsonAgent(gateway, profiles.planning, {
+        system:
+          'You write the human-facing summary of a completed change: what changed and why, in the words a reviewer or release note needs. No speculation beyond the diff.',
+        user: `Ticket: ${input.ticket.title}\n\nPlan: ${input.plan.summary}\n\nDiff:\n${input.diff.slice(0, 50_000) || '(empty diff)'}`,
+        schema: DocumentationOutput,
+        meta: meta('documentation', ctx),
       });
     },
 

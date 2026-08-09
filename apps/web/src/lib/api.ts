@@ -66,6 +66,17 @@ export interface RunDetail extends RunSummary {
   }[];
   gates: { id: string; gate: string; status: string; payload: Record<string, unknown>; createdAt: string }[];
   costUsd: number;
+  tasks: {
+    id: string;
+    title: string;
+    status: string;
+    origin: string;
+    attemptCount: number;
+    maxAttempts: number;
+    branch: string | null;
+    error: string | null;
+    dependsOn: string[];
+  }[];
 }
 
 export interface GateRow {

@@ -13,6 +13,7 @@ export const RunStatus = z.enum([
   'decomposing',
   'executing',
   'integrating',
+  'awaiting_pre_merge',
   'reviewing',
   'testing',
   'awaiting_iteration_gate',
@@ -95,6 +96,12 @@ export const AgentFailureReason = z.enum([
 ]);
 export type AgentFailureReason = z.infer<typeof AgentFailureReason>;
 
+export const TaskStatus = z.enum(['created', 'running', 'completed', 'failed']);
+export type TaskStatus = z.infer<typeof TaskStatus>;
+
+export const TaskOrigin = z.enum(['decomposition', 'fix_iteration']);
+export type TaskOrigin = z.infer<typeof TaskOrigin>;
+
 export const FindingSeverity = z.enum(['blocker', 'major', 'minor', 'info']);
 export type FindingSeverity = z.infer<typeof FindingSeverity>;
 
@@ -124,10 +131,13 @@ export const ArtifactKind = z.enum([
   'ticket_snapshot',
   'research_report',
   'implementation_plan',
+  'task_plan',
   'task_spec',
   'diff',
+  'integration_report',
   'review_report',
   'test_report',
+  'documentation',
   'pr_package',
   'agent_transcript',
   'echo_output',

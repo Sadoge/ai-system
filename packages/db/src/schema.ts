@@ -10,6 +10,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  vector,
 } from 'drizzle-orm/pg-core';
 
 // Schema follows docs/04-database-design.md. Conventions: UUIDv7 ids generated
@@ -282,6 +283,35 @@ export const knowledgeItems = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('knowledge_items_project_idx').on(t.projectId, t.status, t.kind)],
+);
+
+/**
+ * Embedded slices of retrievable text (docs/04 §2.6). `sourceType` keeps
+ * curated knowledge and episodic memory in one index while remaining
+ * filterable, so retrieval can weight them differently.
+ */
+export const knowledgeChunks = pgTable(
+  'knowledge_chunks',
+  {
+    id: id(),
+    organizationId: uuid('organization_id').notNull(),
+    projectId: uuid('project_id'),
+    sourceType: text('source_type').notNull(), // knowledge_item | run | finding
+    sourceId: uuid('source_id').notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('knowledge_chunks_source_idx').on(t.sourceType, t.sourceId),
+    index('knowledge_chunks_project_idx').on(t.projectId, t.sourceType),
+    // Cosine HNSW: the retrieval path is nearest-neighbour by cosine distance.
+    index('knowledge_chunks_embedding_idx').using(
+      'hnsw',
+      t.embedding.op('vector_cosine_ops'),
+    ),
+  ],
 );
 
 // Layer 1 cache, never truth (docs/08 §1): rebuildable from the repo.

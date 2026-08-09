@@ -32,7 +32,16 @@ import {
   defaultTrivialPolicy,
   uuidv7,
 } from '@ai-system/domain';
-import { addManualKnowledge } from '@ai-system/brain';
+import {
+  addManualKnowledge,
+  decideKnowledge,
+  listKnowledge as listKnowledgeItems,
+} from '@ai-system/brain';
+import {
+  InMemoryCallLedger,
+  LocalHashEmbeddingAdapter,
+  ModelGateway,
+} from '@ai-system/model-gateway';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
 import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 
@@ -266,13 +275,18 @@ knowledgeCmd
     withDb(
       async (db, opts: { kind: string; title: string; content: string; project?: string }) => {
         const project = await pickProject(db, opts.project);
-        const { knowledgeItemId } = await addManualKnowledge(db, {
-          organizationId: project.organizationId,
-          projectId: project.id,
-          kind: KnowledgeKind.parse(opts.kind),
-          title: opts.title,
-          content: opts.content,
-        });
+        const { knowledgeItemId } = await addManualKnowledge(
+          db,
+          {
+            organizationId: project.organizationId,
+            projectId: project.id,
+            kind: KnowledgeKind.parse(opts.kind),
+            title: opts.title,
+            content: opts.content,
+          },
+          // Embed on write so the rule is immediately retrievable.
+          localEmbedder(),
+        );
         console.log(`knowledge item added: ${knowledgeItemId}`);
       },
     ),
@@ -325,6 +339,61 @@ gateCmd
       console.log('rejected');
     }),
   );
+
+knowledgeCmd
+  .command('inbox')
+  .description('list knowledge proposed by the learning loop, awaiting your approval')
+  .action(
+    withDb(async (db) => {
+      const proposals = await listKnowledgeItems(db, 'proposed');
+      if (proposals.length === 0) {
+        console.log('no pending knowledge proposals');
+        return;
+      }
+      for (const item of proposals) {
+        console.log(`${item.id}  [${item.kind}] ${item.title}`);
+        console.log(`    ${item.content}`);
+        const evidence = (item.scopeTags as string[]) ?? [];
+        if (evidence.length > 0) console.log(`    evidence: ${evidence.join(' · ')}`);
+      }
+    }),
+  );
+
+knowledgeCmd
+  .command('approve <knowledge-item-id>')
+  .description('approve a proposal (it becomes retrievable by agents)')
+  .action(
+    withDb(async (db, knowledgeItemId: string) => {
+      await decideKnowledge(db, { knowledgeItemId, decision: 'approved' }, localEmbedder());
+      console.log('approved');
+    }),
+  );
+
+knowledgeCmd
+  .command('reject <knowledge-item-id>')
+  .description('reject a proposal (kept as a negative example for the distiller)')
+  .action(
+    withDb(async (db, knowledgeItemId: string) => {
+      await decideKnowledge(db, { knowledgeItemId, decision: 'rejected' });
+      console.log('rejected');
+    }),
+  );
+
+/** Local deterministic embedder — the CLI never needs an API key to approve knowledge. */
+function localEmbedder() {
+  const gateway = new ModelGateway([], new InMemoryCallLedger(), {
+    embeddingAdapters: [new LocalHashEmbeddingAdapter()],
+  });
+  const profile = {
+    purpose: 'embeddings',
+    primary: { provider: 'local', model: 'local-hash' },
+    fallbacks: [],
+  };
+  return {
+    embed: async (texts: string[]) =>
+      (await gateway.embed(profile, { texts, meta: { purpose: 'embeddings' } })).vectors,
+  };
+}
 
 function readTicketFile(path: string): TicketSnapshot {
   const raw = readFileSync(path, 'utf8');

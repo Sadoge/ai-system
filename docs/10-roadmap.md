@@ -38,7 +38,7 @@ Task decomposition & parallel agents; integration agent; semantic (vector) retri
 
 **Exit criterion:** a real Jira ticket on a real repository becomes a reviewed, tested, human-approved PR — and you actually merge it.
 
-## Phase 2 — The team (≈ 6–8 weeks)
+## Phase 2 — The team (≈ 6–8 weeks) — **delivered**
 
 Turn one agent into a coordinated team; make the Brain learn.
 
@@ -47,7 +47,14 @@ Turn one agent into a coordinated team; make the Brain learn.
 - Project Brain: pgvector semantic retrieval; episodic memory; **learning loop** (distiller → proposals → approval inbox).
 - Documentation agent; Jira write-back (transitions, comments).
 - UI: task graph visualization, review dashboard (findings lifecycle), knowledge approval inbox, brain inspector.
-- `api_loop` executor v1 for single-call agents (planner, reviewer) — first step off CLI dependence.
+- `api_loop` executor v1 — first step off CLI dependence.
+
+**Implementation notes.** Two things landed differently from the sketch above, deliberately:
+complexity specialization of policy is applied by the *engine* at classification time (a stage
+handler must never write policy), and knowledge approval is a direct decision on the item rather
+than a `gate_request` — the source run has already completed, so there is no run to park. The
+conflict-resolution agent ships as "attempt, verify, else fail": it re-checks for conflict markers
+and aborts the merge if any remain.
 
 ## Phase 3 — The product (≈ 8–12 weeks)
 

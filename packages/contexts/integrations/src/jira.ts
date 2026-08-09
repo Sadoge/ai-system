@@ -75,6 +75,53 @@ export async function addJiraComment(
 }
 
 /**
+ * Move the issue to a named status, matching case-insensitively against the
+ * transitions Jira currently offers. Returns false when no such transition is
+ * available — workflows differ per project, and a missing transition is a
+ * configuration fact, not an error worth failing a run over.
+ */
+export async function transitionJiraIssue(
+  config: JiraConfig,
+  issueKey: string,
+  statusName: string,
+): Promise<boolean> {
+  const listResponse = await fetch(
+    `${config.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+    { headers: { authorization: authHeader(config), accept: 'application/json' } },
+  );
+  if (!listResponse.ok) {
+    throw new Error(`Jira transitions lookup failed for ${issueKey} (${listResponse.status})`);
+  }
+  const { transitions } = (await listResponse.json()) as {
+    transitions: { id: string; name: string; to?: { name?: string } }[];
+  };
+  const wanted = statusName.trim().toLowerCase();
+  const match = transitions.find(
+    (t) => t.name.toLowerCase() === wanted || t.to?.name?.toLowerCase() === wanted,
+  );
+  if (!match) return false;
+
+  const applyResponse = await fetch(
+    `${config.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: authHeader(config),
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ transition: { id: match.id } }),
+    },
+  );
+  if (!applyResponse.ok) {
+    throw new Error(
+      `Jira transition to "${statusName}" failed for ${issueKey} (${applyResponse.status})`,
+    );
+  }
+  return true;
+}
+
+/**
  * Flatten Atlassian Document Format to plain text — agents consume text, not
  * ADF. Handles the node types tickets actually contain; unknown nodes
  * contribute their children.

@@ -15,6 +15,24 @@ export class ScriptedAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
     const spec = input.taskSpec;
+
+    // Conflict-resolution mode: keep both sides by stripping the markers.
+    if (spec.conflicts && spec.conflicts.length > 0) {
+      const { readFile, writeFile: write } = await import('node:fs/promises');
+      for (const file of spec.conflicts) {
+        const full = join(input.worktreeDir, file);
+        const content = await readFile(full, 'utf8');
+        await write(
+          full,
+          content
+            .split('\n')
+            .filter((line) => !/^(<{7}|={7}|>{7})/.test(line))
+            .join('\n'),
+          'utf8',
+        );
+      }
+      return { status: 'succeeded', transcript: `resolved ${spec.conflicts.length} conflicted file(s)` };
+    }
     // One file per task keeps parallel task branches conflict-free.
     const targetFile =
       spec.steps.flatMap((s) => s.files)[0] ??

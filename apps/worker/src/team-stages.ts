@@ -4,12 +4,17 @@ import { PolicySnapshot, TicketSnapshot, uuidv7 } from '@ai-system/domain';
 import { applyEvent, createTasks, listTasks, type TaskDraft } from '@ai-system/orchestration';
 import { ImplementationPlan } from '@ai-system/agents';
 import {
+  abortMerge,
   commitAll,
+  completeMerge,
+  conflictMarkersRemain,
   diffAgainst,
   ensureCheckout,
   ensureWorktree,
-  mergeBranch,
+  git,
   renderCodingPrompt,
+  renderConflictPrompt,
+  startMerge,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
@@ -256,20 +261,36 @@ export async function integrateStage(
   await ensureCheckout(repo.remoteUrl, checkoutDir);
   await ensureWorktree(checkoutDir, worktreeDir, runBranch(run), repo.defaultBranch);
 
+  const ticket = TicketSnapshot.parse(run.ticket);
   const all = await listTasks(db, run.id);
   const completed = all.filter((t) => t.status === 'completed' && t.branch);
   const merged: string[] = [];
   const alreadyMerged: string[] = [];
+  const resolved: { task: string; files: string[] }[] = [];
 
   for (const task of completed) {
-    const result = await mergeBranch(worktreeDir, task.branch!, `merge task: ${task.title}`);
-    if (result.status === 'conflict') {
-      throw new Error(
-        `merge conflict integrating task "${task.title}" (${task.branch}): ${result.conflicts.join(', ') || 'unknown paths'}`,
-      );
+    const before = await headSha(worktreeDir);
+    const conflicts = await startMerge(worktreeDir, task.branch!, `merge task: ${task.title}`);
+
+    if (conflicts) {
+      // Conflict-resolution agent works in the run worktree with the conflict
+      // markers in place. If it cannot clear them, the merge is aborted and
+      // the stage fails — never a forced resolution (docs/05 §6).
+      const outcome = await resolveConflicts(services, run, ticket.title, task.title, conflicts, worktreeDir);
+      if (!outcome.resolved) {
+        await abortMerge(worktreeDir);
+        throw new Error(
+          `merge conflict integrating task "${task.title}" (${task.branch}) in ${conflicts.join(', ')}: ${outcome.reason}`,
+        );
+      }
+      await completeMerge(worktreeDir, `merge task: ${task.title} (conflicts resolved by agent)`);
+      resolved.push({ task: task.title, files: conflicts });
+      merged.push(task.title);
+      continue;
     }
-    if (result.status === 'merged') merged.push(task.title);
-    else alreadyMerged.push(task.title);
+
+    if ((await headSha(worktreeDir)) === before) alreadyMerged.push(task.title);
+    else merged.push(task.title);
   }
 
   const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
@@ -279,6 +300,7 @@ export async function integrateStage(
     content: {
       merged,
       alreadyMerged,
+      conflictsResolved: resolved,
       taskCount: all.length,
       branch: runBranch(run),
       iteration: run.iterationCount,
@@ -293,6 +315,65 @@ export async function integrateStage(
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
   });
   return { artifactIds: [reportId, diffId] };
+}
+
+async function headSha(worktreeDir: string): Promise<string> {
+  return (await git(worktreeDir, 'rev-parse', 'HEAD')).trim();
+}
+
+async function resolveConflicts(
+  services: StageServices,
+  run: RunRow,
+  ticketTitle: string,
+  taskTitle: string,
+  conflicts: string[],
+  worktreeDir: string,
+): Promise<{ resolved: boolean; reason: string }> {
+  const agentRunId = uuidv7();
+  await services.db.insert(agentRuns).values({
+    id: agentRunId,
+    runId: run.id,
+    agentKind: 'conflict_resolution',
+    executorKind: services.executor.executorKind,
+    status: 'running',
+    startedAt: new Date(),
+  });
+
+  const result = await services.executor.execute({
+    runId: run.id,
+    agentRunId,
+    worktreeDir,
+    taskSpec: {
+      ticketTitle,
+      taskTitle: `Resolve conflicts merging "${taskTitle}"`,
+      planSummary: renderConflictPrompt({ ticketTitle, taskTitle, conflicts }),
+      steps: [],
+      findings: [],
+      rules: [],
+      conflicts,
+    },
+    limits: { timeoutMs: services.codingTimeoutMs },
+  });
+
+  const stillConflicted =
+    result.status === 'succeeded' ? await conflictMarkersRemain(worktreeDir, conflicts) : true;
+
+  await services.db
+    .update(agentRuns)
+    .set({
+      status: result.status === 'succeeded' && !stillConflicted ? 'succeeded' : 'failed',
+      finishedAt: new Date(),
+      ...(stillConflicted ? { failureReason: 'invalid_output' as const } : {}),
+    })
+    .where(eq(agentRuns.id, agentRunId));
+
+  if (result.status !== 'succeeded') {
+    return { resolved: false, reason: `resolution agent failed (${result.failureReason})` };
+  }
+  if (stillConflicted) {
+    return { resolved: false, reason: 'conflict markers remain after the resolution attempt' };
+  }
+  return { resolved: true, reason: '' };
 }
 
 export async function documentStage(services: StageServices, run: RunRow): Promise<StageOutcome> {

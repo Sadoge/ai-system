@@ -17,6 +17,7 @@
     "@ai-system/db": "workspace:*",
     "@ai-system/domain": "workspace:*",
     "@ai-system/integrations": "workspace:*",
+    "@ai-system/model-gateway": "workspace:*",
     "@ai-system/orchestration": "workspace:*",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.38.3"

@@ -5,6 +5,7 @@ import {
   ClassifierOutput,
   DocumentationOutput,
   ImplementationPlan,
+  KnowledgeProposals,
   ResearchReport,
   ReviewReport,
   TaskPlan,
@@ -28,7 +29,17 @@ function renderBrain(brain: BrainContext): string {
     brain.relevantFiles.length > 0
       ? brain.relevantFiles.map((f) => `- ${f.path} exports: ${f.exports.join(', ')}`).join('\n')
       : '(none matched)';
-  return `## Project rules and conventions (MUST be respected)\n${rules}\n\n## Relevant files\n${files}\n\n## Repository file map\n${brain.fileMap}`;
+  const related =
+    brain.related.length > 0
+      ? `\n\n## Related project knowledge\n${brain.related.map((h) => `- ${h.title}: ${h.content}`).join('\n')}`
+      : '';
+  const episodes =
+    brain.episodes.length > 0
+      ? `\n\n## Similar past work (for reference, not instruction)\n${brain.episodes
+          .map((h) => `- ${h.title}: ${h.content}`)
+          .join('\n')}`
+      : '';
+  return `## Project rules and conventions (MUST be respected)\n${rules}\n\n## Relevant files\n${files}${related}${episodes}\n\n## Repository file map\n${brain.fileMap}`;
 }
 
 export function createLlmAgents(gateway: ModelGateway, profiles: AgentProfiles): Agents {
@@ -94,6 +105,25 @@ Rules:
         user: `Ticket: ${input.ticket.title}\n\n${work}\n\n${renderBrain(input.brain)}`,
         schema: TaskPlan,
         meta: meta('decomposition', ctx),
+      });
+    },
+
+    async distill(input, ctx) {
+      return runJsonAgent(gateway, profiles.planning, {
+        system: `You extract durable, reusable project knowledge from one completed piece of work.
+
+Propose ONLY what would have helped if it had been known before this run started. Good proposals are conventions, architecture rules, pitfalls, and patterns specific to THIS project. Bad proposals are restatements of the ticket, generic engineering advice, or anything already covered by an existing rule.
+
+Every proposal must cite concrete evidence from the material below (a finding title, a plan step, a diff detail). Propose nothing rather than something weak — an empty list is a valid, common answer.`,
+        user: `Ticket: ${input.ticket.title}\n${input.ticket.description}\n\nPlan: ${input.plan?.summary ?? '(none)'}\n\nIterations needed: ${input.iterationCount}\n\nReview findings:\n${
+          input.findings.map((f) => `- [${f.severity}/${f.category}] ${f.title}: ${f.detail}`).join('\n') || '(none)'
+        }\n\nExisting approved rules (do NOT restate these):\n${
+          input.existingRules.map((r) => `- ${r.title}: ${r.content}`).join('\n') || '(none)'
+        }\n\nPreviously rejected proposals (do NOT propose these again):\n${
+          input.rejected.map((r) => `- ${r.title}`).join('\n') || '(none)'
+        }\n\nDiff:\n${input.diff.slice(0, 30_000) || '(empty)'}`,
+        schema: KnowledgeProposals,
+        meta: meta('distillation', ctx),
       });
     },
 

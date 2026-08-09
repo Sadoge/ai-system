@@ -37,6 +37,7 @@ export type ApplyOutcome =
 const COMMAND_JOB_NAMES: Record<Command['kind'], string> = {
   execute_stage: 'stage.execute',
   execute_task: 'task.execute',
+  distill_knowledge: 'knowledge.distill',
   request_gate: 'gate.request',
 };
 

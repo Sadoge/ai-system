@@ -40,6 +40,7 @@ import {
   jiraConfigFromEnv,
   parseGitHubRemote,
   pushBranch,
+  transitionJiraIssue,
 } from '@ai-system/integrations';
 import { createArtifact } from './artifacts.js';
 import type { StageServices } from './services.js';
@@ -121,11 +122,18 @@ export async function getBrainContext(
         .filter((w) => w.length > 3),
     ),
   ].slice(0, 12);
+  const query = `${ticket.title}\n${ticket.description}`;
   return brainQuery(db, {
     projectId: run.projectId,
     ...(repo ? { repositoryId: repo.id } : {}),
     index,
-    need: { structural: { keywords }, rules: {} },
+    need: {
+      structural: { keywords },
+      rules: {},
+      semantic: { query },
+      episodic: { query },
+    },
+    ...(services.embedder ? { embedder: services.embedder } : {}),
   });
 }
 
@@ -420,12 +428,17 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     }
   }
 
-  // MVP Jira write-back: a PR-link comment, nothing more (docs/10).
+  // Jira write-back: the PR link, plus a status transition when the project's
+  // workflow offers one. Neither can fail packaging — the PR already exists.
   const jira = jiraConfigFromEnv();
   if (prUrl && jira && ticket.source === 'jira' && ticket.externalKey) {
     await addJiraComment(jira, ticket.externalKey, `ai-system opened a pull request: ${prUrl}`).catch(
-      () => {}, // comment failure never fails the packaging stage
+      () => {},
     );
+    const targetStatus = process.env.JIRA_PR_STATUS;
+    if (targetStatus) {
+      await transitionJiraIssue(jira, ticket.externalKey, targetStatus).catch(() => false);
+    }
   }
 
   const { artifactId } = await createArtifact(db, {

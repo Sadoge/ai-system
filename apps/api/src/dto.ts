@@ -36,6 +36,12 @@ export const AddKnowledgeBody = z.object({
   projectId: z.string().uuid().optional(),
 });
 
+export const DecideKnowledgeBody = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  editedTitle: z.string().min(1).optional(),
+  editedContent: z.string().min(1).optional(),
+});
+
 export const RegisterRepoBody = z.object({
   remoteUrl: z.string().min(1),
   name: z.string().optional(),

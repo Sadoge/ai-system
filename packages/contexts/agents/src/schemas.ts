@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Complexity, FindingSeverity, TicketSnapshot } from '@ai-system/domain';
+import { Complexity, FindingSeverity, KnowledgeKind, TicketSnapshot } from '@ai-system/domain';
 import type { BrainContext } from '@ai-system/brain';
 
 // Typed agent outputs (docs/06 §2): the ONLY thing an LLM can return is an
@@ -52,6 +52,24 @@ export const TaskPlan = z.object({
 });
 export type TaskPlan = z.infer<typeof TaskPlan>;
 
+/**
+ * Distiller output (docs/08 §3). Every proposal must cite evidence — uncited
+ * proposals are rejected by validation before a human ever sees them.
+ */
+export const KnowledgeProposals = z.object({
+  proposals: z
+    .array(
+      z.object({
+        kind: KnowledgeKind,
+        title: z.string().min(1),
+        content: z.string().min(1),
+        evidence: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .max(5),
+});
+export type KnowledgeProposals = z.infer<typeof KnowledgeProposals>;
+
 export const DocumentationOutput = z.object({
   summary: z.string(),
   changelog: z.array(z.string()).default([]),
@@ -102,6 +120,18 @@ export interface DecomposeInput {
   feedback?: string;
 }
 
+export interface DistillInput {
+  ticket: TicketSnapshot;
+  plan: ImplementationPlan | null;
+  diff: string;
+  findings: { severity: string; category: string; title: string; detail: string }[];
+  iterationCount: number;
+  /** Already-approved rules, so the distiller doesn't re-propose what we know. */
+  existingRules: { title: string; content: string }[];
+  /** Previously rejected proposals — negative examples (docs/08 §3). */
+  rejected: { title: string }[];
+}
+
 export interface DocumentInput {
   ticket: TicketSnapshot;
   plan: ImplementationPlan;
@@ -129,4 +159,5 @@ export interface Agents {
   decompose(input: DecomposeInput, ctx: AgentContext): Promise<TaskPlan>;
   review(input: ReviewInput, ctx: AgentContext): Promise<ReviewReport>;
   document(input: DocumentInput, ctx: AgentContext): Promise<DocumentationOutput>;
+  distill(input: DistillInput, ctx: AgentContext): Promise<KnowledgeProposals>;
 }

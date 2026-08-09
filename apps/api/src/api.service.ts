@@ -12,6 +12,8 @@ import {
   repositories,
   reviewFindings,
   stageExecutions,
+  createDb,
+  createPool,
   type Db,
 } from '@ai-system/db';
 import {
@@ -23,13 +25,52 @@ import {
   type GateDecisionKind,
   type KnowledgeKind,
 } from '@ai-system/domain';
-import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
-import { addManualKnowledge } from '@ai-system/brain';
+import { applyEvent, listTasks, resolveGate, startRun } from '@ai-system/orchestration';
+import {
+  addManualKnowledge,
+  brainQuery,
+  decideKnowledge,
+  latestIndexSnapshot,
+  type Embedder,
+} from '@ai-system/brain';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
+import {
+  DrizzleCallLedger,
+  LocalHashEmbeddingAdapter,
+  ModelGateway,
+  OpenAiEmbeddingAdapter,
+  PLATFORM_DEFAULT_PROFILES,
+} from '@ai-system/model-gateway';
 import { DB } from './db.provider.js';
+
+function buildEmbedder(): Embedder | undefined {
+  const pool = createPool();
+  const db = createDb(pool);
+  // The OpenAI SDK throws at construction without a key, so it is only
+  // registered when one exists; the local embedder always is.
+  const gateway = new ModelGateway([], new DrizzleCallLedger(db), {
+    embeddingAdapters: [
+      ...(process.env.OPENAI_API_KEY ? [new OpenAiEmbeddingAdapter()] : []),
+      new LocalHashEmbeddingAdapter(),
+    ],
+  });
+  const profile = process.env.OPENAI_API_KEY
+    ? PLATFORM_DEFAULT_PROFILES.embeddings!
+    : { purpose: 'embeddings', primary: { provider: 'local', model: 'local-hash' }, fallbacks: [] };
+  return {
+    embed: async (texts) =>
+      (await gateway.embed(profile, { texts, meta: { purpose: 'embeddings' } })).vectors,
+  };
+}
 
 @Injectable()
 export class ApiService {
+  /**
+   * Same deterministic local embedder the worker falls back to, so the brain
+   * inspector and knowledge approval behave identically to a real run.
+   */
+  private readonly embedder: Embedder | undefined = buildEmbedder();
+
   constructor(@Inject(DB) private readonly db: Db) {}
 
   // ── projects & repositories ─────────────────────────────────────────
@@ -213,10 +254,110 @@ export class ApiService {
     return { resolved: true };
   }
 
+  // ── review findings across runs ──────────────────────────────────────
+
+  /** Findings dashboard: every finding with its run, newest first. */
+  async listFindings(status?: string) {
+    const rows = await this.db
+      .select({
+        id: reviewFindings.id,
+        runId: reviewFindings.runId,
+        severity: reviewFindings.severity,
+        category: reviewFindings.category,
+        title: reviewFindings.title,
+        detail: reviewFindings.detail,
+        filePath: reviewFindings.filePath,
+        status: reviewFindings.status,
+        createdAt: reviewFindings.createdAt,
+        ticket: pipelineRuns.ticket,
+      })
+      .from(reviewFindings)
+      .innerJoin(pipelineRuns, eq(reviewFindings.runId, pipelineRuns.id))
+      .where(status ? eq(reviewFindings.status, status) : undefined)
+      .orderBy(desc(reviewFindings.createdAt))
+      .limit(200);
+
+    const byCategory = new Map<string, number>();
+    for (const row of rows) byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + 1);
+    return {
+      findings: rows,
+      byCategory: [...byCategory.entries()]
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }
+
   // ── knowledge ───────────────────────────────────────────────────────
 
-  async listKnowledge() {
-    return this.db.select().from(knowledgeItems).orderBy(desc(knowledgeItems.createdAt)).limit(200);
+  async listKnowledge(status?: string) {
+    return this.db
+      .select()
+      .from(knowledgeItems)
+      .where(status ? eq(knowledgeItems.status, status) : undefined)
+      .orderBy(desc(knowledgeItems.createdAt))
+      .limit(200);
+  }
+
+  /** The approval inbox decision. Approving embeds the item; rejecting keeps it as a negative example. */
+  async decideKnowledge(input: {
+    knowledgeItemId: string;
+    decision: 'approved' | 'rejected';
+    editedTitle?: string | undefined;
+    editedContent?: string | undefined;
+  }) {
+    const result = await decideKnowledge(this.db, input, this.embedder);
+    const rows = await this.db
+      .select({ title: knowledgeItems.title })
+      .from(knowledgeItems)
+      .where(eq(knowledgeItems.id, input.knowledgeItemId));
+    await applyEvent(this.db, {
+      name: input.decision === 'approved' ? 'knowledge.approved' : 'knowledge.rejected',
+      payload: { knowledgeItemId: input.knowledgeItemId, title: rows[0]?.title ?? '' },
+    });
+    return result;
+  }
+
+  /**
+   * Brain inspector (docs/08 §6): show exactly what the Context Assembler
+   * would select for a given query, and what it dropped to fit the budget.
+   */
+  async inspectBrain(input: { projectId?: string; query: string; repositoryId?: string }) {
+    const project = await this.pickProject(input.projectId);
+    const repoRows = await this.db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.projectId, project.id))
+      .limit(1);
+    const repo = repoRows[0];
+    const index = repo ? await latestIndexSnapshot(this.db, repo.id) : null;
+    const keywords = [
+      ...new Set(
+        input.query
+          .toLowerCase()
+          .split(/[^a-z0-9_]+/)
+          .filter((w) => w.length > 3),
+      ),
+    ].slice(0, 12);
+
+    const context = await brainQuery(this.db, {
+      projectId: project.id,
+      ...(repo ? { repositoryId: repo.id } : {}),
+      index,
+      need: {
+        structural: { keywords },
+        rules: {},
+        semantic: { query: input.query },
+        episodic: { query: input.query },
+      },
+      ...(this.embedder ? { embedder: this.embedder } : {}),
+    });
+    return {
+      query: input.query,
+      keywords,
+      hasIndex: index !== null,
+      embedderAvailable: this.embedder !== undefined,
+      ...context,
+    };
   }
 
   async addKnowledge(input: {
@@ -226,13 +367,17 @@ export class ApiService {
     projectId?: string | undefined;
   }) {
     const project = await this.pickProject(input.projectId);
-    return addManualKnowledge(this.db, {
-      organizationId: project.organizationId,
-      projectId: project.id,
-      kind: input.kind,
-      title: input.title,
-      content: input.content,
-    });
+    return addManualKnowledge(
+      this.db,
+      {
+        organizationId: project.organizationId,
+        projectId: project.id,
+        kind: input.kind,
+        title: input.title,
+        content: input.content,
+      },
+      this.embedder,
+    );
   }
 
   // ── model profiles ──────────────────────────────────────────────────

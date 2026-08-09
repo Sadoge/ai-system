@@ -41,6 +41,17 @@ export async function addKnowledgeAction(formData: FormData): Promise<void> {
   revalidatePath('/knowledge');
 }
 
+export async function decideKnowledgeAction(formData: FormData): Promise<void> {
+  const id = String(formData.get('knowledgeItemId'));
+  await apiPost(`/knowledge/${id}/decide`, {
+    decision: String(formData.get('decision')),
+    editedTitle: String(formData.get('editedTitle') ?? '').trim() || undefined,
+    editedContent: String(formData.get('editedContent') ?? '').trim() || undefined,
+  });
+  revalidatePath('/knowledge/inbox');
+  revalidatePath('/knowledge');
+}
+
 export async function addModelProfileAction(formData: FormData): Promise<void> {
   await apiPost('/model-profiles', {
     purpose: String(formData.get('purpose')),

@@ -47,6 +47,9 @@ importers:
       '@ai-system/integrations':
         specifier: workspace:*
         version: link:../../packages/contexts/integrations
+      '@ai-system/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/contexts/model-gateway
       '@ai-system/orchestration':
         specifier: workspace:*
         version: link:../../packages/contexts/orchestration
@@ -99,6 +102,9 @@ importers:
       '@ai-system/integrations':
         specifier: workspace:*
         version: link:../../packages/contexts/integrations
+      '@ai-system/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/contexts/model-gateway
       '@ai-system/orchestration':
         specifier: workspace:*
         version: link:../../packages/contexts/orchestration

@@ -5,3 +5,4 @@ export * from './gateway.js';
 export * from './profiles.js';
 export * from './adapters/anthropic.js';
 export * from './adapters/openai.js';
+export * from './adapters/embeddings.js';

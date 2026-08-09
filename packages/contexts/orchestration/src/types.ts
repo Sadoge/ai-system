@@ -32,6 +32,7 @@ export interface RunSnapshot {
 export type Command =
   | { kind: 'execute_stage'; runId: string; stage: StageKind }
   | { kind: 'execute_task'; runId: string; taskId: string }
+  | { kind: 'distill_knowledge'; runId: string }
   | { kind: 'request_gate'; runId: string; gate: GateKind; payload?: Record<string, unknown> };
 
 export type AdvanceResult =

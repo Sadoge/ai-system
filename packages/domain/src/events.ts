@@ -100,6 +100,20 @@ export const EventPayloads = {
     blockingFindingIds: z.array(z.string().uuid()).default([]),
     testsPassed: z.boolean(),
   }),
+  'knowledge.proposed': z.object({
+    runId: z.string().uuid(),
+    knowledgeItemId: z.string().uuid(),
+    kind: z.string(),
+    title: z.string(),
+  }),
+  'knowledge.approved': z.object({
+    knowledgeItemId: z.string().uuid(),
+    title: z.string(),
+  }),
+  'knowledge.rejected': z.object({
+    knowledgeItemId: z.string().uuid(),
+    title: z.string(),
+  }),
   'budget.exhausted': z.object({
     runId: z.string().uuid(),
     limitUsd: z.number(),

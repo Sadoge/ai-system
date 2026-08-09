@@ -61,7 +61,7 @@ function onRunCreated(run: RunSnapshot): AdvanceResult {
   if (run.status !== 'created') return ignored(`run.created in status ${run.status}`);
   const def = pipelineFor(run.policy);
   const first = nextStage(def, null);
-  if (!first) return transitioned('completed', null, []);
+  if (!first) return completeRun(run);
   return enterStage(run, def, first);
 }
 
@@ -219,7 +219,7 @@ function afterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): Ad
     ]);
   }
   const next = nextStage(def, stage);
-  if (!next) return transitioned('completed', null, []);
+  if (!next) return completeRun(run);
   return enterStage(run, def, next);
 }
 
@@ -267,7 +267,7 @@ function onGateResolved(
 
   switch (gate) {
     case 'final_pr':
-      if (decision === 'approved') return transitioned('completed', null, []);
+      if (decision === 'approved') return completeRun(run);
       // Changes requested → a fresh fix round (docs/05 §6).
       return reenter(run, def, def.iterationReentryStage);
 
@@ -303,7 +303,7 @@ function afterStageIgnoringGate(
   stage: Stage,
 ): AdvanceResult {
   const next = nextStage(def, stage);
-  if (!next) return transitioned('completed', null, []);
+  if (!next) return completeRun(run);
   return enterStage(run, def, next);
 }
 
@@ -319,6 +319,18 @@ function reenter(run: RunSnapshot, def: PipelineDefinition, stage: Stage): Advan
   // Re-entry always runs the stage itself (even the task stage's producer),
   // so fix tasks exist before the DAG fans out again.
   return transitioned(def.statusDuring(stage), stage, [executeStage(run.runId, stage)]);
+}
+
+/**
+ * Completion is also the learning trigger (docs/08 §3): a finished run is the
+ * raw material the distiller turns into knowledge proposals. Trivial runs
+ * carry nothing worth learning from.
+ */
+function completeRun(run: RunSnapshot): AdvanceResult {
+  const def = pipelineFor(run.policy);
+  const commands: Command[] =
+    def.name === 'trivial' ? [] : [{ kind: 'distill_knowledge', runId: run.runId }];
+  return { outcome: 'transitioned', status: 'completed', currentStage: null, commands };
 }
 
 function awaitingStatusFor(gate: GateKind): RunStatus {

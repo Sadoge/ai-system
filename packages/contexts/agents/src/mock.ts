@@ -82,6 +82,30 @@ export function createMockAgents(): Agents {
       return { summary: 'Mock decomposition', tasks };
     },
 
+    /**
+     * Proposes one rule per distinct finding category, so the approval inbox
+     * has something real to act on in mock mode — and nothing at all when the
+     * run was clean, which is the common case.
+     */
+    async distill(input) {
+      const categories = [...new Set(input.findings.map((f) => f.category))];
+      const known = new Set(input.existingRules.map((r) => r.title));
+      const rejected = new Set(input.rejected.map((r) => r.title));
+      return {
+        proposals: categories
+          .map((category) => ({
+            kind: 'convention' as const,
+            title: `Watch for ${category} issues`,
+            content: `Reviews of this project have flagged ${category} problems. Check for them before opening a PR.`,
+            evidence: input.findings
+              .filter((f) => f.category === category)
+              .map((f) => `finding: ${f.title}`),
+          }))
+          .filter((p) => !known.has(p.title) && !rejected.has(p.title))
+          .slice(0, 5),
+      };
+    },
+
     async document(input) {
       return {
         summary: `Mock documentation for "${input.ticket.title}"`,

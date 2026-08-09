@@ -18,6 +18,7 @@ The platform is *not* a coding agent. It is the machinery around agents: pipelin
 | 8 | [Project Brain](08-project-brain.md) | Knowledge architecture, static vs. learned memory, approval workflow, retrieval |
 | 9 | [Technology Stack](09-technology-stack.md) | Concrete technology choices with rationale |
 | 10 | [Roadmap & MVP](10-roadmap.md) | Phased development roadmap and a realistic single-developer MVP scope |
+| 11 | [Deployment & Operations](11-deployment.md) | Topologies, tenancy, quotas, backup/restore, observability |
 
 ## Core design decisions (summary)
 

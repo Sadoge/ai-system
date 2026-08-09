@@ -197,6 +197,85 @@ describe('mvp_linear pipeline gates', () => {
     });
   });
 
+  it('parks at awaiting_split when classification says epic', () => {
+    const { run } = replay(initialRun(mvpPolicy('autonomous')), [created, stageCompleted('intake')]);
+    const result = advance(run, {
+      name: 'run.complexity.classified',
+      payload: { runId: RUN_ID, complexity: 'epic' },
+    });
+    expect(result).toMatchObject({ outcome: 'transitioned', status: 'awaiting_split', commands: [] });
+    // The classify stage's own completion event must not advance a parked run.
+    const parked: RunSnapshot = { ...run, status: 'awaiting_split' };
+    expect(advance(parked, stageCompleted('classify'))).toMatchObject({ outcome: 'ignored' });
+  });
+
+  it('records non-epic classification without transitioning', () => {
+    const { run } = replay(initialRun(mvpPolicy('autonomous')), [created, stageCompleted('intake')]);
+    expect(
+      advance(run, { name: 'run.complexity.classified', payload: { runId: RUN_ID, complexity: 'medium' } }),
+    ).toMatchObject({ outcome: 'ignored' });
+  });
+
+  it('consumes iteration budget re-entering code, then parks at the iteration gate', () => {
+    const testing: RunSnapshot = {
+      ...initialRun(mvpPolicy('autonomous')),
+      status: 'testing',
+      currentStage: 'test',
+      iterationCount: 0,
+    };
+
+    const first = advance(testing, {
+      name: 'run.iteration.needed',
+      payload: { runId: RUN_ID, blockingFindingIds: [], testsPassed: false },
+    });
+    expect(first).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      currentStage: 'code',
+      iterationCount: 1,
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
+    });
+
+    const exhausted: RunSnapshot = { ...testing, iterationCount: 2 }; // budget is 2
+    const gated = advance(exhausted, {
+      name: 'run.iteration.needed',
+      payload: { runId: RUN_ID, blockingFindingIds: [], testsPassed: false },
+    });
+    expect(gated).toMatchObject({
+      outcome: 'transitioned',
+      status: 'awaiting_iteration_gate',
+      commands: [
+        {
+          kind: 'request_gate',
+          runId: RUN_ID,
+          gate: 'iteration_extension',
+          payload: { iterationCount: 2, iterationBudget: 2 },
+        },
+      ],
+    });
+  });
+
+  it('iteration gate: approval grants one more coding round; rejection proceeds to packaging', () => {
+    const parked: RunSnapshot = {
+      ...initialRun(mvpPolicy('autonomous')),
+      status: 'awaiting_iteration_gate',
+      currentStage: 'test',
+      iterationCount: 2,
+    };
+    expect(advance(parked, gateResolved('iteration_extension', 'approved'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      currentStage: 'code',
+      iterationCount: 3,
+    });
+    expect(advance(parked, gateResolved('iteration_extension', 'rejected'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'packaging',
+      currentStage: 'package',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'package' }],
+    });
+  });
+
   it('ignores a gate resolution that does not match the parked gate', () => {
     const { run } = replay(initialRun(mvpPolicy('plan_gated')), [
       created,

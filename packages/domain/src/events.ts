@@ -72,6 +72,14 @@ export const EventPayloads = {
     outputTokens: z.number().int().nonnegative(),
     costUsd: z.number().nonnegative(),
   }),
+  // Emitted by the test stage when blocking findings or failing tests remain.
+  // The engine — not the emitter — decides between a fix iteration and the
+  // iteration gate (docs/05 §5).
+  'run.iteration.needed': z.object({
+    runId: z.string().uuid(),
+    blockingFindingIds: z.array(z.string().uuid()).default([]),
+    testsPassed: z.boolean(),
+  }),
   'budget.exhausted': z.object({
     runId: z.string().uuid(),
     limitUsd: z.number(),

@@ -6,11 +6,23 @@ This is not a coding agent. It is the machinery around agents: pipeline orchestr
 
 ## Status
 
-**Phase 0 — Foundations** ([roadmap](docs/10-roadmap.md)): the monorepo skeleton, deterministic
-`advance()` engine with replay tests, Postgres schema + transactional outbox, Model Gateway v1
-(Anthropic + OpenAI adapters, ledger, budget guard), pg-boss worker, and operator CLI are built.
-The trivial pipeline (intake → echo agent → done) runs end-to-end and survives worker crashes.
-The API and web UI arrive with Phase 1.
+**Phase 1 — MVP complete** ([roadmap](docs/10-roadmap.md)): the full linear pipeline runs end to
+end — intake → classify → research → plan → **plan gate** → code (agent in an isolated git
+worktree) → review → test → **iteration loop** → package → **final PR gate** — on the Phase 0
+foundations (deterministic `advance()` engine, transactional outbox, Model Gateway, pg-boss
+worker). Phase 1 delivers:
+
+- **Project Brain v1** — structural repo index + curated rules, always injected into agent context
+- **Typed agents** (classifier/research/planner/reviewer) with invalid-output retry; deterministic
+  mock roster via `MOCK_MODELS=true` (no API key needed — one planted finding exercises iteration)
+- **Pluggable coding executor** — `cli` wraps a headless agent CLI (Claude Code by default) in a
+  worktree; credentials never enter the sandbox
+- **Jira read integration** — `run start --jira KEY`, webhook trigger, PR-link comment write-back
+- **GitHub** — branch push + PR with plan/review/test evidence in the body
+- **Control plane API** (NestJS/Fastify) — REST + SSE live run streams, bearer-token single-user auth
+- **Web UI** (Next.js) — runs list, run detail with live updates, gate approval screens, knowledge
+  editor, model profile settings, per-run cost
+- **Per-project model profiles** — resolution cascade project → org → platform default
 
 ### Quickstart
 
@@ -24,8 +36,18 @@ node apps/cli/dist/main.js seed
 node apps/worker/dist/main.js &                            # or: pnpm --filter @ai-system/worker dev
 
 echo '# My first ticket' > ticket.md
-node apps/cli/dist/main.js run start ticket.md
+node apps/cli/dist/main.js run start ticket.md            # trivial pipeline
 node apps/cli/dist/main.js run status <run-id>
+
+# Full MVP pipeline against a real repository (mock mode needs no API key):
+node apps/cli/dist/main.js repo register /path/to/repo --test-command 'npm test'
+MOCK_MODELS=true node apps/worker/dist/main.js &
+node apps/cli/dist/main.js run start ticket.md --pipeline mvp
+node apps/cli/dist/main.js gate list                      # approve the plan, then the final PR
+
+# Or drive everything from the API + web UI:
+node apps/api/dist/main.js &                              # control plane on :3001
+pnpm --filter @ai-system/web start &                      # UI on :3000
 ```
 
 `pnpm test` runs the engine replay tests and gateway tests; no database or API key required.

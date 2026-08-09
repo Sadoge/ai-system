@@ -3,14 +3,33 @@ import { agentRuns, pipelineRuns, stageExecutions, type Db } from '@ai-system/db
 import { StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
 import { applyEvent } from '@ai-system/orchestration';
 import { createArtifact } from './artifacts.js';
+import {
+  classifyStage,
+  codeStage,
+  packageStage,
+  planStage,
+  researchStage,
+  reviewStage,
+  testStage,
+} from './mvp-stages.js';
+import type { StageServices } from './services.js';
 
-/**
- * Phase 0 stage handlers for the trivial pipeline (docs/10 Phase 0):
- * intake validates and snapshots the ticket; echo_agent is a deterministic
- * stand-in for a real agent — it exercises the whole execution path
- * (agent_runs row, artifact, completion event) without needing an API key.
- */
-export async function executeStage(db: Db, input: { runId: string; stage: string }): Promise<void> {
+export interface StageOutcome {
+  artifactIds: string[];
+  /**
+   * True when the handler emitted its own transition event (epic
+   * classification, iteration needed) — stage.completed must not fire.
+   */
+  suppressCompletion?: boolean;
+}
+
+export type RunRow = typeof pipelineRuns.$inferSelect;
+
+export async function executeStage(
+  services: StageServices,
+  input: { runId: string; stage: string },
+): Promise<void> {
+  const { db } = services;
   const stage = StageKind.parse(input.stage);
   const runRows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, input.runId));
   const run = runRows[0];
@@ -33,15 +52,17 @@ export async function executeStage(db: Db, input: { runId: string; stage: string
   });
 
   try {
-    const artifactIds = await runStage(db, stage, run);
+    const outcome = await runStage(services, stage, run);
     await db
       .update(stageExecutions)
       .set({ status: 'completed', finishedAt: new Date() })
       .where(eq(stageExecutions.id, stageExecutionId));
-    await applyEvent(db, {
-      name: 'run.stage.completed',
-      payload: { runId: run.id, stageExecutionId, stage, artifactIds },
-    });
+    if (!outcome.suppressCompletion) {
+      await applyEvent(db, {
+        name: 'run.stage.completed',
+        payload: { runId: run.id, stageExecutionId, stage, artifactIds: outcome.artifactIds },
+      });
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     await db
@@ -55,30 +76,46 @@ export async function executeStage(db: Db, input: { runId: string; stage: string
   }
 }
 
-type RunRow = typeof pipelineRuns.$inferSelect;
-
-async function runStage(db: Db, stage: StageKind, run: RunRow): Promise<string[]> {
+async function runStage(
+  services: StageServices,
+  stage: StageKind,
+  run: RunRow,
+): Promise<StageOutcome> {
   switch (stage) {
     case 'intake':
-      return intakeStage(db, run);
+      return intakeStage(services.db, run);
     case 'echo_agent':
-      return echoAgentStage(db, run);
+      return echoAgentStage(services.db, run);
+    case 'classify':
+      return classifyStage(services, run);
+    case 'research':
+      return researchStage(services, run);
+    case 'plan':
+      return planStage(services, run);
+    case 'code':
+      return codeStage(services, run);
+    case 'review':
+      return reviewStage(services, run);
+    case 'test':
+      return testStage(services, run);
+    case 'package':
+      return packageStage(services, run);
     default:
-      throw new Error(`stage ${stage} has no Phase 0 handler`);
+      throw new Error(`stage ${stage} has no handler`);
   }
 }
 
-async function intakeStage(db: Db, run: RunRow): Promise<string[]> {
+async function intakeStage(db: Db, run: RunRow): Promise<StageOutcome> {
   const ticket = TicketSnapshot.parse(run.ticket);
   const { artifactId } = await createArtifact(db, {
     runId: run.id,
     kind: 'ticket_snapshot',
     content: ticket,
   });
-  return [artifactId];
+  return { artifactIds: [artifactId] };
 }
 
-async function echoAgentStage(db: Db, run: RunRow): Promise<string[]> {
+async function echoAgentStage(db: Db, run: RunRow): Promise<StageOutcome> {
   const ticket = TicketSnapshot.parse(run.ticket);
   const agentRunId = uuidv7();
   await db.insert(agentRuns).values({
@@ -104,5 +141,5 @@ async function echoAgentStage(db: Db, run: RunRow): Promise<string[]> {
     .update(agentRuns)
     .set({ status: 'succeeded', finishedAt: new Date() })
     .where(eq(agentRuns.id, agentRunId));
-  return [artifactId];
+  return { artifactIds: [artifactId] };
 }

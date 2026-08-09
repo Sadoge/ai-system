@@ -13,8 +13,10 @@
     "dev": "tsx src/main.ts"
   },
   "dependencies": {
+    "@ai-system/brain": "workspace:*",
     "@ai-system/db": "workspace:*",
     "@ai-system/domain": "workspace:*",
+    "@ai-system/integrations": "workspace:*",
     "@ai-system/orchestration": "workspace:*",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.38.3"

@@ -90,6 +90,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@ai-system/agent-execution':
+        specifier: workspace:*
+        version: link:../../packages/contexts/agent-execution
       '@ai-system/brain':
         specifier: workspace:*
         version: link:../../packages/contexts/brain

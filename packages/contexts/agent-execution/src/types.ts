@@ -27,9 +27,24 @@ export interface AgentExecutionInput {
   limits: { timeoutMs: number };
 }
 
+/** What an execution cost, when the executor can tell us (CLIs report their own spend). */
+export interface AgentExecutionUsage {
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  model?: string;
+}
+
 export type AgentExecutionResult =
-  | { status: 'succeeded'; transcript: string }
-  | { status: 'failed'; failureReason: AgentFailureReason; transcript: string };
+  | { status: 'succeeded'; transcript: string; usage?: AgentExecutionUsage }
+  | {
+      status: 'failed';
+      failureReason: AgentFailureReason;
+      transcript: string;
+      usage?: AgentExecutionUsage;
+      /** Operator-facing hint, e.g. a missing binary. */
+      note?: string;
+    };
 
 export interface AgentExecutor {
   readonly executorKind: 'cli' | 'scripted' | 'api_loop';

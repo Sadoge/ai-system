@@ -109,6 +109,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                     {deps && <span className="ml-2 text-xs text-zinc-500">after: {deps}</span>}
                     {task.error && <span className="ml-2 text-xs text-red-400">{task.error}</span>}
                   </span>
+                  {task.executorKind && (
+                    <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-400">
+                      {task.executorKind}
+                    </span>
+                  )}
                   {task.origin === 'fix_iteration' && (
                     <span className="rounded bg-amber-950 px-2 py-0.5 font-mono text-xs text-amber-300">
                       fix

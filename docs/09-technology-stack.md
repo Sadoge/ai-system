@@ -16,7 +16,7 @@ Confirmed direction: **TypeScript end-to-end, custom Postgres-backed orchestrati
 | Frontend | Next.js (App Router) + Tailwind + shadcn/ui | Remix, SPA |
 | Realtime (logs, timeline) | SSE from the event stream | WebSockets (not needed for one-way feeds) |
 | Repo indexing | tree-sitter (via node bindings) + `simple-git` | LSP servers per language (heavier, later) |
-| Coding agent (MVP executor) | Headless agent CLI in worktrees (e.g. Claude Code non-interactive) behind `AgentExecutor` | build `api_loop` first (slower to value) |
+| Coding agent | Pluggable per repository behind `AgentExecutor`: Claude Code CLI, Codex CLI, or the platform's own `api_loop` | committing to a single vendor CLI |
 | LLM SDKs | official provider SDKs wrapped by our adapters | LiteLLM proxy (see §4) |
 | Validation | Zod (source of truth) + generated JSON Schema for structured outputs | — |
 | Auth | Auth.js (email/OAuth) + org membership model; API keys for CLI/webhooks | Clerk/Auth0 (external dependency + cost) |

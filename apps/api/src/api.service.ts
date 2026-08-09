@@ -89,6 +89,8 @@ export class ApiService {
     name?: string | undefined;
     defaultBranch: string;
     testCommand?: string | undefined;
+    executor?: string | undefined;
+    executorModel?: string | undefined;
     projectId?: string | undefined;
   }) {
     const project = await this.pickProject(input.projectId);
@@ -100,7 +102,11 @@ export class ApiService {
       name: input.name ?? input.remoteUrl.split('/').pop() ?? input.remoteUrl,
       remoteUrl: input.remoteUrl,
       defaultBranch: input.defaultBranch,
-      settings: input.testCommand ? { testCommand: input.testCommand } : {},
+      settings: {
+        ...(input.testCommand ? { testCommand: input.testCommand } : {}),
+        ...(input.executor ? { executor: input.executor } : {}),
+        ...(input.executorModel ? { executorModel: input.executorModel } : {}),
+      },
     });
     return { repositoryId: id };
   }

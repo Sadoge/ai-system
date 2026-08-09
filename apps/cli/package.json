@@ -13,6 +13,7 @@
     "dev": "tsx src/main.ts"
   },
   "dependencies": {
+    "@ai-system/agent-execution": "workspace:*",
     "@ai-system/brain": "workspace:*",
     "@ai-system/db": "workspace:*",
     "@ai-system/domain": "workspace:*",

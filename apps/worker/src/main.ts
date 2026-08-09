@@ -20,6 +20,7 @@ import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import { ApiLoopAgentExecutor, CliAgentExecutor } from '@ai-system/agent-execution';
 import { OutboxDispatcher } from './outbox-dispatcher.js';
+import { WebhookNotifier } from './webhook-notifier.js';
 import { executeStage, runTask } from './stages.js';
 import { distillKnowledge } from './learning.js';
 import { resolveExecutor } from './executors.js';
@@ -229,11 +230,14 @@ async function main(): Promise<void> {
 
   const dispatcher = new OutboxDispatcher(db, boss, log);
   dispatcher.start();
+  const webhooks = new WebhookNotifier(db, log);
+  webhooks.start();
   log.info('worker started');
 
   const shutdown = async () => {
     log.info('shutting down');
     await dispatcher.stop();
+    await webhooks.stop();
     await boss.stop();
     await pool.end();
     process.exit(0);

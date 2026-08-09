@@ -16,6 +16,7 @@ const NAV = [
   { href: '/knowledge/inbox', label: 'Inbox' },
   { href: '/brain', label: 'Brain' },
   { href: '/settings/models', label: 'Models' },
+  { href: '/settings/webhooks', label: 'Webhooks' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

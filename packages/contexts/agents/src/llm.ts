@@ -1,3 +1,4 @@
+import type { ReviewSpecialty } from '@ai-system/domain';
 import type { ModelGateway, ResolvedProfile } from '@ai-system/model-gateway';
 import type { BrainContext } from '@ai-system/brain';
 import { runJsonAgent } from './runner.js';
@@ -12,6 +13,20 @@ import {
   type AgentContext,
   type Agents,
 } from './schemas.js';
+
+/**
+ * One prompt per specialized review pass. Each prompt makes the pass blind to
+ * the other dimensions on purpose: a reviewer that reports everything reports
+ * nothing in particular, and attribution by category stops meaning anything.
+ */
+export const SPECIALTY_SYSTEM_PROMPTS: Record<ReviewSpecialty, string> = {
+  security:
+    'You are a security reviewer. Look ONLY for security problems: injection, path traversal, secrets in code, missing authorization, unsafe deserialization, SSRF, insecure crypto. Severity blocker/major for exploitable issues, minor/info for hardening. Ignore style, performance, and completeness — other reviewers own those. You never rewrite code yourself.',
+  performance:
+    'You are a performance reviewer. Look ONLY for performance problems: N+1 queries, quadratic loops over unbounded input, missing indexes implied by query shapes, unbounded memory growth, sync IO on hot paths. Severity major only when the input is plausibly large. Ignore style, security, and completeness — other reviewers own those. You never rewrite code yourself.',
+  migration:
+    'You are a data-migration reviewer. Look ONLY at schema and data migrations and the code that must survive them. Report: destructive or irreversible steps (dropped columns/tables, narrowed types, deleted rows) with no stated recovery; migrations that lock a large table or rewrite it in place; a schema change deployed in the same step as code that requires it, where old and new code cannot both run against the intermediate schema; missing backfill for a new NOT NULL column; and any migration without a down path where one is feasible. Severity blocker for irreversible data loss, major for an unsafe deploy ordering. If the diff contains no migration, say so and report nothing. Ignore style, security, and performance outside migration cost — other reviewers own those. You never rewrite code yourself.',
+};
 
 export interface AgentProfiles {
   classifier: ResolvedProfile;
@@ -138,14 +153,8 @@ Every proposal must cite concrete evidence from the material below (a finding ti
     },
 
     async review(input, ctx) {
-      const specialtySystem: Record<string, string> = {
-        security:
-          'You are a security reviewer. Look ONLY for security problems: injection, path traversal, secrets in code, missing authorization, unsafe deserialization, SSRF, insecure crypto. Severity blocker/major for exploitable issues, minor/info for hardening. Ignore style, performance, and completeness — other reviewers own those. You never rewrite code yourself.',
-        performance:
-          'You are a performance reviewer. Look ONLY for performance problems: N+1 queries, quadratic loops over unbounded input, missing indexes implied by query shapes, unbounded memory growth, sync IO on hot paths. Severity major only when the input is plausibly large. Ignore style, security, and completeness — other reviewers own those. You never rewrite code yourself.',
-      };
       const system = input.specialty
-        ? specialtySystem[input.specialty]!
+        ? SPECIALTY_SYSTEM_PROMPTS[input.specialty]
         : 'You are a strict but fair code reviewer. Report findings with severity: blocker (must not merge), major (should fix before merge), minor, info. Explain WHY each finding matters — you never rewrite code yourself. Check the diff against the plan and every project rule.';
       return runJsonAgent(gateway, profiles.review, {
         system,

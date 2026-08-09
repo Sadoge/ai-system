@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
-import { GateDecisionKind, KnowledgeKind, TicketSnapshot } from '@ai-system/domain';
+import { GateDecisionKind, KnowledgeKind, ReviewSpecialty, TicketSnapshot } from '@ai-system/domain';
 
 // Zod is the request contract (docs/09 §2); every body is parsed before use.
 export function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.infer<S> {
@@ -50,7 +50,7 @@ export const RegisterRepoBody = z.object({
   /** Which coding agent runs this repository's tasks. */
   executor: z.enum(['claude_code', 'codex', 'api_loop', 'scripted']).optional(),
   executorModel: z.string().optional(),
-  reviewers: z.array(z.enum(['security', 'performance'])).optional(),
+  reviewers: z.array(ReviewSpecialty).optional(),
   projectId: z.string().uuid().optional(),
 });
 
@@ -89,3 +89,12 @@ export const CatalogEntryBody = z.object({
 export const JiraWebhookBody = z.object({
   issue: z.object({ key: z.string() }).passthrough(),
 });
+
+export const CreateWebhookBody = z.object({
+  url: z.string().url(),
+  description: z.string().optional(),
+  /** Event names, or prefixes ending in `.*`. Empty means every event. */
+  events: z.array(z.string()).optional(),
+});
+
+export const WebhookActiveBody = z.object({ active: z.boolean() });

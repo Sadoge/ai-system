@@ -72,3 +72,70 @@ describe('linearConfigFromEnv', () => {
     });
   });
 });
+
+describe('parseBitbucketRemote', () => {
+  it('parses Bitbucket Cloud https and ssh remotes only', async () => {
+    const { parseBitbucketRemote } = await import('../src/bitbucket.js');
+    expect(parseBitbucketRemote('https://bitbucket.org/team/app.git')).toEqual({
+      workspace: 'team',
+      repoSlug: 'app',
+    });
+    expect(parseBitbucketRemote('git@bitbucket.org:team/app.git')).toEqual({
+      workspace: 'team',
+      repoSlug: 'app',
+    });
+    // Server/Data Center speaks a different API; claiming it here would 404 later.
+    expect(parseBitbucketRemote('https://bitbucket.mycorp.com/scm/team/app.git')).toBeNull();
+    expect(parseBitbucketRemote('https://github.com/owner/repo.git')).toBeNull();
+  });
+
+  it('builds push credentials without leaking them into git config', async () => {
+    const { bitbucketAuthFromEnv, bitbucketPushCredentials } = await import('../src/bitbucket.js');
+    expect(bitbucketAuthFromEnv({} as NodeJS.ProcessEnv)).toBeNull();
+    const tokenAuth = bitbucketAuthFromEnv({ BITBUCKET_TOKEN: 't' } as NodeJS.ProcessEnv)!;
+    expect(bitbucketPushCredentials(tokenAuth)).toBe('x-token-auth:t');
+    const appAuth = bitbucketAuthFromEnv({
+      BITBUCKET_USERNAME: 'a b',
+      BITBUCKET_APP_PASSWORD: 'p/w',
+    } as NodeJS.ProcessEnv)!;
+    expect(bitbucketPushCredentials(appAuth)).toBe('a%20b:p%2Fw');
+  });
+});
+
+describe('azure devops intake', () => {
+  it('flattens work-item HTML into readable text', async () => {
+    const { htmlToText } = await import('../src/azure-devops.js');
+    expect(htmlToText('<p>First line</p><ul><li>one</li><li>two</li></ul>')).toBe(
+      'First line\n- one\n- two',
+    );
+    expect(htmlToText('a &amp; b<br>c')).toBe('a & b\nc');
+    expect(htmlToText('')).toBe('');
+  });
+
+  it('accepts a bare id or a fully qualified reference', async () => {
+    const { parseWorkItemRef } = await import('../src/azure-devops.js');
+    const config = { organization: 'envOrg', project: 'envProject', pat: 'x' };
+    expect(parseWorkItemRef('1234', config)).toEqual({
+      organization: 'envOrg',
+      project: 'envProject',
+      id: '1234',
+    });
+    expect(parseWorkItemRef('otherOrg/otherProject/99', config)).toEqual({
+      organization: 'otherOrg',
+      project: 'otherProject',
+      id: '99',
+    });
+  });
+
+  it('requires all three environment variables', async () => {
+    const { azureDevOpsConfigFromEnv } = await import('../src/azure-devops.js');
+    expect(azureDevOpsConfigFromEnv({ AZURE_DEVOPS_ORG: 'o' } as NodeJS.ProcessEnv)).toBeNull();
+    expect(
+      azureDevOpsConfigFromEnv({
+        AZURE_DEVOPS_ORG: 'o',
+        AZURE_DEVOPS_PROJECT: 'p',
+        AZURE_DEVOPS_PAT: 't',
+      } as NodeJS.ProcessEnv),
+    ).toEqual({ organization: 'o', project: 'p', pat: 't' });
+  });
+});

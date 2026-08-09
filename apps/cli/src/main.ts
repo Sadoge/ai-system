@@ -34,7 +34,9 @@ import {
   uuidv7,
 } from '@ai-system/domain';
 import {
+  PRIOR_MIN_SAMPLE,
   addManualKnowledge,
+  contextEffectiveness,
   decideKnowledge,
   listKnowledge as listKnowledgeItems,
   promoteKnowledge,
@@ -54,11 +56,23 @@ import {
   type Role,
 } from '@ai-system/tenancy';
 import {
+  azureDevOpsConfigFromEnv,
+  fetchAzureDevOpsTicket,
   fetchJiraTicket,
   fetchLinearTicket,
   jiraConfigFromEnv,
   linearConfigFromEnv,
 } from '@ai-system/integrations';
+import {
+  createEndpoint,
+  deleteEndpoint,
+  endpointStats,
+  listDeliveries,
+  listEndpoints,
+  redeliver,
+  rotateEndpointSecret,
+  setEndpointActive,
+} from '@ai-system/webhooks';
 import {
   compareEvalRun,
   listTasks,
@@ -232,7 +246,7 @@ repoCmd
     'coding agent: claude_code | codex | api_loop | scripted (default: claude_code)',
   )
   .option('--executor-model <model>', 'model passed to the coding agent CLI')
-  .option('--reviewers <list>', 'comma-separated specialized review passes: security,performance')
+  .option('--reviewers <list>', 'comma-separated specialized review passes: security,performance,migration')
   .action(
     withDb(
       async (
@@ -313,6 +327,10 @@ runCmd
   .option('--repo <id>', 'repository id (defaults to the only repo of the project)')
   .option('--jira <issue-key>', 'fetch the ticket from Jira (needs JIRA_BASE_URL/EMAIL/API_TOKEN)')
   .option('--linear <identifier>', 'fetch the ticket from Linear (needs LINEAR_API_KEY)')
+  .option(
+    '--azure <work-item>',
+    'fetch an Azure DevOps work item: "1234" or "org/project/1234" (needs AZURE_DEVOPS_*)',
+  )
   .action(
     withDb(
       async (
@@ -325,6 +343,7 @@ runCmd
           repo?: string;
           jira?: string;
           linear?: string;
+          azure?: string;
         },
       ) => {
         let ticket: TicketSnapshot;
@@ -336,10 +355,20 @@ runCmd
           const linear = linearConfigFromEnv();
           if (!linear) throw new Error('Linear env not configured (LINEAR_API_KEY)');
           ticket = await fetchLinearTicket(linear, opts.linear);
+        } else if (opts.azure) {
+          const azure = azureDevOpsConfigFromEnv();
+          if (!azure) {
+            throw new Error(
+              'Azure DevOps env not configured (AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT)',
+            );
+          }
+          ticket = await fetchAzureDevOpsTicket(azure, opts.azure);
         } else if (ticketFile) {
           ticket = readTicketFile(ticketFile);
         } else {
-          throw new Error('pass a ticket file, --jira <issue-key>, or --linear <identifier>');
+          throw new Error(
+            'pass a ticket file, --jira <issue-key>, --linear <identifier>, or --azure <work-item>',
+          );
         }
         const project = await pickProject(db, opts.project);
         let repositoryId: string | undefined;
@@ -653,6 +682,192 @@ knowledgeCmd
     }),
   );
 
+const webhookCmd = program
+  .command('webhook')
+  .description('outbound webhooks — subscribe an external system to run events');
+
+webhookCmd
+  .command('add <url>')
+  .description('subscribe an endpoint; the signing secret is printed once')
+  .option('--events <list>', 'comma-separated event names or prefixes like "run.*" (default: all)')
+  .option('--description <text>', 'what this endpoint is for', '')
+  .action(
+    withDb(async (db, url: string, opts: { events?: string; description: string }) => {
+      const org = await pickOrganization(db);
+      const events = opts.events
+        ? opts.events.split(',').map((e) => e.trim()).filter(Boolean)
+        : [];
+      const created = await createEndpoint(db, {
+        organizationId: org.id,
+        url,
+        description: opts.description,
+        events,
+      });
+      console.log(`webhook endpoint: ${created.id}`);
+      console.log(`signing secret:   ${created.secret}`);
+      console.log('\nStore the secret now — it is not recoverable.');
+      console.log('Verify deliveries with HMAC-SHA256 over "<timestamp>.<body>".');
+    }),
+  );
+
+webhookCmd
+  .command('list')
+  .description('endpoints with delivery counts')
+  .action(
+    withDb(async (db) => {
+      const org = await pickOrganization(db);
+      const endpoints = await listEndpoints(db, org.id);
+      const stats = new Map((await endpointStats(db, org.id)).map((s) => [s.id, s]));
+      if (endpoints.length === 0) {
+        console.log('no webhook endpoints — add one with `ai-system webhook add <url>`');
+        return;
+      }
+      for (const endpoint of endpoints) {
+        const stat = stats.get(endpoint.id);
+        console.log(
+          `${endpoint.id}  ${endpoint.active ? 'active  ' : 'disabled'}  ${endpoint.url}`,
+        );
+        console.log(
+          `  events: ${endpoint.events.length ? endpoint.events.join(', ') : 'all'}` +
+            `  delivered: ${stat?.delivered ?? 0}  pending: ${stat?.pending ?? 0}  failed: ${stat?.failed ?? 0}`,
+        );
+      }
+    }),
+  );
+
+webhookCmd
+  .command('disable <endpoint-id>')
+  .description('stop delivering to an endpoint without deleting its history')
+  .action(
+    withDb(async (db, endpointId: string) => {
+      const org = await pickOrganization(db);
+      if (!(await setEndpointActive(db, org.id, endpointId, false))) {
+        throw new Error(`unknown webhook endpoint ${endpointId}`);
+      }
+      console.log('disabled');
+    }),
+  );
+
+webhookCmd
+  .command('enable <endpoint-id>')
+  .description('resume delivery')
+  .action(
+    withDb(async (db, endpointId: string) => {
+      const org = await pickOrganization(db);
+      if (!(await setEndpointActive(db, org.id, endpointId, true))) {
+        throw new Error(`unknown webhook endpoint ${endpointId}`);
+      }
+      console.log('enabled');
+    }),
+  );
+
+webhookCmd
+  .command('rotate-secret <endpoint-id>')
+  .description('issue a new signing secret; the old one stops working immediately')
+  .action(
+    withDb(async (db, endpointId: string) => {
+      const org = await pickOrganization(db);
+      const rotated = await rotateEndpointSecret(db, org.id, endpointId);
+      if (!rotated) throw new Error(`unknown webhook endpoint ${endpointId}`);
+      console.log(`new signing secret: ${rotated.secret}`);
+    }),
+  );
+
+webhookCmd
+  .command('rm <endpoint-id>')
+  .description('delete an endpoint')
+  .action(
+    withDb(async (db, endpointId: string) => {
+      const org = await pickOrganization(db);
+      if (!(await deleteEndpoint(db, org.id, endpointId))) {
+        throw new Error(`unknown webhook endpoint ${endpointId}`);
+      }
+      console.log('deleted');
+    }),
+  );
+
+webhookCmd
+  .command('deliveries')
+  .description('recent delivery attempts')
+  .option('--endpoint <id>', 'only this endpoint')
+  .option('--limit <n>', 'how many', '20')
+  .action(
+    withDb(async (db, opts: { endpoint?: string; limit: string }) => {
+      const org = await pickOrganization(db);
+      const rows = await listDeliveries(db, org.id, {
+        ...(opts.endpoint ? { endpointId: opts.endpoint } : {}),
+        limit: Number(opts.limit),
+      });
+      if (rows.length === 0) {
+        console.log('no deliveries yet');
+        return;
+      }
+      for (const row of rows) {
+        console.log(
+          `${row.id}  ${row.status.padEnd(9)} ${row.eventName.padEnd(26)} ` +
+            `attempts: ${row.attempts}${row.lastError ? `  last error: ${row.lastError}` : ''}`,
+        );
+      }
+    }),
+  );
+
+webhookCmd
+  .command('redeliver <delivery-id>')
+  .description('re-queue a failed delivery')
+  .action(
+    withDb(async (db, deliveryId: string) => {
+      const org = await pickOrganization(db);
+      if (!(await redeliver(db, org.id, deliveryId))) {
+        throw new Error(`unknown delivery ${deliveryId}`);
+      }
+      console.log('queued for redelivery');
+    }),
+  );
+
+const brainCmd = program.command('brain').description('Project Brain diagnostics');
+
+brainCmd
+  .command('effectiveness')
+  .description('which retrieved context correlates with first-pass success (correlation, not cause)')
+  .option('--project <id>', 'restrict to one project')
+  .action(
+    withDb(async (db, opts: { project?: string }) => {
+      const org = await pickOrganization(db);
+      const project = opts.project ? await pickProject(db, opts.project) : null;
+      const measured = await contextEffectiveness(db, {
+        organizationId: org.id,
+        ...(project ? { projectId: project.id } : {}),
+      });
+      console.log(
+        `baseline first-pass rate: ${(measured.baselineFirstPassRate * 100).toFixed(1)}% ` +
+          `over ${measured.baselineRuns} settled run(s)`,
+      );
+      if (measured.rows.length === 0) {
+        console.log('no context grants recorded yet — run the pipeline a few times first');
+        return;
+      }
+      console.log(
+        `\n${'source'.padEnd(16)}${'section'.padEnd(10)}${'runs'.padEnd(6)}${'first-pass'.padEnd(12)}title`,
+      );
+      for (const row of measured.rows) {
+        const rate =
+          row.settledRuns >= PRIOR_MIN_SAMPLE
+            ? `${(row.firstPassRate * 100).toFixed(0)}%`
+            : `${(row.firstPassRate * 100).toFixed(0)}%*`;
+        console.log(
+          `${row.sourceType.padEnd(16)}${row.section.padEnd(10)}${String(row.settledRuns).padEnd(6)}${rate.padEnd(12)}${row.title.slice(0, 60)}`,
+        );
+      }
+      if (measured.rows.some((row) => row.settledRuns < PRIOR_MIN_SAMPLE)) {
+        console.log(`\n* fewer than ${PRIOR_MIN_SAMPLE} settled runs — no ranking prior is applied.`);
+      }
+      console.log(
+        '\nCorrelation, not cause: material is retrieved because it looks relevant, and the',
+      );
+      console.log('hardest tickets attract the most of it.');
+    }),
+  );
+
 function readTicketFile(path: string): TicketSnapshot {
   const raw = readFileSync(path, 'utf8');
   if (path.endsWith('.json')) return TicketSnapshot.parse(JSON.parse(raw));
@@ -678,6 +893,24 @@ async function pickRepository(db: Db, projectId: string, repoId?: string): Promi
   if (rows.length === 0) throw new Error('no repositories — run `ai-system repo register` first');
   if (rows.length > 1) throw new Error('multiple repositories — pass --repo <id>');
   return rows[0]!.id;
+}
+
+/**
+ * The CLI is an operator tool on one deployment: with a single organization it
+ * needs no flag, and with several AI_SYSTEM_ORG names the one to act on. It
+ * refuses to guess, because guessing here writes to the wrong tenant.
+ */
+async function pickOrganization(db: Db, organizationId?: string) {
+  const wanted = organizationId ?? process.env.AI_SYSTEM_ORG;
+  if (wanted) {
+    const rows = await db.select().from(organizations).where(eq(organizations.id, wanted));
+    if (!rows[0]) throw new Error(`unknown organization ${wanted}`);
+    return rows[0];
+  }
+  const rows = await db.select().from(organizations).limit(2);
+  if (rows.length === 0) throw new Error('no organizations — run `ai-system org bootstrap` first');
+  if (rows.length > 1) throw new Error('multiple organizations — set AI_SYSTEM_ORG=<org-id>');
+  return rows[0]!;
 }
 
 async function pickProject(db: Db, projectId?: string) {

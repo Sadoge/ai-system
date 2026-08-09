@@ -72,27 +72,43 @@ webhooks) is the dominant case, and a session layer can sit on top later
 without changing the principal contract. Roles are a total order rather than a
 matrix. Deployment specifics are in [11-deployment.md](11-deployment.md).
 
-## Phase 4 — The moat (ongoing) — **first delivery landed**
+## Phase 4 — The moat — **delivered**
 
 - `api_loop` coding executor (full platform-owned tool loop) as a first-class alternative to CLI agents.
 - Specialized agents (migration, security review, performance); cross-project knowledge (org-level patterns).
 - Retrieval tuning from outcomes (which context correlates with first-pass success); evaluation harness — replay historical tickets against changed prompts/models/rules and diff outcomes.
-- Public API + webhooks; GitLab/Bitbucket; Linear/Azure DevOps intake.
+- Public API + outbound webhooks; GitHub/GitLab/Bitbucket; Jira/Linear/Azure DevOps intake.
 
-**Implementation notes (first delivery).** The `api_loop` executor became a
-real coding agent: `edit_file` demands a unique exact match (ambiguity is an
-error, never a guess), and `run_command` executes only strings the repository
-itself declared — the model selects from an allowlist, it never composes
-shell. Specialized reviewers (security, performance) run as extra passes per
-repository, attributed through the finding category. The evaluation harness
-replays a historical ticket through the pipeline as configured *today* and
-diffs outcome metrics; eval runs are excluded from analytics and the learning
-loop, so measuring the platform never changes it — and because the final PR
-gate is never disabled, a replay "finishes" at `awaiting_final_approval`.
-Cross-project knowledge is a promotion (`knowledge promote`), and knowledge
-effectiveness is reported as correlation, labeled as such. GitLab MRs and
-Linear intake landed behind the same ports as GitHub and Jira. Bitbucket and
-Azure DevOps remain open.
+**Implementation notes.** The `api_loop` executor became a real coding agent:
+`edit_file` demands a unique exact match (ambiguity is an error, never a
+guess), and `run_command` executes only strings the repository itself declared
+— the model selects from an allowlist, it never composes shell. Specialized
+reviewers run as extra passes per repository, attributed through the finding
+category; the specialty list (`security`, `performance`, `migration`) is data,
+so adding one is an entry plus a prompt. The evaluation harness replays a
+historical ticket through the pipeline as configured *today* and diffs outcome
+metrics; eval runs are excluded from analytics and the learning loop, so
+measuring the platform never changes it — and because the final PR gate is
+never disabled, a replay "finishes" at `awaiting_final_approval`.
+Cross-project knowledge is a promotion (`knowledge promote`).
+
+Retrieval tuning landed as `context_grants`: every assembled context records
+what the run received, and settled outcomes turn that into a bounded ranking
+prior (sample floor of three runs, clamped to ±0.05, applied after
+nearest-neighbour search, never to approved rules). Knowledge effectiveness
+now reads from those grants rather than matching rule titles inside task-spec
+artifacts, which also removed that query's blind spot for offloaded artifacts.
+Every surface labels the result as correlation and shows the sample size.
+
+Git hosts and trackers were pulled behind explicit ports: `gitHostFor` resolves
+GitHub, GitLab, or Bitbucket from the remote and the credentials present, and
+a recognized forge with no credentials now reports that in the package artifact
+instead of silently producing no link. Azure DevOps joined Jira and Linear as
+an intake source with the same PR-link write-back. Outbound webhooks close the
+public-API item: endpoints tail `domain_events` through their own cursor, so
+the orchestration engine keeps no knowledge of subscribers, and deliveries are
+HMAC-signed with a bounded retry schedule that lives where an operator can see
+it.
 
 ## Sequencing rationale & risks
 
@@ -110,4 +126,6 @@ Azure DevOps remain open.
 - **P1:** the machine ships a PR you merge.
 - **P2:** the machine works like a team and gets smarter every run.
 - **P3:** other people can use it.
-- **P4:** it is measurably better at *your* projects than any generic agent — because of the Brain.
+- **P4:** it is measurably better at *your* projects than any generic agent — because of the Brain, and it can now show the measurement.
+
+Phase 4's scope is delivered. What follows is not a phase but a standing agenda: deeper retrieval models as grant history accumulates, more specialized reviewers as real findings justify them, and additional forges and trackers on demand — each one now an adapter behind an existing port rather than a change to the engine.

@@ -12,12 +12,20 @@ import {
   reviewFindings,
   type Db,
 } from '@ai-system/db';
-import { PolicySnapshot, TicketSnapshot, uuidv7 } from '@ai-system/domain';
+import {
+  PolicySnapshot,
+  REVIEW_SPECIALTIES,
+  TicketSnapshot,
+  uuidv7,
+  type ReviewSpecialty,
+} from '@ai-system/domain';
 import { applyEvent } from '@ai-system/orchestration';
 import {
   brainQuery,
   indexRepository,
   latestIndexSnapshot,
+  recordContextGrants,
+  retrievalPriors,
   saveIndexSnapshot,
   type BrainContext,
 } from '@ai-system/brain';
@@ -34,21 +42,10 @@ import {
   renderCodingPrompt,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
-import {
-  addJiraComment,
-  addLinearComment,
-  createMergeRequest,
-  createPullRequest,
-  jiraConfigFromEnv,
-  linearConfigFromEnv,
-  parseGitHubRemote,
-  parseGitLabRemote,
-  pushBranch,
-  pushBranchGitLab,
-  transitionJiraIssue,
-} from '@ai-system/integrations';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
+import { detectGitHost, gitHostFor } from './git-host.js';
+import { notifyTracker } from './trackers.js';
 import { recordExecutorUsage } from './executors.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
@@ -136,7 +133,13 @@ export async function getBrainContext(
     ),
   ].slice(0, 12);
   const query = `${ticket.title}\n${ticket.description}`;
-  return brainQuery(db, {
+  // Outcome priors are read per assembly rather than cached: they change only
+  // when runs settle, and a stale prior would silently outlive the evidence.
+  const priors = await retrievalPriors(db, {
+    organizationId: run.organizationId,
+    projectId: run.projectId,
+  });
+  const context = await brainQuery(db, {
     projectId: run.projectId,
     ...(repo ? { repositoryId: repo.id } : {}),
     index,
@@ -147,7 +150,19 @@ export async function getBrainContext(
       episodic: { query },
     },
     ...(services.embedder ? { embedder: services.embedder } : {}),
+    priors,
   });
+
+  // Record what this run received so its outcome can be attributed later. A
+  // bookkeeping failure must never fail a stage that otherwise has its context.
+  await recordContextGrants(db, {
+    organizationId: run.organizationId,
+    projectId: run.projectId,
+    runId: run.id,
+    context,
+  }).catch(() => ({ recorded: 0 }));
+
+  return context;
 }
 
 export async function openBlockingFindings(db: Db, runId: string) {
@@ -389,10 +404,10 @@ export async function reviewStage(services: StageServices, run: RunRow): Promise
 }
 
 /** Additional review passes a repository has opted into (settings.reviewers). */
-export function specializedReviewersFor(repo: RepoRow | null): ('security' | 'performance')[] {
+export function specializedReviewersFor(repo: RepoRow | null): ReviewSpecialty[] {
   const settings = (repo?.settings ?? {}) as { reviewers?: string[] };
-  return (settings.reviewers ?? []).filter(
-    (r): r is 'security' | 'performance' => r === 'security' || r === 'performance',
+  return (settings.reviewers ?? []).filter((r): r is ReviewSpecialty =>
+    (REVIEW_SPECIALTIES as readonly string[]).includes(r),
   );
 }
 
@@ -469,62 +484,34 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     `- Iterations used: ${run.iterationCount}`,
   ].join('\n');
 
-  // Git-host port: the stage speaks "push branch, open change request";
-  // GitHub and GitLab are interchangeable behind that sentence.
+  // Git-host port: the stage speaks "push branch, open change request"; GitHub,
+  // GitLab, and Bitbucket are interchangeable behind that sentence.
   let prUrl: string | null = null;
   let prError: string | null = null;
-  const githubRef = parseGitHubRemote(repo.remoteUrl);
-  const gitlabRef = parseGitLabRemote(repo.remoteUrl);
-  const gitlabToken = process.env.GITLAB_TOKEN;
-  if (githubRef && services.githubToken) {
+  const host = gitHostFor(repo.remoteUrl, { githubToken: services.githubToken });
+  if (host) {
     try {
       const { checkoutDir } = repoPaths(services, repo.id, run.id);
-      await pushBranch(checkoutDir, branch, githubRef, services.githubToken);
-      const pr = await createPullRequest(githubRef, services.githubToken, {
+      await host.push(checkoutDir, branch);
+      const cr = await host.openChangeRequest({
         title: ticket.title,
         body,
-        head: branch,
-        base: repo.defaultBranch,
-      });
-      prUrl = pr.url;
-    } catch (err) {
-      prError = err instanceof Error ? err.message : String(err);
-    }
-  } else if (gitlabRef && gitlabToken) {
-    try {
-      const { checkoutDir } = repoPaths(services, repo.id, run.id);
-      await pushBranchGitLab(checkoutDir, branch, gitlabRef, gitlabToken);
-      const mr = await createMergeRequest(gitlabRef, gitlabToken, {
-        title: ticket.title,
-        description: body,
         sourceBranch: branch,
         targetBranch: repo.defaultBranch,
       });
-      prUrl = mr.url;
+      prUrl = cr.url;
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
+  } else {
+    // A recognized forge without credentials is a configuration mistake, not a
+    // silent no-op: say so in the artifact so the gate reviewer sees why the
+    // package has a branch but no link.
+    const detected = detectGitHost(repo.remoteUrl);
+    if (detected) prError = `${detected} remote detected but no credentials are configured`;
   }
 
-  // Tracker write-back: the PR link, plus a Jira status transition when the
-  // workflow offers one. None of it can fail packaging — the PR already exists.
-  const jira = jiraConfigFromEnv();
-  if (prUrl && jira && ticket.source === 'jira' && ticket.externalKey) {
-    await addJiraComment(jira, ticket.externalKey, `ai-system opened a pull request: ${prUrl}`).catch(
-      () => {},
-    );
-    const targetStatus = process.env.JIRA_PR_STATUS;
-    if (targetStatus) {
-      await transitionJiraIssue(jira, ticket.externalKey, targetStatus).catch(() => false);
-    }
-  }
-  const linear = linearConfigFromEnv();
-  const linearIssueId = (ticket.raw as { id?: string } | undefined)?.id;
-  if (prUrl && linear && ticket.source === 'linear' && linearIssueId) {
-    await addLinearComment(linear, linearIssueId, `ai-system opened a pull request: ${prUrl}`).catch(
-      () => {},
-    );
-  }
+  const trackerResult = prUrl ? await notifyTracker(ticket, prUrl) : null;
 
   const { artifactId } = await createArtifact(db, {
     runId: run.id,
@@ -537,6 +524,8 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
       diffStat: summarizeDiff((diffArtifact?.content as { diff?: string })?.diff ?? ''),
       prUrl,
       prError,
+      gitHost: host?.name ?? null,
+      tracker: trackerResult,
     },
   });
   return { artifactIds: [artifactId] };

@@ -119,6 +119,12 @@ export function createMockAgents(): Agents {
       // changing any pipeline outcome.
       if (input.specialty) {
         if (input.iterationCount > 0) return { summary: `Mock ${input.specialty} review: clean.`, findings: [] };
+        // The migration pass has nothing to say about a diff with no migration,
+        // which is the honest deterministic answer and keeps the mock roster
+        // faithful to the real prompt's instruction.
+        if (input.specialty === 'migration' && !/migrations?\//i.test(input.diff)) {
+          return { summary: 'Mock migration review: no migration in this diff.', findings: [] };
+        }
         return {
           summary: `Mock ${input.specialty} review: one advisory finding.`,
           findings: [

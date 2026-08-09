@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { Complexity, FindingSeverity, KnowledgeKind, TicketSnapshot } from '@ai-system/domain';
+import {
+  Complexity,
+  FindingSeverity,
+  KnowledgeKind,
+  TicketSnapshot,
+  type ReviewSpecialty,
+} from '@ai-system/domain';
 import type { BrainContext } from '@ai-system/brain';
 
 // Typed agent outputs (docs/06 §2): the ONLY thing an LLM can return is an
@@ -148,7 +154,7 @@ export interface ReviewInput {
    * Absent = the general reviewer. Set = a specialized pass (docs/10 Phase 4)
    * that looks at one dimension only and ignores everything else.
    */
-  specialty?: 'security' | 'performance' | undefined;
+  specialty?: ReviewSpecialty | undefined;
 }
 
 export interface AgentContext {

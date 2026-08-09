@@ -40,6 +40,11 @@ export interface BrainHit {
   title: string;
   content: string;
   score: number;
+  /**
+   * Outcome-derived adjustment already folded into `score`, surfaced so the
+   * brain inspector can show why an item outranks a closer match.
+   */
+  prior?: number;
 }
 
 export interface BrainRule {

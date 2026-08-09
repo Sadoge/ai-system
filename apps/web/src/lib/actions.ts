@@ -60,3 +60,28 @@ export async function addModelProfileAction(formData: FormData): Promise<void> {
   });
   revalidatePath('/settings/models');
 }
+
+export async function createWebhookAction(formData: FormData): Promise<void> {
+  const events = String(formData.get('events') ?? '')
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  await apiPost('/webhooks', {
+    url: String(formData.get('url')),
+    description: String(formData.get('description') ?? '').trim(),
+    events,
+  });
+  revalidatePath('/settings/webhooks');
+}
+
+export async function setWebhookActiveAction(formData: FormData): Promise<void> {
+  const id = String(formData.get('endpointId'));
+  await apiPost(`/webhooks/${id}/active`, { active: formData.get('active') === 'true' });
+  revalidatePath('/settings/webhooks');
+}
+
+export async function redeliverWebhookAction(formData: FormData): Promise<void> {
+  const id = String(formData.get('deliveryId'));
+  await apiPost(`/webhook-deliveries/${id}/redeliver`, {});
+  revalidatePath('/settings/webhooks');
+}

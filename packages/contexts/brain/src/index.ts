@@ -6,3 +6,4 @@ export * from './knowledge.js';
 export * from './embedding.js';
 export * from './chunks.js';
 export * from './episodic.js';
+export * from './retrieval.js';

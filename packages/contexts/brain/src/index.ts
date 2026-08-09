@@ -3,3 +3,6 @@ export * from './indexer.js';
 export * from './store.js';
 export * from './query.js';
 export * from './knowledge.js';
+export * from './embedding.js';
+export * from './chunks.js';
+export * from './episodic.js';

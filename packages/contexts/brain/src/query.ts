@@ -1,14 +1,24 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { knowledgeItems, type Db } from '@ai-system/db';
-import type { BrainContext, BrainNeed, BrainRule, RepoIndex } from './types.js';
+import { semanticSearch } from './chunks.js';
+import type { Embedder } from './embedding.js';
+import type { BrainContext, BrainHit, BrainNeed, BrainRule, RepoIndex } from './types.js';
 
 const MAX_FILE_MAP_ENTRIES = 400;
 const MAX_RELEVANT_FILES = 30;
+const DEFAULT_TOKEN_BUDGET = 12_000;
+
+/** Cheap, stable estimate — good enough to decide what to drop. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
 
 /**
- * The one retrieval facade (docs/08 §2): structural first (deterministic),
- * approved rules ALWAYS included — never rank-filtered. Semantic retrieval
- * lands in Phase 2 behind this same signature.
+ * The one retrieval facade (docs/08 §2). Order matters and is fixed:
+ *   1. structural lookup (deterministic)
+ *   2. approved rules — ALWAYS included, never rank-filtered or trimmed
+ *   3. semantic + episodic hits (ranked, trimmed first under budget pressure)
+ * Correctness constraints must not depend on embedding luck.
  */
 export async function brainQuery(
   db: Db,
@@ -17,41 +27,96 @@ export async function brainQuery(
     repositoryId?: string;
     index: RepoIndex | null;
     need: BrainNeed;
+    /** Optional: without it, semantic and episodic needs are skipped. */
+    embedder?: Embedder;
+    maxTokens?: number;
   },
 ): Promise<BrainContext> {
   const rules = await approvedRules(db, input.projectId, input.repositoryId);
+  const trimmed: BrainContext['trimmed'] = [];
 
-  if (!input.index) return { fileMap: '(no repository index)', relevantFiles: [], rules };
+  // ── 1. structural ──────────────────────────────────────────────────
+  let fileMap = '(no repository index)';
+  let relevantFiles: BrainContext['relevantFiles'] = [];
+  if (input.index) {
+    const sourceFiles = input.index.files.filter((f) => f.role !== 'generated');
+    fileMap = sourceFiles
+      .slice(0, MAX_FILE_MAP_ENTRIES)
+      .map((f) => `${f.path} [${f.role}]`)
+      .join('\n');
 
-  const sourceFiles = input.index.files.filter((f) => f.role !== 'generated');
-  const fileMap = sourceFiles
-    .slice(0, MAX_FILE_MAP_ENTRIES)
-    .map((f) => `${f.path} [${f.role}]`)
-    .join('\n');
+    const keywords = (input.need.structural?.keywords ?? []).map((k) => k.toLowerCase());
+    const explicit = new Set(input.need.structural?.files ?? []);
+    relevantFiles = sourceFiles
+      .filter((f) => f.role === 'source' || f.role === 'test')
+      .map((f) => {
+        let score = explicit.has(f.path) ? 100 : 0;
+        const lower = f.path.toLowerCase();
+        for (const k of keywords) if (lower.includes(k)) score += 10;
+        const exports = input.index!.symbols[f.path] ?? [];
+        for (const k of keywords) {
+          if (exports.some((s) => s.toLowerCase().includes(k))) score += 5;
+        }
+        return { path: f.path, exports, score };
+      })
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+      .slice(0, MAX_RELEVANT_FILES)
+      .map(({ path, exports }) => ({ path, exports }));
+  }
 
-  const keywords = (input.need.structural?.keywords ?? []).map((k) => k.toLowerCase());
-  const explicit = new Set(input.need.structural?.files ?? []);
-  const scored = sourceFiles
-    .filter((f) => f.role === 'source' || f.role === 'test')
-    .map((f) => {
-      let score = explicit.has(f.path) ? 100 : 0;
-      const lower = f.path.toLowerCase();
-      for (const k of keywords) if (lower.includes(k)) score += 10;
-      const exports = input.index!.symbols[f.path] ?? [];
-      for (const k of keywords) {
-        if (exports.some((s) => s.toLowerCase().includes(k))) score += 5;
+  // ── 3. ranked retrieval ────────────────────────────────────────────
+  let related: BrainHit[] = [];
+  let episodes: BrainHit[] = [];
+  if (input.embedder) {
+    if (input.need.semantic) {
+      related = await semanticSearch(db, input.embedder, {
+        projectId: input.projectId,
+        query: input.need.semantic.query,
+        topK: input.need.semantic.topK ?? 5,
+        sourceTypes: ['knowledge_item'],
+      });
+    }
+    if (input.need.episodic) {
+      episodes = await semanticSearch(db, input.embedder, {
+        projectId: input.projectId,
+        query: input.need.episodic.query,
+        topK: input.need.episodic.topK ?? 3,
+        sourceTypes: ['run', 'finding'],
+      });
+    }
+  }
+
+  // ── budget: trim ranked material first, never rules ─────────────────
+  const budget = input.maxTokens ?? DEFAULT_TOKEN_BUDGET;
+  const rulesTokens = rules.reduce((n, r) => n + estimateTokens(r.title + r.content), 0);
+  let used = rulesTokens + estimateTokens(fileMap);
+
+  const fitHits = (hits: BrainHit[], section: string): BrainHit[] => {
+    const kept: BrainHit[] = [];
+    let dropped = 0;
+    for (const hit of hits) {
+      const cost = estimateTokens(hit.title + hit.content);
+      if (used + cost > budget) {
+        dropped++;
+        continue;
       }
-      return { f, score, exports };
-    })
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score || a.f.path.localeCompare(b.f.path))
-    .slice(0, MAX_RELEVANT_FILES);
-
-  return {
-    fileMap,
-    relevantFiles: scored.map((s) => ({ path: s.f.path, exports: s.exports })),
-    rules,
+      used += cost;
+      kept.push(hit);
+    }
+    if (dropped > 0) trimmed.push({ section, dropped });
+    return kept;
   };
+  episodes = fitHits(episodes, 'episodes');
+  related = fitHits(related, 'related');
+
+  if (used > budget && relevantFiles.length > 0) {
+    const before = relevantFiles.length;
+    relevantFiles = relevantFiles.slice(0, Math.max(1, Math.floor(before / 2)));
+    trimmed.push({ section: 'relevantFiles', dropped: before - relevantFiles.length });
+  }
+
+  return { fileMap, relevantFiles, rules, related, episodes, trimmed };
 }
 
 async function approvedRules(

@@ -40,6 +40,7 @@ import {
   jiraConfigFromEnv,
   parseGitHubRemote,
   pushBranch,
+  transitionJiraIssue,
 } from '@ai-system/integrations';
 import { createArtifact } from './artifacts.js';
 import type { StageServices } from './services.js';
@@ -52,30 +53,41 @@ const TEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 type RepoRow = typeof repositories.$inferSelect;
 
-function agentCtx(run: RunRow): AgentContext {
+export function agentCtx(run: RunRow): AgentContext {
   const policy = PolicySnapshot.parse(run.policySnapshot);
   return { runId: run.id, budgetUsd: policy.budgetUsd };
 }
 
-function runBranch(run: RunRow): string {
+export function runBranch(run: RunRow): string {
   return `ai/run-${run.id.slice(-8)}`;
 }
 
-function repoPaths(services: StageServices, repoId: string, runId: string) {
+export function repoPaths(services: StageServices, repoId: string, runId: string) {
   return {
     checkoutDir: join(services.dataDir, 'repos', repoId),
-    worktreeDir: join(services.dataDir, 'worktrees', runId),
+    // The run branch's worktree. Task worktrees are siblings of it.
+    worktreeDir: join(services.dataDir, 'worktrees', runId, 'run'),
   };
 }
 
-async function requireRepo(db: Db, run: RunRow): Promise<RepoRow> {
+export function taskWorktreeDir(services: StageServices, runId: string, taskId: string): string {
+  return join(services.dataDir, 'worktrees', runId, `task-${taskId.slice(-8)}`);
+}
+
+export function taskBranch(run: RunRow, taskId: string): string {
+  // Sibling of the run branch, not a child: git stores refs as files, so
+  // `ai/run-x` and `ai/run-x/t-y` cannot both exist.
+  return `${runBranch(run)}-t-${taskId.slice(-8)}`;
+}
+
+export async function requireRepo(db: Db, run: RunRow): Promise<RepoRow> {
   if (!run.repositoryId) throw new Error('run has no repository — register one and restart');
   const rows = await db.select().from(repositories).where(eq(repositories.id, run.repositoryId));
   if (!rows[0]) throw new Error(`unknown repository ${run.repositoryId}`);
   return rows[0];
 }
 
-async function latestArtifact(db: Db, runId: string, kind: string) {
+export async function latestArtifact(db: Db, runId: string, kind: string) {
   const rows = await db
     .select()
     .from(artifacts)
@@ -85,7 +97,7 @@ async function latestArtifact(db: Db, runId: string, kind: string) {
   return rows[0] ?? null;
 }
 
-async function getBrainContext(
+export async function getBrainContext(
   services: StageServices,
   run: RunRow,
   repo: RepoRow | null,
@@ -110,15 +122,22 @@ async function getBrainContext(
         .filter((w) => w.length > 3),
     ),
   ].slice(0, 12);
+  const query = `${ticket.title}\n${ticket.description}`;
   return brainQuery(db, {
     projectId: run.projectId,
     ...(repo ? { repositoryId: repo.id } : {}),
     index,
-    need: { structural: { keywords }, rules: {} },
+    need: {
+      structural: { keywords },
+      rules: {},
+      semantic: { query },
+      episodic: { query },
+    },
+    ...(services.embedder ? { embedder: services.embedder } : {}),
   });
 }
 
-async function openBlockingFindings(db: Db, runId: string) {
+export async function openBlockingFindings(db: Db, runId: string) {
   return db
     .select()
     .from(reviewFindings)
@@ -409,12 +428,17 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     }
   }
 
-  // MVP Jira write-back: a PR-link comment, nothing more (docs/10).
+  // Jira write-back: the PR link, plus a status transition when the project's
+  // workflow offers one. Neither can fail packaging — the PR already exists.
   const jira = jiraConfigFromEnv();
   if (prUrl && jira && ticket.source === 'jira' && ticket.externalKey) {
     await addJiraComment(jira, ticket.externalKey, `ai-system opened a pull request: ${prUrl}`).catch(
-      () => {}, // comment failure never fails the packaging stage
+      () => {},
     );
+    const targetStatus = process.env.JIRA_PR_STATUS;
+    if (targetStatus) {
+      await transitionJiraIssue(jira, ticket.externalKey, targetStatus).catch(() => false);
+    }
   }
 
   const { artifactId } = await createArtifact(db, {

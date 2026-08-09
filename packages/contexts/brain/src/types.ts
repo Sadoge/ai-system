@@ -28,6 +28,18 @@ export type RepoIndex = z.infer<typeof RepoIndex>;
 export interface BrainNeed {
   structural?: { files?: string[]; keywords?: string[] };
   rules?: { scopeTags?: string[] };
+  /** Ranked retrieval over curated knowledge (patterns, pitfalls, ADRs). */
+  semantic?: { query: string; topK?: number };
+  /** "Have we done something like this before?" — past runs and findings. */
+  episodic?: { query: string; topK?: number };
+}
+
+export interface BrainHit {
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  content: string;
+  score: number;
 }
 
 export interface BrainRule {
@@ -41,4 +53,10 @@ export interface BrainContext {
   fileMap: string;
   relevantFiles: { path: string; exports: string[] }[];
   rules: BrainRule[];
+  /** Semantically retrieved knowledge (patterns, pitfalls, ADRs). */
+  related: BrainHit[];
+  /** Episodic memory: similar past runs and their review findings. */
+  episodes: BrainHit[];
+  /** What was dropped to fit the token budget, for the brain inspector. */
+  trimmed: { section: string; dropped: number }[];
 }

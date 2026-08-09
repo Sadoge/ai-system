@@ -13,7 +13,13 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-haiku-4-5': { inputPerMTok: 1, outputPerMTok: 5 },
   'gpt-4o': { inputPerMTok: 2.5, outputPerMTok: 10 },
   'gpt-4o-mini': { inputPerMTok: 0.15, outputPerMTok: 0.6 },
+  'text-embedding-3-small': { inputPerMTok: 0.02, outputPerMTok: 0 },
+  'text-embedding-3-large': { inputPerMTok: 0.13, outputPerMTok: 0 },
+  'local-hash': { inputPerMTok: 0, outputPerMTok: 0 },
 };
+
+/** Every embedding in the platform is this wide (docs/04: vector(1024)). */
+export const EMBEDDING_DIMENSIONS = 1024;
 
 export function computeCostUsd(
   model: string,

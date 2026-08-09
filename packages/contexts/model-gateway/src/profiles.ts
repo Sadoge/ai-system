@@ -24,6 +24,11 @@ export const PLATFORM_DEFAULT_PROFILES: Record<string, ResolvedProfile> = {
     primary: { provider: 'anthropic', model: 'claude-sonnet-4-5', params: { maxTokens: 8192, temperature: 0 } },
     fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
   },
+  embeddings: {
+    purpose: 'embeddings',
+    primary: { provider: 'openai', model: 'text-embedding-3-small' },
+    fallbacks: [{ provider: 'local', model: 'local-hash' }],
+  },
   echo: {
     purpose: 'echo',
     primary: { provider: 'anthropic', model: 'claude-haiku-4-5', params: { maxTokens: 256, temperature: 0 } },

@@ -25,7 +25,7 @@ function makeOriginRepo(): string {
 const spec: CodingTaskSpec = {
   ticketTitle: 'Add feature',
   planSummary: 'Do the thing',
-  steps: [{ title: 'step one', detail: 'do it', files: [] }],
+  steps: [{ title: 'step one', detail: 'do it', files: ['IMPLEMENTATION_NOTES.md'] }],
   findings: [],
   rules: [],
 };
@@ -71,5 +71,41 @@ describe('worktree lifecycle with scripted executor', () => {
     await commitAll(worktree, 'agent: fix findings');
     const diff2 = await diffAgainst(worktree, 'main');
     expect(diff2).toContain('FIX: Missing FIX marker');
+  });
+
+  it('writes each task to its own file so parallel task branches do not collide', async () => {
+    const origin = makeOriginRepo();
+    const base = mkdtempSync(join(tmpdir(), 'exec-parallel-'));
+    const checkout = join(base, 'checkout');
+    await ensureCheckout(origin, checkout);
+
+    const worktrees = [join(base, 'wt-1'), join(base, 'wt-2')];
+    await ensureWorktree(checkout, worktrees[0]!, 'ai/run/t-1', 'main');
+    await ensureWorktree(checkout, worktrees[1]!, 'ai/run/t-2', 'main');
+
+    // Task 1 declares its file; task 2 declares none, so the name comes from its title.
+    await new ScriptedAgentExecutor().execute({
+      runId: 'r',
+      agentRunId: 'a1',
+      worktreeDir: worktrees[0]!,
+      taskSpec: { ...spec, taskTitle: 'Task one' },
+      limits: { timeoutMs: 5000 },
+    });
+    await new ScriptedAgentExecutor().execute({
+      runId: 'r',
+      agentRunId: 'a2',
+      worktreeDir: worktrees[1]!,
+      taskSpec: {
+        ...spec,
+        taskTitle: 'Design notes',
+        steps: [{ title: 'step', detail: 'd', files: [] }],
+      },
+      limits: { timeoutMs: 5000 },
+    });
+    await commitAll(worktrees[0]!, 'task one');
+    await commitAll(worktrees[1]!, 'task two');
+
+    expect(await diffAgainst(worktrees[0]!, 'main')).toContain('IMPLEMENTATION_NOTES.md');
+    expect(await diffAgainst(worktrees[1]!, 'main')).toContain('design-notes.md');
   });
 });

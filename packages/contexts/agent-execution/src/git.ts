@@ -67,3 +67,112 @@ export async function diffAgainst(worktreeDir: string, baseRef: string): Promise
 export async function removeWorktree(checkoutDir: string, worktreeDir: string): Promise<void> {
   await git(checkoutDir, 'worktree', 'remove', '--force', worktreeDir).catch(() => {});
 }
+
+export type MergeResult =
+  | { status: 'merged' }
+  | { status: 'up_to_date' }
+  | { status: 'conflict'; conflicts: string[] };
+
+/**
+ * Merge a completed task's branch into the run branch. Conflicts are never
+ * force-resolved: the merge is aborted and the conflicting paths reported so
+ * the stage fails with something a human can act on (docs/05 §6).
+ * Idempotent — re-merging an already-merged branch is a no-op.
+ */
+export async function mergeBranch(
+  runWorktreeDir: string,
+  branch: string,
+  message: string,
+): Promise<MergeResult> {
+  const before = (await git(runWorktreeDir, 'rev-parse', 'HEAD')).trim();
+  try {
+    await git(
+      runWorktreeDir,
+      '-c',
+      'user.email=agent@ai-system.local',
+      '-c',
+      'user.name=ai-system integrator',
+      'merge',
+      '--no-ff',
+      '-m',
+      message,
+      branch,
+    );
+  } catch {
+    const conflicts = (await git(runWorktreeDir, 'diff', '--name-only', '--diff-filter=U'))
+      .split('\n')
+      .filter(Boolean);
+    await git(runWorktreeDir, 'merge', '--abort').catch(() => {});
+    return { status: 'conflict', conflicts };
+  }
+  const after = (await git(runWorktreeDir, 'rev-parse', 'HEAD')).trim();
+  return { status: before === after ? 'up_to_date' : 'merged' };
+}
+
+/**
+ * Start a merge and leave the conflicts in the working tree for an agent to
+ * resolve. Returns the conflicted paths, or null when the merge was clean.
+ */
+export async function startMerge(
+  worktreeDir: string,
+  branch: string,
+  message: string,
+): Promise<string[] | null> {
+  try {
+    await git(
+      worktreeDir,
+      '-c',
+      'user.email=agent@ai-system.local',
+      '-c',
+      'user.name=ai-system integrator',
+      'merge',
+      '--no-ff',
+      '-m',
+      message,
+      branch,
+    );
+    return null;
+  } catch {
+    return (await git(worktreeDir, 'diff', '--name-only', '--diff-filter=U'))
+      .split('\n')
+      .filter(Boolean);
+  }
+}
+
+export async function abortMerge(worktreeDir: string): Promise<void> {
+  await git(worktreeDir, 'merge', '--abort').catch(() => {});
+}
+
+/** Commit a merge whose conflicts have been resolved in the working tree. */
+export async function completeMerge(worktreeDir: string, message: string): Promise<void> {
+  await git(worktreeDir, 'add', '-A');
+  await git(
+    worktreeDir,
+    '-c',
+    'user.email=agent@ai-system.local',
+    '-c',
+    'user.name=ai-system integrator',
+    'commit',
+    '-m',
+    message,
+  );
+}
+
+export async function conflictMarkersRemain(worktreeDir: string, paths: string[]): Promise<boolean> {
+  const { readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  for (const path of paths) {
+    try {
+      const content = await readFile(join(worktreeDir, path), 'utf8');
+      if (/^<{7} |^={7}$|^>{7} /m.test(content)) return true;
+    } catch {
+      // A resolution that deleted the file is a valid resolution.
+    }
+  }
+  return false;
+}
+
+export async function branchExists(checkoutDir: string, branch: string): Promise<boolean> {
+  const out = await git(checkoutDir, 'branch', '--list', branch);
+  return out.trim().length > 0;
+}

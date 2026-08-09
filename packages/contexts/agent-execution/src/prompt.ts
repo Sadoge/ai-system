@@ -1,6 +1,26 @@
 import type { CodingTaskSpec } from './types.js';
 
 /** Render the persisted context bundle into the coding agent's prompt. */
+/** Prompt for the conflict-resolution agent (docs/05 §6). */
+export function renderConflictPrompt(input: {
+  ticketTitle: string;
+  taskTitle: string;
+  conflicts: string[];
+}): string {
+  return `# Resolve merge conflicts
+
+Merging task "${input.taskTitle}" into the run branch for "${input.ticketTitle}" produced conflicts.
+
+## Conflicted files
+${input.conflicts.map((c) => `- ${c}`).join('\n')}
+
+## Instructions
+- Edit each conflicted file so it keeps the intent of BOTH sides.
+- Remove every conflict marker (<<<<<<<, =======, >>>>>>>).
+- Do not run git commands; the platform commits the resolution.
+- If two changes genuinely contradict, stop and leave the markers in place rather than guessing.`;
+}
+
 export function renderCodingPrompt(spec: CodingTaskSpec): string {
   const findings =
     spec.findings.length > 0

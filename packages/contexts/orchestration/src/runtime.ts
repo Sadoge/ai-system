@@ -1,15 +1,25 @@
-import { and, eq } from 'drizzle-orm';
-import { domainEvents, outbox, pipelineRuns, type Db, type DbTx } from '@ai-system/db';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import {
+  domainEvents,
+  outbox,
+  pipelineRuns,
+  taskDependencies,
+  tasks as tasksTable,
+  type Db,
+  type DbTx,
+} from '@ai-system/db';
 import {
   PolicySnapshot,
   RunStatus,
   StageKind,
+  TaskStatus,
   uuidv7,
   type DomainEvent,
   type TicketSnapshot,
 } from '@ai-system/domain';
 import { advance } from './engine.js';
-import type { Command, RunSnapshot } from './types.js';
+import { pipelineFor } from './pipelines.js';
+import type { Command, RunSnapshot, TaskSnapshot } from './types.js';
 
 type Executor = Db | DbTx;
 
@@ -26,6 +36,8 @@ export type ApplyOutcome =
 
 const COMMAND_JOB_NAMES: Record<Command['kind'], string> = {
   execute_stage: 'stage.execute',
+  execute_task: 'task.execute',
+  distill_knowledge: 'knowledge.distill',
   request_gate: 'gate.request',
 };
 
@@ -61,13 +73,16 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
   const row = rows[0];
   if (!row) return { outcome: 'ignored', reason: `unknown run ${runId}` };
 
+  const policy = PolicySnapshot.parse(row.policySnapshot);
   const snapshot: RunSnapshot = {
     runId: row.id,
     status: RunStatus.parse(row.status),
     currentStage: row.currentStage ? StageKind.parse(row.currentStage) : null,
     version: row.version,
-    policy: PolicySnapshot.parse(row.policySnapshot),
+    policy,
     iterationCount: row.iterationCount,
+    // Only pipelines with a task DAG pay for loading it.
+    tasks: pipelineFor(policy).taskStage ? await loadTasks(tx, runId) : [],
   };
 
   const result = advance(snapshot, event);
@@ -82,10 +97,25 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
       version: row.version + 1,
       updatedAt: new Date(),
       ...(result.iterationCount !== undefined ? { iterationCount: result.iterationCount } : {}),
+      ...(result.policyPatch ? { policySnapshot: { ...policy, ...result.policyPatch } } : {}),
     })
     .where(and(eq(pipelineRuns.id, runId), eq(pipelineRuns.version, row.version)))
     .returning({ id: pipelineRuns.id });
   if (updated.length === 0) throw new ConcurrencyConflictError(runId);
+
+  for (const update of result.taskUpdates ?? []) {
+    await tx
+      .update(tasksTable)
+      .set({
+        status: update.status,
+        // Attempts are counted at dispatch, so the engine's retry budget is
+        // measured in starts, not failures.
+        ...(update.status === 'running'
+          ? { attemptCount: sql`${tasksTable.attemptCount} + 1` }
+          : {}),
+      })
+      .where(eq(tasksTable.id, update.taskId));
+  }
 
   if (result.commands.length > 0) {
     await tx.insert(outbox).values(
@@ -127,6 +157,27 @@ export async function startRun(db: Db, input: StartRunInput): Promise<{ runId: s
     });
   });
   return { runId };
+}
+
+async function loadTasks(tx: Executor, runId: string): Promise<TaskSnapshot[]> {
+  const rows = await tx.select().from(tasksTable).where(eq(tasksTable.runId, runId));
+  if (rows.length === 0) return [];
+  const deps = await tx
+    .select()
+    .from(taskDependencies)
+    .where(
+      inArray(
+        taskDependencies.taskId,
+        rows.map((r) => r.id),
+      ),
+    );
+  return rows.map((row) => ({
+    id: row.id,
+    status: TaskStatus.parse(row.status),
+    dependsOn: deps.filter((d) => d.taskId === row.id).map((d) => d.dependsOnTaskId),
+    attemptCount: row.attemptCount,
+    maxAttempts: row.maxAttempts,
+  }));
 }
 
 export async function getRun(db: Db, runId: string) {

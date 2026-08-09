@@ -9,18 +9,24 @@ import { createGateRequest } from '@ai-system/orchestration';
 import {
   AnthropicAdapter,
   DrizzleCallLedger,
+  LocalHashEmbeddingAdapter,
   ModelGateway,
   OpenAiAdapter,
+  OpenAiEmbeddingAdapter,
+  PLATFORM_DEFAULT_PROFILES,
   resolveProfile,
 } from '@ai-system/model-gateway';
+import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import {
+  ApiLoopAgentExecutor,
   CliAgentExecutor,
   ScriptedAgentExecutor,
   type AgentExecutor,
 } from '@ai-system/agent-execution';
 import { OutboxDispatcher } from './outbox-dispatcher.js';
-import { executeStage } from './stages.js';
+import { executeStage, runTask } from './stages.js';
+import { distillKnowledge } from './learning.js';
 import type { StageServices } from './services.js';
 // (Agents type is used for the mock roster's explicit annotation.)
 
@@ -39,12 +45,44 @@ const RequestGatePayload = z.object({
   payload: z.record(z.unknown()).optional(),
 });
 
-const QUEUES = ['stage.execute', 'gate.request'] as const;
+const ExecuteTaskPayload = z.object({
+  kind: z.literal('execute_task'),
+  runId: z.string().uuid(),
+  taskId: z.string().uuid(),
+});
+
+const DistillPayload = z.object({
+  kind: z.literal('distill_knowledge'),
+  runId: z.string().uuid(),
+});
+
+const QUEUES = ['stage.execute', 'task.execute', 'knowledge.distill', 'gate.request'] as const;
 
 function buildServices(db: Db): StageServices {
   const mock = process.env.MOCK_MODELS === 'true';
   let agents: StageServices['agents'];
   let executor: AgentExecutor;
+
+  // Embeddings always run through the gateway; in mock mode (and as a fallback
+  // when no OpenAI key is set) that resolves to the deterministic local
+  // embedder, so semantic retrieval works offline.
+  // The OpenAI SDK throws at construction without a key, so it is only
+  // registered when one exists; the local embedder always is.
+  const embeddingGateway = new ModelGateway([], new DrizzleCallLedger(db), {
+    embeddingAdapters: [
+      ...(process.env.OPENAI_API_KEY ? [new OpenAiEmbeddingAdapter()] : []),
+      new LocalHashEmbeddingAdapter(),
+    ],
+  });
+  const embeddingProfile =
+    mock || !process.env.OPENAI_API_KEY
+      ? { purpose: 'embeddings', primary: { provider: 'local', model: 'local-hash' }, fallbacks: [] }
+      : PLATFORM_DEFAULT_PROFILES.embeddings!;
+  const embedder: Embedder = {
+    embed: async (texts) =>
+      (await embeddingGateway.embed(embeddingProfile, { texts, meta: { purpose: 'embeddings' } }))
+        .vectors,
+  };
 
   if (mock) {
     log.warn('MOCK_MODELS=true — deterministic agents and scripted executor (no LLM calls)');
@@ -74,15 +112,23 @@ function buildServices(db: Db): StageServices {
       if (cache.size > 500) cache.clear();
       return built;
     };
-    executor = new CliAgentExecutor({
-      ...(process.env.CODING_AGENT_CMD ? { commandTemplate: process.env.CODING_AGENT_CMD } : {}),
-    });
+    // CODING_EXECUTOR=api_loop switches from a headless CLI to the
+    // platform-owned tool loop (docs/06 §1).
+    executor =
+      process.env.CODING_EXECUTOR === 'api_loop'
+        ? new ApiLoopAgentExecutor(gateway, PLATFORM_DEFAULT_PROFILES.planning!)
+        : new CliAgentExecutor({
+            ...(process.env.CODING_AGENT_CMD
+              ? { commandTemplate: process.env.CODING_AGENT_CMD }
+              : {}),
+          });
   }
 
   return {
     db,
     agents,
     executor,
+    embedder,
     dataDir: process.env.AI_DATA_DIR ?? join(process.cwd(), 'data'),
     codingTimeoutMs: Number(process.env.CODING_TIMEOUT_MS ?? 15 * 60 * 1000),
     githubToken: process.env.GITHUB_TOKEN,
@@ -131,6 +177,38 @@ async function main(): Promise<void> {
       const payload = ExecuteStagePayload.parse(job.data);
       log.info({ runId: payload.runId, stage: payload.stage }, 'executing stage');
       await executeStage(services, payload);
+    }
+  });
+
+  // Parallel coding agents. The engine already caps in-flight tasks per run
+  // (policy.maxParallelTasks); this is the worker's own capacity, and the
+  // batch is executed concurrently rather than one job per poll.
+  const taskConcurrency = Number(process.env.TASK_CONCURRENCY ?? 4);
+  await boss.work(
+    'task.execute',
+    { batchSize: taskConcurrency, pollingIntervalSeconds: 1 },
+    async (jobs) => {
+      await Promise.all(
+        jobs.map(async (job) => {
+          const payload = ExecuteTaskPayload.parse(job.data);
+          log.info({ runId: payload.runId, taskId: payload.taskId }, 'executing task');
+          await runTask(services, payload);
+        }),
+      );
+    },
+  );
+
+  // Post-run learning. The run is already complete, so a failure here is
+  // logged and dropped rather than surfaced as a run failure.
+  await boss.work('knowledge.distill', async (jobs) => {
+    for (const job of jobs) {
+      const payload = DistillPayload.parse(job.data);
+      try {
+        const { proposed } = await distillKnowledge(services, payload);
+        log.info({ runId: payload.runId, proposed }, 'distilled knowledge proposals');
+      } catch (err) {
+        log.error({ err, runId: payload.runId }, 'knowledge distillation failed');
+      }
     }
   });
 

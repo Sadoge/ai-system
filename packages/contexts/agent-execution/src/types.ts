@@ -7,16 +7,21 @@ import type { AgentFailureReason } from '@ai-system/domain';
  */
 export interface CodingTaskSpec {
   ticketTitle: string;
+  /** Set when this execution is one task of a decomposed DAG. */
+  taskTitle?: string;
   planSummary: string;
   steps: { title: string; detail: string; files: string[] }[];
   /** Open findings from the previous review — present on fix iterations. */
   findings: { severity: string; title: string; detail: string; filePath: string | null }[];
   rules: { title: string; content: string }[];
+  /** Set only for the conflict-resolution agent: paths left conflicted by a merge. */
+  conflicts?: string[];
 }
 
 export interface AgentExecutionInput {
   runId: string;
   agentRunId: string;
+  taskId?: string;
   worktreeDir: string;
   taskSpec: CodingTaskSpec;
   limits: { timeoutMs: number };

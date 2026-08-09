@@ -12,6 +12,7 @@ import {
   reviewStage,
   testStage,
 } from './mvp-stages.js';
+import { decomposeStage, documentStage, executeTask, integrateStage } from './team-stages.js';
 import type { StageServices } from './services.js';
 
 export interface StageOutcome {
@@ -92,17 +93,37 @@ async function runStage(
       return researchStage(services, run);
     case 'plan':
       return planStage(services, run);
+    case 'decompose':
+      return decomposeStage(services, run);
     case 'code':
       return codeStage(services, run);
+    case 'integrate':
+      return integrateStage(services, run);
     case 'review':
       return reviewStage(services, run);
     case 'test':
       return testStage(services, run);
+    case 'document':
+      return documentStage(services, run);
     case 'package':
       return packageStage(services, run);
     default:
       throw new Error(`stage ${stage} has no handler`);
   }
+}
+
+/** Entry point for the `task.execute` job: one DAG node, one worktree. */
+export async function runTask(
+  services: StageServices,
+  input: { runId: string; taskId: string },
+): Promise<void> {
+  const runRows = await services.db
+    .select()
+    .from(pipelineRuns)
+    .where(eq(pipelineRuns.id, input.runId));
+  const run = runRows[0];
+  if (!run) throw new Error(`unknown run ${input.runId}`);
+  await executeTask(services, input, run);
 }
 
 async function intakeStage(db: Db, run: RunRow): Promise<StageOutcome> {

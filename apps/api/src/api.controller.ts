@@ -4,6 +4,7 @@ import { ApiService } from './api.service.js';
 import {
   AddKnowledgeBody,
   AddModelProfileBody,
+  DecideKnowledgeBody,
   JiraWebhookBody,
   RegisterRepoBody,
   ResolveGateBody,
@@ -96,9 +97,30 @@ export class ApiController {
     return this.service.resolveGate(id, parsed.decision, parsed.comment);
   }
 
+  @Get('findings')
+  listFindings(@Query('status') status?: string) {
+    return this.service.listFindings(status);
+  }
+
+  @Get('brain/inspect')
+  inspectBrain(@Query('query') query: string, @Query('projectId') projectId?: string) {
+    return this.service.inspectBrain({ query: query ?? '', ...(projectId ? { projectId } : {}) });
+  }
+
   @Get('knowledge')
-  listKnowledge() {
-    return this.service.listKnowledge();
+  listKnowledge(@Query('status') status?: string) {
+    return this.service.listKnowledge(status);
+  }
+
+  @Post('knowledge/:id/decide')
+  decideKnowledge(@Param('id') id: string, @Body() body: unknown) {
+    const parsed = parse(DecideKnowledgeBody, body);
+    return this.service.decideKnowledge({
+      knowledgeItemId: id,
+      decision: parsed.decision,
+      editedTitle: parsed.editedTitle,
+      editedContent: parsed.editedContent,
+    });
   }
 
   @Post('knowledge')

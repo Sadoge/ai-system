@@ -6,7 +6,7 @@ This is not a coding agent. It is the machinery around agents: pipeline orchestr
 
 ## Status
 
-**Phase 1 — MVP complete** ([roadmap](docs/10-roadmap.md)): the full linear pipeline runs end to
+**Phase 1 — MVP** ([roadmap](docs/10-roadmap.md)): the full linear pipeline runs end to
 end — intake → classify → research → plan → **plan gate** → code (agent in an isolated git
 worktree) → review → test → **iteration loop** → package → **final PR gate** — on the Phase 0
 foundations (deterministic `advance()` engine, transactional outbox, Model Gateway, pg-boss
@@ -60,6 +60,35 @@ node apps/cli/dist/main.js knowledge inbox      # approve what the platform lear
 Everything above runs with `MOCK_MODELS=true` and no API key: a deterministic local embedder
 backs semantic retrieval, so the whole loop is exercisable offline.
 
+**Phase 3 — the product.** From personal tool to multi-tenant platform:
+
+- **Multi-tenancy** — every request resolves to a principal from a hashed API
+  key, and the principal's organization scopes every query. There is no ambient
+  "current org": cross-tenant reads return 404, verified end to end.
+- **Roles** — a total order (`viewer < member < admin < owner`), because a
+  permission matrix nobody can reason about is one nobody enforces correctly.
+  Approving knowledge sits above plain membership.
+- **Quotas & rate limits** — per organization: concurrent runs, monthly budget,
+  requests per minute. Refusal happens at run start, where it's cheap and
+  comprehensible; mid-run budget exhaustion still pauses for a human instead.
+- **Audit** — every mutation a human might have to explain is recorded with
+  actor, action, and subject; `GET /api/audit?format=csv` exports it.
+- **More providers** — Google Gemini and any OpenAI-compatible endpoint (vLLM,
+  Ollama, OpenRouter). Pricing moved into a **model catalog** table, so a new
+  model or a price change is a row, not a release.
+- **Analytics** — daily spend, spend by provider and purpose, run outcomes with
+  success rate and average iterations. CLI spend is included, so the numbers
+  don't quietly exclude the most expensive part of a run.
+- **Cloud** — S3-compatible artifact storage (large artifacts offloaded, small
+  ones stay queryable in SQL), Docker images, a full production compose, and
+  [deployment docs](docs/11-deployment.md).
+
+```bash
+ai-system org bootstrap --name "Acme" --key-name founder   # org + owner key + project
+ai-system org quotas --org <id> --max-concurrent-runs 5
+```
+
+
 ### Quickstart
 
 ```bash
@@ -102,5 +131,6 @@ The complete system design lives in [`docs/`](docs/README.md):
 - [Project Brain](docs/08-project-brain.md)
 - [Technology Stack](docs/09-technology-stack.md)
 - [Roadmap & MVP](docs/10-roadmap.md)
+- [Deployment & Operations](docs/11-deployment.md)
 
 Start with [docs/README.md](docs/README.md) for the reading order and a summary of the core design decisions.

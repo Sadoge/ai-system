@@ -60,7 +60,29 @@ export const AddModelProfileBody = z.object({
   params: z.record(z.unknown()).default({}),
   fallbacks: z.array(z.object({ provider: z.string(), model: z.string() })).default([]),
   projectId: z.string().uuid().optional(),
-  organizationId: z.string().uuid().optional(),
+});
+
+export const AssignGateBody = z.object({
+  userId: z.string().uuid().nullable().optional(),
+});
+
+export const CreateApiKeyBody = z.object({
+  name: z.string().min(1),
+  role: z.enum(['viewer', 'member', 'admin', 'owner']).default('member'),
+});
+
+export const QuotasBody = z.object({
+  maxConcurrentRuns: z.number().int().positive().optional(),
+  monthlyBudgetUsd: z.number().positive().optional(),
+  requestsPerMinute: z.number().int().positive().optional(),
+});
+
+export const CatalogEntryBody = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  inputPerMTokUsd: z.number().nonnegative(),
+  outputPerMTokUsd: z.number().nonnegative(),
+  capabilities: z.record(z.unknown()).optional(),
 });
 
 export const JiraWebhookBody = z.object({

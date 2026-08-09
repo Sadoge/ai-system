@@ -25,6 +25,8 @@ const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull(
 export const organizations = pgTable('organizations', {
   id: id(),
   name: text('name').notNull(),
+  // Per-tenant limits: { maxConcurrentRuns, monthlyBudgetUsd, requestsPerMinute }.
+  quotas: jsonb('quotas').notNull().default({}),
   createdAt: createdAt(),
 });
 
@@ -52,6 +54,50 @@ export const memberships = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.organizationId, t.userId] })],
+);
+
+/**
+ * Machine credentials for the CLI, CI, and webhooks. Only a hash is stored —
+ * the plaintext key is shown once, at creation, and is unrecoverable after.
+ */
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: id(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    userId: uuid('user_id').references(() => users.id),
+    name: text('name').notNull(),
+    // Short non-secret prefix so a key is identifiable in a list without revealing it.
+    keyPrefix: text('key_prefix').notNull(),
+    keyHash: text('key_hash').notNull(),
+    role: text('role').notNull().default('member'),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('api_keys_hash_idx').on(t.keyHash),
+    index('api_keys_org_idx').on(t.organizationId),
+  ],
+);
+
+/** Catalogue of usable models: pricing is data, not code (docs/07). */
+export const modelCatalog = pgTable(
+  'model_catalog',
+  {
+    id: id(),
+    organizationId: uuid('organization_id').references(() => organizations.id),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    inputPerMTokUsd: numeric('input_per_mtok_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    outputPerMTokUsd: numeric('output_per_mtok_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    capabilities: jsonb('capabilities').notNull().default({}),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('model_catalog_key_idx').on(t.organizationId, t.provider, t.model)],
 );
 
 // ── Project & Repository ──────────────────────────────────────────────
@@ -224,6 +270,9 @@ export const gateRequests = pgTable(
     gate: text('gate').notNull(),
     status: text('status').notNull().default('pending'),
     payload: jsonb('payload').notNull().default({}),
+    // Team workflow: who is expected to decide, and who has been told.
+    assignedToUserId: uuid('assigned_to_user_id'),
+    notifiedAt: timestamp('notified_at', { withTimezone: true }),
     createdAt: createdAt(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
   },

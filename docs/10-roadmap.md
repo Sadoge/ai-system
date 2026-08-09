@@ -56,7 +56,7 @@ than a `gate_request` — the source run has already completed, so there is no r
 conflict-resolution agent ships as "attempt, verify, else fail": it re-checks for conflict markers
 and aborts the merge if any remain.
 
-## Phase 3 — The product (≈ 8–12 weeks)
+## Phase 3 — The product (≈ 8–12 weeks) — **delivered**
 
 From personal tool to multi-tenant platform.
 
@@ -65,6 +65,12 @@ From personal tool to multi-tenant platform.
 - Full dashboards: cost (project/provider/stage over time), execution history + analytics (success rate, iterations per run, findings by category), prompt/template management UI.
 - Additional providers (Google, local/OpenAI-compatible); model catalog admin.
 - Hardening: rate limits, run concurrency quotas, backup/restore, audit export, SSO groundwork.
+
+**Implementation notes.** Auth landed as hashed API keys with a principal
+resolved per request, rather than Auth.js sessions — machine access (CLI, CI,
+webhooks) is the dominant case, and a session layer can sit on top later
+without changing the principal contract. Roles are a total order rather than a
+matrix. Deployment specifics are in [11-deployment.md](11-deployment.md).
 
 ## Phase 4 — The moat (ongoing)
 

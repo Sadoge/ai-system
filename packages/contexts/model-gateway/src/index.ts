@@ -6,3 +6,6 @@ export * from './profiles.js';
 export * from './adapters/anthropic.js';
 export * from './adapters/openai.js';
 export * from './adapters/embeddings.js';
+export * from './adapters/google.js';
+export * from './adapters/openai-compatible.js';
+export * from './catalog.js';

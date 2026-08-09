@@ -43,6 +43,14 @@ import {
   ModelGateway,
 } from '@ai-system/model-gateway';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
+import {
+  createApiKey,
+  getQuotas,
+  listApiKeys,
+  revokeApiKey,
+  setQuotas,
+  type Role,
+} from '@ai-system/tenancy';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
 import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 
@@ -93,6 +101,108 @@ program
       console.log(`organization: ${orgId}`);
       console.log(`project:      ${projectId}`);
     }),
+  );
+
+const orgCmd = program.command('org').description('organizations, keys, and quotas');
+
+orgCmd
+  .command('bootstrap')
+  .description('create an organization, an owner API key, and a default project')
+  .requiredOption('--name <name>', 'organization name')
+  .option('--key-name <name>', 'label for the owner API key', 'bootstrap')
+  .option('--project <name>', 'default project name', 'default')
+  .action(
+    withDb(async (db, opts: { name: string; keyName: string; project: string }) => {
+      const organizationId = uuidv7();
+      const projectId = uuidv7();
+      await db.insert(organizations).values({ id: organizationId, name: opts.name });
+      await db.insert(projects).values({ id: projectId, organizationId, name: opts.project });
+      const key = await createApiKey(db, {
+        organizationId,
+        name: opts.keyName,
+        role: 'owner',
+      });
+      console.log(`organization: ${organizationId}`);
+      console.log(`project:      ${projectId}`);
+      console.log(`API key:      ${key.plaintext}`);
+      console.log('\nStore the key now — it is hashed and cannot be shown again.');
+    }),
+  );
+
+orgCmd
+  .command('key-create')
+  .description('mint an API key for an organization')
+  .requiredOption('--org <id>')
+  .requiredOption('--name <name>')
+  .option('--role <role>', 'viewer | member | admin | owner', 'member')
+  .action(
+    withDb(async (db, opts: { org: string; name: string; role: string }) => {
+      const key = await createApiKey(db, {
+        organizationId: opts.org,
+        name: opts.name,
+        role: opts.role as Role,
+      });
+      console.log(key.plaintext);
+      console.log('\nStore it now — it is hashed and cannot be shown again.');
+    }),
+  );
+
+orgCmd
+  .command('key-list')
+  .description('list API keys (prefixes only — the secrets are unrecoverable)')
+  .requiredOption('--org <id>')
+  .action(
+    withDb(async (db, opts: { org: string }) => {
+      const keys = await listApiKeys(db, opts.org);
+      for (const k of keys) {
+        console.log(
+          `${k.id}  ${k.keyPrefix}…  ${k.role.padEnd(7)} ${k.name}${k.revokedAt ? '  [revoked]' : ''}`,
+        );
+      }
+      if (keys.length === 0) console.log('no keys');
+    }),
+  );
+
+orgCmd
+  .command('key-revoke <key-id>')
+  .description('revoke an API key immediately')
+  .requiredOption('--org <id>')
+  .action(
+    withDb(async (db, keyId: string, opts: { org: string }) => {
+      await revokeApiKey(db, keyId, opts.org);
+      console.log('revoked');
+    }),
+  );
+
+orgCmd
+  .command('quotas')
+  .description('show or set per-organization quotas')
+  .requiredOption('--org <id>')
+  .option('--max-concurrent-runs <n>', 'refuse new runs beyond this many active')
+  .option('--monthly-budget-usd <n>', 'refuse new runs once this month exceeds it')
+  .option('--requests-per-minute <n>', 'API rate limit for this organization')
+  .action(
+    withDb(
+      async (
+        db,
+        opts: {
+          org: string;
+          maxConcurrentRuns?: string;
+          monthlyBudgetUsd?: string;
+          requestsPerMinute?: string;
+        },
+      ) => {
+        const updates = {
+          ...(opts.maxConcurrentRuns ? { maxConcurrentRuns: Number(opts.maxConcurrentRuns) } : {}),
+          ...(opts.monthlyBudgetUsd ? { monthlyBudgetUsd: Number(opts.monthlyBudgetUsd) } : {}),
+          ...(opts.requestsPerMinute ? { requestsPerMinute: Number(opts.requestsPerMinute) } : {}),
+        };
+        if (Object.keys(updates).length > 0) {
+          await setQuotas(db, opts.org, { ...(await getQuotas(db, opts.org)), ...updates });
+        }
+        console.log(JSON.stringify(await getQuotas(db, opts.org), null, 2));
+      },
+    ),
   );
 
 const repoCmd = program.command('repo').description('repositories');

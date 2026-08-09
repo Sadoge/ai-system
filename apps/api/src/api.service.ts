@@ -27,12 +27,20 @@ import {
   type GateDecisionKind,
   type KnowledgeKind,
 } from '@ai-system/domain';
-import { applyEvent, listTasks, resolveGate, startRun } from '@ai-system/orchestration';
+import {
+  applyEvent,
+  compareEvalRun,
+  listTasks,
+  resolveGate,
+  startEvalReplay,
+  startRun,
+} from '@ai-system/orchestration';
 import {
   addManualKnowledge,
   brainQuery,
   decideKnowledge,
   latestIndexSnapshot,
+  promoteKnowledge,
   type Embedder,
 } from '@ai-system/brain';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
@@ -114,6 +122,7 @@ export class ApiService {
       testCommand?: string | undefined;
       executor?: string | undefined;
       executorModel?: string | undefined;
+      reviewers?: string[] | undefined;
       projectId?: string | undefined;
     },
   ) {
@@ -131,6 +140,7 @@ export class ApiService {
         ...(input.testCommand ? { testCommand: input.testCommand } : {}),
         ...(input.executor ? { executor: input.executor } : {}),
         ...(input.executorModel ? { executorModel: input.executorModel } : {}),
+        ...(input.reviewers?.length ? { reviewers: input.reviewers } : {}),
       },
     });
     await recordAudit(this.db, {
@@ -301,6 +311,30 @@ export class ApiService {
       .from(modelCalls)
       .where(eq(modelCalls.runId, runId));
     return Number(rows[0]?.total ?? 0);
+  }
+
+  // ── evaluation harness ──────────────────────────────────────────────
+
+  async startEval(principal: Principal, sourceRunId: string) {
+    assertCan(principal.role, 'run:start');
+    await this.requireRun(principal, sourceRunId);
+    const result = await startEvalReplay(this.db, {
+      sourceRunId,
+      organizationId: principal.organizationId,
+    });
+    await recordAudit(this.db, {
+      principal,
+      action: 'eval.started',
+      subjectType: 'pipeline_run',
+      subjectId: result.evalRunId,
+      data: { sourceRunId },
+    });
+    return result;
+  }
+
+  async compareEval(principal: Principal, evalRunId: string) {
+    await this.requireRun(principal, evalRunId);
+    return compareEvalRun(this.db, { evalRunId, organizationId: principal.organizationId });
   }
 
   // ── gates ───────────────────────────────────────────────────────────
@@ -500,6 +534,70 @@ export class ApiService {
     return result;
   }
 
+  async promoteKnowledge(principal: Principal, knowledgeItemId: string) {
+    assertCan(principal.role, 'knowledge:approve');
+    await promoteKnowledge(
+      this.db,
+      { knowledgeItemId, organizationId: principal.organizationId },
+      this.embedder,
+    );
+    await recordAudit(this.db, {
+      principal,
+      action: 'knowledge.promoted',
+      subjectType: 'knowledge_item',
+      subjectId: knowledgeItemId,
+      data: { scope: 'organization' },
+    });
+    return { promoted: true };
+  }
+
+  /**
+   * Retrieval tuning from outcomes (docs/10 Phase 4), the honest version:
+   * for each approved rule, how did runs that actually received it fare?
+   * Correlation, not causation — the numbers earn a closer look, they do not
+   * pass judgment. Reads inline task_spec artifacts only, so S3-offloaded
+   * bundles are excluded (noted in the response).
+   */
+  async knowledgeEffectiveness(principal: Principal) {
+    assertCan(principal.role, 'knowledge:read');
+    const result = await this.db.execute(sql`
+      select
+        ki.id,
+        ki.title,
+        ki.kind,
+        (ki.project_id is null) as org_wide,
+        count(distinct pr.id) filter (where pr.status = 'completed') as completed_runs,
+        count(distinct pr.id) filter (where pr.status = 'failed') as failed_runs,
+        coalesce(avg(pr.iteration_count), 0) as avg_iterations
+      from knowledge_items ki
+      left join artifacts a
+        on a.kind = 'task_spec'
+        and a.content is not null
+        and exists (
+          select 1 from jsonb_array_elements(a.content->'taskSpec'->'rules') r
+          where r->>'title' = ki.title
+        )
+      left join pipeline_runs pr
+        on pr.id = a.run_id
+        and pr.status in ('completed', 'failed')
+        and pr.eval_of_run_id is null
+        and pr.organization_id = ${principal.organizationId}
+      where ki.organization_id = ${principal.organizationId}
+        and ki.status = 'approved'
+      group by ki.id, ki.title, ki.kind
+      order by (count(distinct pr.id)) desc, ki.created_at desc
+    `);
+    return (result.rows as Record<string, unknown>[]).map((row) => ({
+      id: row.id,
+      title: row.title,
+      kind: row.kind,
+      orgWide: row.org_wide === true,
+      completedRuns: Number(row.completed_runs ?? 0),
+      failedRuns: Number(row.failed_runs ?? 0),
+      avgIterations: Number(row.avg_iterations ?? 0),
+    }));
+  }
+
   async inspectBrain(
     principal: Principal,
     input: { projectId?: string; query: string; repositoryId?: string },
@@ -658,7 +756,11 @@ export class ApiService {
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
       .where(
-        and(eq(pipelineRuns.organizationId, principal.organizationId), gte(modelCalls.createdAt, since)),
+        and(
+          eq(pipelineRuns.organizationId, principal.organizationId),
+          gte(modelCalls.createdAt, since),
+          isNull(pipelineRuns.evalOfRunId),
+        ),
       )
       .groupBy(sql`1`, modelCalls.provider)
       .orderBy(sql`1`);
@@ -682,7 +784,11 @@ export class ApiService {
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
       .where(
-        and(eq(pipelineRuns.organizationId, principal.organizationId), gte(modelCalls.createdAt, since)),
+        and(
+          eq(pipelineRuns.organizationId, principal.organizationId),
+          gte(modelCalls.createdAt, since),
+          isNull(pipelineRuns.evalOfRunId),
+        ),
       )
       .groupBy(modelCalls.purpose)
       .orderBy(desc(sql`sum(${modelCalls.costUsd})`));
@@ -706,6 +812,8 @@ export class ApiService {
         and(
           eq(pipelineRuns.organizationId, principal.organizationId),
           gte(pipelineRuns.createdAt, since),
+          // Eval replays measure the platform; they are not delivery work.
+          isNull(pipelineRuns.evalOfRunId),
         ),
       )
       .groupBy(pipelineRuns.status, sql`2`);

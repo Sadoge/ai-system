@@ -155,10 +155,17 @@ export const pipelineRuns = pgTable(
     ticket: jsonb('ticket').notNull(),
     iterationCount: integer('iteration_count').notNull().default(0),
     error: text('error'),
+    // Set when this run is an evaluation replay of another run (docs/10
+    // Phase 4). Eval runs are excluded from analytics and from the learning
+    // loop, so measuring the platform never changes it.
+    evalOfRunId: uuid('eval_of_run_id'),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('pipeline_runs_project_idx').on(t.projectId, t.createdAt)],
+  (t) => [
+    index('pipeline_runs_project_idx').on(t.projectId, t.createdAt),
+    index('pipeline_runs_eval_idx').on(t.evalOfRunId),
+  ],
 );
 
 export const stageExecutions = pgTable(

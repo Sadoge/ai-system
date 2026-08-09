@@ -136,6 +136,8 @@ export interface StartRunInput {
   repositoryId?: string;
   ticket: TicketSnapshot;
   policy: PolicySnapshot;
+  /** Set when this run is an evaluation replay of another run. */
+  evalOfRunId?: string;
 }
 
 /** Create the run row and apply run.created in a single transaction. */
@@ -150,6 +152,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<{ runId: s
       status: 'created',
       policySnapshot: input.policy,
       ticket: input.ticket,
+      evalOfRunId: input.evalOfRunId ?? null,
     });
     await applyEventTx(tx, {
       name: 'run.created',

@@ -138,9 +138,17 @@ Every proposal must cite concrete evidence from the material below (a finding ti
     },
 
     async review(input, ctx) {
+      const specialtySystem: Record<string, string> = {
+        security:
+          'You are a security reviewer. Look ONLY for security problems: injection, path traversal, secrets in code, missing authorization, unsafe deserialization, SSRF, insecure crypto. Severity blocker/major for exploitable issues, minor/info for hardening. Ignore style, performance, and completeness — other reviewers own those. You never rewrite code yourself.',
+        performance:
+          'You are a performance reviewer. Look ONLY for performance problems: N+1 queries, quadratic loops over unbounded input, missing indexes implied by query shapes, unbounded memory growth, sync IO on hot paths. Severity major only when the input is plausibly large. Ignore style, security, and completeness — other reviewers own those. You never rewrite code yourself.',
+      };
+      const system = input.specialty
+        ? specialtySystem[input.specialty]!
+        : 'You are a strict but fair code reviewer. Report findings with severity: blocker (must not merge), major (should fix before merge), minor, info. Explain WHY each finding matters — you never rewrite code yourself. Check the diff against the plan and every project rule.';
       return runJsonAgent(gateway, profiles.review, {
-        system:
-          'You are a strict but fair code reviewer. Report findings with severity: blocker (must not merge), major (should fix before merge), minor, info. Explain WHY each finding matters — you never rewrite code yourself. Check the diff against the plan and every project rule.',
+        system,
         user: `Ticket: ${input.ticket.title}\n\nPlan:\n${input.plan.summary}\n${input.plan.steps.map((s, i) => `${i + 1}. ${s.title}`).join('\n')}\n\nIteration: ${input.iterationCount}\n\nDiff:\n${input.diff || '(empty diff)'}\n\n${renderBrain(input.brain)}`,
         schema: ReviewReport,
         meta: meta('review', ctx),

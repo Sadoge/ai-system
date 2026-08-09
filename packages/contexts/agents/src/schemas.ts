@@ -144,6 +144,11 @@ export interface ReviewInput {
   diff: string;
   brain: BrainContext;
   iterationCount: number;
+  /**
+   * Absent = the general reviewer. Set = a specialized pass (docs/10 Phase 4)
+   * that looks at one dimension only and ignores everything else.
+   */
+  specialty?: 'security' | 'performance' | undefined;
 }
 
 export interface AgentContext {

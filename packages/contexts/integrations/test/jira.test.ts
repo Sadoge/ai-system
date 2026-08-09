@@ -37,3 +37,38 @@ describe('jiraConfigFromEnv', () => {
     ).toEqual({ baseUrl: 'https://x.atlassian.net', email: 'a@b.c', apiToken: 't' });
   });
 });
+
+describe('parseGitLabRemote', () => {
+  it('parses gitlab.com https and ssh remotes, including subgroups', async () => {
+    const { parseGitLabRemote } = await import('../src/gitlab.js');
+    expect(parseGitLabRemote('https://gitlab.com/group/project.git')).toEqual({
+      host: 'gitlab.com',
+      projectPath: 'group/project',
+    });
+    expect(parseGitLabRemote('git@gitlab.com:group/sub/project.git')).toEqual({
+      host: 'gitlab.com',
+      projectPath: 'group/sub/project',
+    });
+    // A GitHub remote must not be claimed by the GitLab parser.
+    expect(parseGitLabRemote('https://github.com/owner/repo.git')).toBeNull();
+  });
+
+  it('accepts a self-managed host only when configured', async () => {
+    const { parseGitLabRemote } = await import('../src/gitlab.js');
+    expect(parseGitLabRemote('https://git.corp.example/team/app.git')).toBeNull();
+    expect(parseGitLabRemote('https://git.corp.example/team/app.git', 'git.corp.example')).toEqual({
+      host: 'git.corp.example',
+      projectPath: 'team/app',
+    });
+  });
+});
+
+describe('linearConfigFromEnv', () => {
+  it('requires the API key', async () => {
+    const { linearConfigFromEnv } = await import('../src/linear.js');
+    expect(linearConfigFromEnv({} as NodeJS.ProcessEnv)).toBeNull();
+    expect(linearConfigFromEnv({ LINEAR_API_KEY: 'lin_x' } as NodeJS.ProcessEnv)).toEqual({
+      apiKey: 'lin_x',
+    });
+  });
+});

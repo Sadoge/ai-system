@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { knowledgeChunks, type Db } from '@ai-system/db';
 import { uuidv7 } from '@ai-system/domain';
 import { chunkText, type Embedder } from './embedding.js';
@@ -90,7 +90,8 @@ export async function semanticSearch(
     .from(knowledgeChunks)
     .where(
       and(
-        eq(knowledgeChunks.projectId, input.projectId),
+        // Project-scoped chunks plus org-wide ones (promoted knowledge).
+        or(eq(knowledgeChunks.projectId, input.projectId), isNull(knowledgeChunks.projectId)),
         sql`${knowledgeChunks.sourceType} = ANY(${sql.raw(`ARRAY[${types.map((t) => `'${t}'`).join(',')}]`)})`,
         sql`${knowledgeChunks.embedding} IS NOT NULL`,
       ),

@@ -36,10 +36,15 @@ import {
 } from '@ai-system/agent-execution';
 import {
   addJiraComment,
+  addLinearComment,
+  createMergeRequest,
   createPullRequest,
   jiraConfigFromEnv,
+  linearConfigFromEnv,
   parseGitHubRemote,
+  parseGitLabRemote,
   pushBranch,
+  pushBranchGitLab,
   transitionJiraIssue,
 } from '@ai-system/integrations';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
@@ -80,6 +85,12 @@ export function taskBranch(run: RunRow, taskId: string): string {
   // Sibling of the run branch, not a child: git stores refs as files, so
   // `ai/run-x` and `ai/run-x/t-y` cannot both exist.
   return `${runBranch(run)}-t-${taskId.slice(-8)}`;
+}
+
+/** The commands a repository has declared safe for its sandbox (docs/06 §4). */
+export function allowedCommandsFor(repo: RepoRow): string[] {
+  const settings = (repo.settings ?? {}) as { testCommand?: string; lintCommand?: string };
+  return [settings.testCommand, settings.lintCommand].filter((c): c is string => Boolean(c));
 }
 
 export async function requireRepo(db: Db, run: RunRow): Promise<RepoRow> {
@@ -266,6 +277,7 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     worktreeDir,
     taskSpec,
     limits: { timeoutMs: services.codingTimeoutMs },
+    allowedCommands: allowedCommandsFor(repo),
   });
   await recordExecutorUsage(db, {
     runId: run.id,
@@ -332,7 +344,32 @@ export async function reviewStage(services: StageServices, run: RunRow): Promise
     { ticket, plan, diff, brain, iterationCount: run.iterationCount },
     agentCtx(run),
   );
-  for (const finding of report.findings) {
+
+  // Specialized passes (docs/10 Phase 4): each looks at one dimension only,
+  // declared per repository — a security pass on a repo that wants it, never
+  // a global behavior change.
+  const specialties = specializedReviewersFor(repo);
+  const specialtyPasses: { specialty: string; summary: string; findingCount: number }[] = [];
+  const allFindings = report.findings.map((f) => ({ ...f }));
+  for (const specialty of specialties) {
+    const pass = await agents.review(
+      { ticket, plan, diff, brain, iterationCount: run.iterationCount, specialty },
+      agentCtx(run),
+    );
+    specialtyPasses.push({ specialty, summary: pass.summary, findingCount: pass.findings.length });
+    for (const finding of pass.findings) {
+      allFindings.push({
+        ...finding,
+        // Attribution lives in the category, so the findings dashboard groups
+        // by reviewer for free: "security:injection", or bare "security".
+        category: finding.category.startsWith(specialty)
+          ? finding.category
+          : `${specialty}:${finding.category}`,
+      });
+    }
+  }
+
+  for (const finding of allFindings) {
     await db.insert(reviewFindings).values({
       id: uuidv7(),
       runId: run.id,
@@ -346,9 +383,17 @@ export async function reviewStage(services: StageServices, run: RunRow): Promise
   const { artifactId } = await createArtifact(db, {
     runId: run.id,
     kind: 'review_report',
-    content: report,
+    content: { ...report, findings: allFindings, specialtyPasses },
   });
   return { artifactIds: [artifactId] };
+}
+
+/** Additional review passes a repository has opted into (settings.reviewers). */
+export function specializedReviewersFor(repo: RepoRow | null): ('security' | 'performance')[] {
+  const settings = (repo?.settings ?? {}) as { reviewers?: string[] };
+  return (settings.reviewers ?? []).filter(
+    (r): r is 'security' | 'performance' => r === 'security' || r === 'performance',
+  );
 }
 
 export async function testStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
@@ -424,9 +469,13 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     `- Iterations used: ${run.iterationCount}`,
   ].join('\n');
 
+  // Git-host port: the stage speaks "push branch, open change request";
+  // GitHub and GitLab are interchangeable behind that sentence.
   let prUrl: string | null = null;
   let prError: string | null = null;
   const githubRef = parseGitHubRemote(repo.remoteUrl);
+  const gitlabRef = parseGitLabRemote(repo.remoteUrl);
+  const gitlabToken = process.env.GITLAB_TOKEN;
   if (githubRef && services.githubToken) {
     try {
       const { checkoutDir } = repoPaths(services, repo.id, run.id);
@@ -441,10 +490,24 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
+  } else if (gitlabRef && gitlabToken) {
+    try {
+      const { checkoutDir } = repoPaths(services, repo.id, run.id);
+      await pushBranchGitLab(checkoutDir, branch, gitlabRef, gitlabToken);
+      const mr = await createMergeRequest(gitlabRef, gitlabToken, {
+        title: ticket.title,
+        description: body,
+        sourceBranch: branch,
+        targetBranch: repo.defaultBranch,
+      });
+      prUrl = mr.url;
+    } catch (err) {
+      prError = err instanceof Error ? err.message : String(err);
+    }
   }
 
-  // Jira write-back: the PR link, plus a status transition when the project's
-  // workflow offers one. Neither can fail packaging — the PR already exists.
+  // Tracker write-back: the PR link, plus a Jira status transition when the
+  // workflow offers one. None of it can fail packaging — the PR already exists.
   const jira = jiraConfigFromEnv();
   if (prUrl && jira && ticket.source === 'jira' && ticket.externalKey) {
     await addJiraComment(jira, ticket.externalKey, `ai-system opened a pull request: ${prUrl}`).catch(
@@ -454,6 +517,13 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     if (targetStatus) {
       await transitionJiraIssue(jira, ticket.externalKey, targetStatus).catch(() => false);
     }
+  }
+  const linear = linearConfigFromEnv();
+  const linearIssueId = (ticket.raw as { id?: string } | undefined)?.id;
+  if (prUrl && linear && ticket.source === 'linear' && linearIssueId) {
+    await addLinearComment(linear, linearIssueId, `ai-system opened a pull request: ${prUrl}`).catch(
+      () => {},
+    );
   }
 
   const { artifactId } = await createArtifact(db, {

@@ -114,6 +114,24 @@ export function createMockAgents(): Agents {
     },
 
     async review(input) {
+      // Specialized passes: one deterministic non-blocking finding on the
+      // first iteration, so tagging and aggregation are exercised without
+      // changing any pipeline outcome.
+      if (input.specialty) {
+        if (input.iterationCount > 0) return { summary: `Mock ${input.specialty} review: clean.`, findings: [] };
+        return {
+          summary: `Mock ${input.specialty} review: one advisory finding.`,
+          findings: [
+            {
+              severity: 'minor',
+              category: input.specialty,
+              title: `Mock ${input.specialty} advisory`,
+              detail: `Deterministic ${input.specialty} finding for pipeline verification.`,
+              filePath: null,
+            },
+          ],
+        };
+      }
       if (input.iterationCount === 0 && !input.diff.includes('FIX:')) {
         return {
           summary: 'Mock review: one major finding to exercise the iteration loop.',

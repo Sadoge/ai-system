@@ -72,12 +72,27 @@ webhooks) is the dominant case, and a session layer can sit on top later
 without changing the principal contract. Roles are a total order rather than a
 matrix. Deployment specifics are in [11-deployment.md](11-deployment.md).
 
-## Phase 4 — The moat (ongoing)
+## Phase 4 — The moat (ongoing) — **first delivery landed**
 
 - `api_loop` coding executor (full platform-owned tool loop) as a first-class alternative to CLI agents.
 - Specialized agents (migration, security review, performance); cross-project knowledge (org-level patterns).
 - Retrieval tuning from outcomes (which context correlates with first-pass success); evaluation harness — replay historical tickets against changed prompts/models/rules and diff outcomes.
 - Public API + webhooks; GitLab/Bitbucket; Linear/Azure DevOps intake.
+
+**Implementation notes (first delivery).** The `api_loop` executor became a
+real coding agent: `edit_file` demands a unique exact match (ambiguity is an
+error, never a guess), and `run_command` executes only strings the repository
+itself declared — the model selects from an allowlist, it never composes
+shell. Specialized reviewers (security, performance) run as extra passes per
+repository, attributed through the finding category. The evaluation harness
+replays a historical ticket through the pipeline as configured *today* and
+diffs outcome metrics; eval runs are excluded from analytics and the learning
+loop, so measuring the platform never changes it — and because the final PR
+gate is never disabled, a replay "finishes" at `awaiting_final_approval`.
+Cross-project knowledge is a promotion (`knowledge promote`), and knowledge
+effectiveness is reported as correlation, labeled as such. GitLab MRs and
+Linear intake landed behind the same ports as GitHub and Jira. Bitbucket and
+Azure DevOps remain open.
 
 ## Sequencing rationale & risks
 

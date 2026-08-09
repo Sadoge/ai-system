@@ -88,6 +88,29 @@ ai-system org bootstrap --name "Acme" --key-name founder   # org + owner key + p
 ai-system org quotas --org <id> --max-concurrent-runs 5
 ```
 
+**Phase 4 — the moat (first delivery).** What makes the platform measurably better at *your*
+projects than any generic agent:
+
+- **Evaluation harness** — replay a historical ticket through the pipeline as configured *today*
+  (current prompts, models, approved rules) and diff the outcome: iterations, findings, cost,
+  duration. Eval runs never feed analytics or the learning loop, so measuring the platform
+  cannot change it.
+- **`api_loop` is now a real coding agent** — `edit_file` requires a unique exact match
+  (ambiguity is an error, never a guess) and `run_command` executes only commands the repository
+  declared; the model selects from an allowlist, it never composes shell.
+- **Specialized reviewers** — opt-in security and performance passes per repository, each blind
+  to everything outside its dimension, attributed through the finding category.
+- **Cross-project knowledge** — promote a proven project rule to organization scope; knowledge
+  effectiveness analytics show how runs that received each rule actually fared (correlation,
+  labeled as such).
+- **GitLab + Linear** — merge requests and issue intake behind the same ports as GitHub and Jira.
+
+```bash
+ai-system eval replay <run-id> && ai-system eval compare <eval-run-id>
+ai-system knowledge promote <knowledge-item-id>
+ai-system repo register <url> --reviewers security,performance
+```
+
 
 ### Quickstart
 

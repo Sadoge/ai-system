@@ -160,6 +160,16 @@ export class ApiController {
     });
   }
 
+  @Post('runs/:id/eval')
+  startEval(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.startEval(principal, id);
+  }
+
+  @Get('runs/:id/eval-compare')
+  compareEval(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.compareEval(principal, id);
+  }
+
   // ── gates ───────────────────────────────────────────────────────────
 
   @Get('gates')
@@ -229,6 +239,16 @@ export class ApiController {
       editedTitle: parsed.editedTitle,
       editedContent: parsed.editedContent,
     });
+  }
+
+  @Post('knowledge/:id/promote')
+  promoteKnowledge(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.promoteKnowledge(principal, id);
+  }
+
+  @Get('analytics/knowledge')
+  knowledgeEffectiveness(@CurrentPrincipal() principal: Principal) {
+    return this.service.knowledgeEffectiveness(principal);
   }
 
   // ── models ──────────────────────────────────────────────────────────

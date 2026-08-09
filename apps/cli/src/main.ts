@@ -15,6 +15,7 @@ import {
   createPool,
   domainEvents,
   gateRequests,
+  knowledgeItems,
   migrateDb,
   organizations,
   pipelineRuns,
@@ -36,6 +37,7 @@ import {
   addManualKnowledge,
   decideKnowledge,
   listKnowledge as listKnowledgeItems,
+  promoteKnowledge,
 } from '@ai-system/brain';
 import {
   InMemoryCallLedger,
@@ -51,8 +53,19 @@ import {
   setQuotas,
   type Role,
 } from '@ai-system/tenancy';
-import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
-import { listTasks, resolveGate, startRun } from '@ai-system/orchestration';
+import {
+  fetchJiraTicket,
+  fetchLinearTicket,
+  jiraConfigFromEnv,
+  linearConfigFromEnv,
+} from '@ai-system/integrations';
+import {
+  compareEvalRun,
+  listTasks,
+  resolveGate,
+  startEvalReplay,
+  startRun,
+} from '@ai-system/orchestration';
 
 // Phase 0: the CLI is the UI before the UI (docs/10). It talks to the same
 // context facades the API app will use in Phase 1 — no logic lives here.
@@ -219,6 +232,7 @@ repoCmd
     'coding agent: claude_code | codex | api_loop | scripted (default: claude_code)',
   )
   .option('--executor-model <model>', 'model passed to the coding agent CLI')
+  .option('--reviewers <list>', 'comma-separated specialized review passes: security,performance')
   .action(
     withDb(
       async (
@@ -231,6 +245,7 @@ repoCmd
           testCommand?: string;
           executor?: string;
           executorModel?: string;
+          reviewers?: string;
         },
       ) => {
         const project = await pickProject(db, opts.project);
@@ -246,6 +261,9 @@ repoCmd
             ...(opts.testCommand ? { testCommand: opts.testCommand } : {}),
             ...(opts.executor ? { executor: opts.executor } : {}),
             ...(opts.executorModel ? { executorModel: opts.executorModel } : {}),
+            ...(opts.reviewers
+              ? { reviewers: opts.reviewers.split(',').map((r) => r.trim()).filter(Boolean) }
+              : {}),
           },
         });
         console.log(`repository registered: ${repositoryId}`);
@@ -294,22 +312,34 @@ runCmd
   .option('--automation <level>', 'plan_gated | autonomous (mvp only)', 'plan_gated')
   .option('--repo <id>', 'repository id (defaults to the only repo of the project)')
   .option('--jira <issue-key>', 'fetch the ticket from Jira (needs JIRA_BASE_URL/EMAIL/API_TOKEN)')
+  .option('--linear <identifier>', 'fetch the ticket from Linear (needs LINEAR_API_KEY)')
   .action(
     withDb(
       async (
         db,
         ticketFile: string | undefined,
-        opts: { project?: string; pipeline: string; automation: string; repo?: string; jira?: string },
+        opts: {
+          project?: string;
+          pipeline: string;
+          automation: string;
+          repo?: string;
+          jira?: string;
+          linear?: string;
+        },
       ) => {
         let ticket: TicketSnapshot;
         if (opts.jira) {
           const jira = jiraConfigFromEnv();
           if (!jira) throw new Error('Jira env not configured (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)');
           ticket = await fetchJiraTicket(jira, opts.jira);
+        } else if (opts.linear) {
+          const linear = linearConfigFromEnv();
+          if (!linear) throw new Error('Linear env not configured (LINEAR_API_KEY)');
+          ticket = await fetchLinearTicket(linear, opts.linear);
         } else if (ticketFile) {
           ticket = readTicketFile(ticketFile);
         } else {
-          throw new Error('pass a ticket file or --jira <issue-key>');
+          throw new Error('pass a ticket file, --jira <issue-key>, or --linear <identifier>');
         }
         const project = await pickProject(db, opts.project);
         let repositoryId: string | undefined;
@@ -552,6 +582,76 @@ function localEmbedder() {
       (await gateway.embed(profile, { texts, meta: { purpose: 'embeddings' } })).vectors,
   };
 }
+
+const evalCmd = program.command('eval').description('evaluation harness — replay past tickets');
+
+evalCmd
+  .command('replay <run-id>')
+  .description('replay a completed run\'s ticket through the pipeline as configured today')
+  .action(
+    withDb(async (db, runId: string) => {
+      const rows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId));
+      if (!rows[0]) throw new Error(`unknown run ${runId}`);
+      const { evalRunId } = await startEvalReplay(db, {
+        sourceRunId: runId,
+        organizationId: rows[0].organizationId,
+      });
+      console.log(`eval replay started: ${evalRunId}`);
+      console.log(`compare with: ai-system eval compare ${evalRunId}`);
+    }),
+  );
+
+evalCmd
+  .command('compare <eval-run-id>')
+  .description('diff a replay against its source run')
+  .action(
+    withDb(async (db, evalRunId: string) => {
+      const rows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, evalRunId));
+      if (!rows[0]) throw new Error(`unknown run ${evalRunId}`);
+      const cmp = await compareEvalRun(db, {
+        evalRunId,
+        organizationId: rows[0].organizationId,
+      });
+      if (!cmp.ready) console.log('replay still in progress — numbers below will change\n');
+      const rowsOut: [string, string, string, string][] = [
+        ['metric', 'source', 'replay', 'delta'],
+        ['status', cmp.source.status, cmp.replay.status, ''],
+        ['iterations', String(cmp.source.iterations), String(cmp.replay.iterations), fmt(cmp.deltas.iterations!)],
+        ['findings', String(cmp.source.findingsTotal), String(cmp.replay.findingsTotal), fmt(cmp.deltas.findingsTotal!)],
+        ['blocking', String(cmp.source.findingsBlocking), String(cmp.replay.findingsBlocking), fmt(cmp.deltas.findingsBlocking!)],
+        ['tasks', String(cmp.source.taskCount), String(cmp.replay.taskCount), fmt(cmp.deltas.taskCount!)],
+        ['cost USD', cmp.source.costUsd.toFixed(4), cmp.replay.costUsd.toFixed(4), fmt(cmp.deltas.costUsd!, 4)],
+        ['minutes', cmp.source.durationMinutes.toFixed(1), cmp.replay.durationMinutes.toFixed(1), fmt(cmp.deltas.durationMinutes!, 1)],
+      ];
+      for (const [a, b, c, d] of rowsOut) {
+        console.log(`${a.padEnd(12)} ${b.padEnd(24)} ${c.padEnd(24)} ${d}`);
+      }
+    }),
+  );
+
+function fmt(n: number, digits = 0): string {
+  const v = digits ? n.toFixed(digits) : String(n);
+  return n > 0 ? `+${v}` : v;
+}
+
+knowledgeCmd
+  .command('promote <knowledge-item-id>')
+  .description('lift an approved project rule to organization scope (all projects)')
+  .action(
+    withDb(async (db, knowledgeItemId: string) => {
+      const rows = await db
+        .select()
+        .from(knowledgeItems)
+        .where(eq(knowledgeItems.id, knowledgeItemId));
+      if (!rows[0]) throw new Error(`unknown knowledge item ${knowledgeItemId}`);
+      await promoteKnowledge(
+        db,
+        { knowledgeItemId, organizationId: rows[0].organizationId },
+        localEmbedder(),
+      );
+      console.log('promoted to organization scope');
+    }),
+  );
 
 function readTicketFile(path: string): TicketSnapshot {
   const raw = readFileSync(path, 'utf8');

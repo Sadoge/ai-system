@@ -50,6 +50,7 @@ export const RegisterRepoBody = z.object({
   /** Which coding agent runs this repository's tasks. */
   executor: z.enum(['claude_code', 'codex', 'api_loop', 'scripted']).optional(),
   executorModel: z.string().optional(),
+  reviewers: z.array(z.enum(['security', 'performance'])).optional(),
   projectId: z.string().uuid().optional(),
 });
 

@@ -22,6 +22,7 @@ import { createArtifact } from './artifacts.js';
 import { recordExecutorUsage } from './executors.js';
 import {
   agentCtx,
+  allowedCommandsFor,
   getBrainContext,
   latestArtifact,
   openBlockingFindings,
@@ -205,6 +206,7 @@ export async function executeTask(
       worktreeDir,
       taskSpec,
       limits: { timeoutMs: services.codingTimeoutMs },
+      allowedCommands: allowedCommandsFor(repo),
     });
     await recordExecutorUsage(db, {
       runId: run.id,

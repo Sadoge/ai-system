@@ -132,3 +132,41 @@ export async function decideKnowledge(
   }
   return { status };
 }
+
+/**
+ * Promote a project rule to organization scope (docs/10 Phase 4:
+ * cross-project knowledge). The rule then applies to every project in the
+ * org, and its chunks are re-indexed org-wide so semantic retrieval finds it
+ * from any project.
+ */
+export async function promoteKnowledge(
+  db: Db,
+  input: { knowledgeItemId: string; organizationId: string },
+  embedder?: Embedder,
+): Promise<void> {
+  const rows = await db
+    .select()
+    .from(knowledgeItems)
+    .where(eq(knowledgeItems.id, input.knowledgeItemId));
+  const item = rows[0];
+  if (!item || item.organizationId !== input.organizationId) {
+    throw new Error(`unknown knowledge item ${input.knowledgeItemId}`);
+  }
+  if (item.status !== 'approved') throw new Error('only approved knowledge can be promoted');
+
+  await db
+    .update(knowledgeItems)
+    .set({ projectId: null, repositoryId: null, updatedAt: new Date() })
+    .where(eq(knowledgeItems.id, item.id));
+
+  if (embedder) {
+    await indexChunks(db, embedder, {
+      organizationId: item.organizationId,
+      projectId: null,
+      sourceType: 'knowledge_item',
+      sourceId: item.id,
+      title: item.title,
+      content: item.content,
+    });
+  }
+}

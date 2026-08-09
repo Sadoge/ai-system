@@ -14,6 +14,16 @@ export const PLATFORM_DEFAULT_PROFILES: Record<string, ResolvedProfile> = {
     primary: { provider: 'anthropic', model: 'claude-sonnet-4-5', params: { maxTokens: 8192 } },
     fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
   },
+  research: {
+    purpose: 'research',
+    primary: { provider: 'anthropic', model: 'claude-sonnet-4-5', params: { maxTokens: 4096 } },
+    fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
+  },
+  review: {
+    purpose: 'review',
+    primary: { provider: 'anthropic', model: 'claude-sonnet-4-5', params: { maxTokens: 8192, temperature: 0 } },
+    fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
+  },
   echo: {
     purpose: 'echo',
     primary: { provider: 'anthropic', model: 'claude-haiku-4-5', params: { maxTokens: 256, temperature: 0 } },

@@ -1,0 +1,428 @@
+import { execFile } from 'node:child_process';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { and, desc, eq } from 'drizzle-orm';
+import {
+  artifacts,
+  agentRuns,
+  gateDecisions,
+  gateRequests,
+  pipelineRuns,
+  repositories,
+  reviewFindings,
+  type Db,
+} from '@ai-system/db';
+import { PolicySnapshot, TicketSnapshot, uuidv7 } from '@ai-system/domain';
+import { applyEvent } from '@ai-system/orchestration';
+import {
+  brainQuery,
+  indexRepository,
+  latestIndexSnapshot,
+  saveIndexSnapshot,
+  type BrainContext,
+} from '@ai-system/brain';
+import {
+  ImplementationPlan,
+  ResearchReport,
+  type AgentContext,
+} from '@ai-system/agents';
+import {
+  commitAll,
+  diffAgainst,
+  ensureCheckout,
+  ensureWorktree,
+  renderCodingPrompt,
+  type CodingTaskSpec,
+} from '@ai-system/agent-execution';
+import { createPullRequest, parseGitHubRemote, pushBranch } from '@ai-system/integrations';
+import { createArtifact } from './artifacts.js';
+import type { StageServices } from './services.js';
+import type { RunRow, StageOutcome } from './stages.js';
+
+const exec = promisify(execFile);
+const TEST_TIMEOUT_MS = 5 * 60 * 1000;
+
+// ── shared helpers ────────────────────────────────────────────────────
+
+type RepoRow = typeof repositories.$inferSelect;
+
+function agentCtx(run: RunRow): AgentContext {
+  const policy = PolicySnapshot.parse(run.policySnapshot);
+  return { runId: run.id, budgetUsd: policy.budgetUsd };
+}
+
+function runBranch(run: RunRow): string {
+  return `ai/run-${run.id.slice(-8)}`;
+}
+
+function repoPaths(services: StageServices, repoId: string, runId: string) {
+  return {
+    checkoutDir: join(services.dataDir, 'repos', repoId),
+    worktreeDir: join(services.dataDir, 'worktrees', runId),
+  };
+}
+
+async function requireRepo(db: Db, run: RunRow): Promise<RepoRow> {
+  if (!run.repositoryId) throw new Error('run has no repository — register one and restart');
+  const rows = await db.select().from(repositories).where(eq(repositories.id, run.repositoryId));
+  if (!rows[0]) throw new Error(`unknown repository ${run.repositoryId}`);
+  return rows[0];
+}
+
+async function latestArtifact(db: Db, runId: string, kind: string) {
+  const rows = await db
+    .select()
+    .from(artifacts)
+    .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, kind)))
+    .orderBy(desc(artifacts.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function getBrainContext(
+  services: StageServices,
+  run: RunRow,
+  repo: RepoRow | null,
+): Promise<BrainContext> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  let index = null;
+  if (repo) {
+    const { checkoutDir } = repoPaths(services, repo.id, run.id);
+    await ensureCheckout(repo.remoteUrl, checkoutDir);
+    index = await latestIndexSnapshot(db, repo.id);
+    if (!index) {
+      index = await indexRepository(checkoutDir);
+      await saveIndexSnapshot(db, repo.id, index);
+    }
+  }
+  const keywords = [
+    ...new Set(
+      `${ticket.title} ${ticket.description}`
+        .toLowerCase()
+        .split(/[^a-z0-9_]+/)
+        .filter((w) => w.length > 3),
+    ),
+  ].slice(0, 12);
+  return brainQuery(db, {
+    projectId: run.projectId,
+    ...(repo ? { repositoryId: repo.id } : {}),
+    index,
+    need: { structural: { keywords }, rules: {} },
+  });
+}
+
+async function openBlockingFindings(db: Db, runId: string) {
+  return db
+    .select()
+    .from(reviewFindings)
+    .where(and(eq(reviewFindings.runId, runId), eq(reviewFindings.status, 'open')));
+}
+
+// ── stage handlers (docs/10 Phase 1 pipeline) ─────────────────────────
+
+export async function classifyStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const result = await services.agents.classify({ ticket }, agentCtx(run));
+  await services.db
+    .update(pipelineRuns)
+    .set({ complexity: result.complexity })
+    .where(eq(pipelineRuns.id, run.id));
+  await applyEvent(services.db, {
+    name: 'run.complexity.classified',
+    payload: { runId: run.id, complexity: result.complexity },
+  });
+  // Epic: the engine parked the run at awaiting_split; a human splits the ticket.
+  return { artifactIds: [], suppressCompletion: result.complexity === 'epic' };
+}
+
+export async function researchStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const repo = run.repositoryId ? await requireRepo(db, run) : null;
+  const brain = await getBrainContext(services, run, repo);
+  const report = await services.agents.research({ ticket, brain }, agentCtx(run));
+  const { artifactId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'research_report',
+    content: report,
+  });
+  return { artifactIds: [artifactId] };
+}
+
+export async function planStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const researchArtifact = await latestArtifact(db, run.id, 'research_report');
+  if (!researchArtifact) throw new Error('no research report to plan from');
+  const research = ResearchReport.parse(researchArtifact.content);
+  const repo = run.repositoryId ? await requireRepo(db, run) : null;
+  const brain = await getBrainContext(services, run, repo);
+  const rejectionFeedback = await latestPlanRejectionComment(db, run.id);
+
+  const plan = await services.agents.plan(
+    { ticket, research, brain, ...(rejectionFeedback ? { rejectionFeedback } : {}) },
+    agentCtx(run),
+  );
+  const { artifactId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'implementation_plan',
+    content: plan,
+  });
+  return { artifactIds: [artifactId] };
+}
+
+async function latestPlanRejectionComment(db: Db, runId: string): Promise<string | null> {
+  const rows = await db
+    .select({ comment: gateDecisions.comment, decision: gateDecisions.decision })
+    .from(gateDecisions)
+    .innerJoin(gateRequests, eq(gateDecisions.gateRequestId, gateRequests.id))
+    .where(and(eq(gateRequests.runId, runId), eq(gateRequests.gate, 'plan_approval')))
+    .orderBy(desc(gateDecisions.createdAt))
+    .limit(1);
+  const last = rows[0];
+  return last && last.decision === 'rejected' ? (last.comment ?? null) : null;
+}
+
+export async function codeStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const repo = await requireRepo(db, run);
+  const planArtifact = await latestArtifact(db, run.id, 'implementation_plan');
+  if (!planArtifact) throw new Error('no implementation plan to code from');
+  const plan = ImplementationPlan.parse(planArtifact.content);
+  const findings = await openBlockingFindings(db, run.id);
+  const brain = await getBrainContext(services, run, repo);
+
+  const { checkoutDir, worktreeDir } = repoPaths(services, repo.id, run.id);
+  await ensureCheckout(repo.remoteUrl, checkoutDir);
+  await ensureWorktree(checkoutDir, worktreeDir, runBranch(run), repo.defaultBranch);
+
+  const taskSpec: CodingTaskSpec = {
+    ticketTitle: ticket.title,
+    planSummary: plan.summary,
+    steps: plan.steps,
+    findings: findings.map((f) => ({
+      severity: f.severity,
+      title: f.title,
+      detail: f.detail,
+      filePath: f.filePath,
+    })),
+    rules: brain.rules.map((r) => ({ title: r.title, content: r.content })),
+  };
+
+  const agentRunId = uuidv7();
+  // Persist the exact context BEFORE execution — every agent run is reproducible (docs/06 §2).
+  const { artifactId: bundleId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'task_spec',
+    content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
+  });
+  await db.insert(agentRuns).values({
+    id: agentRunId,
+    runId: run.id,
+    agentKind: 'coding',
+    executorKind: services.executor.executorKind,
+    status: 'running',
+    contextBundleArtifactId: bundleId,
+    startedAt: new Date(),
+  });
+
+  const result = await services.executor.execute({
+    runId: run.id,
+    agentRunId,
+    worktreeDir,
+    taskSpec,
+    limits: { timeoutMs: services.codingTimeoutMs },
+  });
+
+  const { artifactId: transcriptId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'agent_transcript',
+    content: { transcript: result.transcript.slice(-100_000) },
+    createdByAgentRunId: agentRunId,
+  });
+
+  if (result.status === 'failed') {
+    await db
+      .update(agentRuns)
+      .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
+      .where(eq(agentRuns.id, agentRunId));
+    throw new Error(`coding agent failed: ${result.failureReason}`);
+  }
+
+  await commitAll(worktreeDir, `ai-system: ${ticket.title} (iteration ${run.iterationCount})`);
+  const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
+  const { artifactId: diffId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'diff',
+    content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
+    createdByAgentRunId: agentRunId,
+  });
+
+  await db
+    .update(agentRuns)
+    .set({ status: 'succeeded', finishedAt: new Date() })
+    .where(eq(agentRuns.id, agentRunId));
+  return { artifactIds: [bundleId, transcriptId, diffId] };
+}
+
+export async function reviewStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const repo = run.repositoryId ? await requireRepo(db, run) : null;
+  const planArtifact = await latestArtifact(db, run.id, 'implementation_plan');
+  const diffArtifact = await latestArtifact(db, run.id, 'diff');
+  if (!planArtifact || !diffArtifact) throw new Error('review needs a plan and a diff');
+  const plan = ImplementationPlan.parse(planArtifact.content);
+  const diff = (diffArtifact.content as { diff: string }).diff;
+  const brain = await getBrainContext(services, run, repo);
+
+  // Findings from earlier iterations are superseded by this fresh review.
+  await db
+    .update(reviewFindings)
+    .set({ status: 'superseded' })
+    .where(and(eq(reviewFindings.runId, run.id), eq(reviewFindings.status, 'open')));
+
+  const report = await services.agents.review(
+    { ticket, plan, diff, brain, iterationCount: run.iterationCount },
+    agentCtx(run),
+  );
+  for (const finding of report.findings) {
+    await db.insert(reviewFindings).values({
+      id: uuidv7(),
+      runId: run.id,
+      severity: finding.severity,
+      category: finding.category,
+      title: finding.title,
+      detail: finding.detail,
+      filePath: finding.filePath,
+    });
+  }
+  const { artifactId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'review_report',
+    content: report,
+  });
+  return { artifactIds: [artifactId] };
+}
+
+export async function testStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const repo = await requireRepo(db, run);
+  const { worktreeDir } = repoPaths(services, repo.id, run.id);
+  const settings = (repo.settings ?? {}) as { testCommand?: string };
+
+  // Only the repository's allowlisted command runs — never anything an agent chose (docs/06 §4).
+  let testsPassed = true;
+  let output = '(no test command configured for this repository)';
+  if (settings.testCommand) {
+    try {
+      const { stdout, stderr } = await exec('bash', ['-c', settings.testCommand], {
+        cwd: worktreeDir,
+        timeout: TEST_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+        env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
+      });
+      output = (stdout + stderr).slice(-20_000);
+    } catch (err) {
+      testsPassed = false;
+      const e = err as { stdout?: string; stderr?: string; message: string };
+      output = `${e.stdout ?? ''}${e.stderr ?? ''}${e.message}`.slice(-20_000);
+    }
+  }
+
+  const blocking = (await openBlockingFindings(db, run.id)).filter((f) =>
+    ['blocker', 'major'].includes(f.severity),
+  );
+  const { artifactId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'test_report',
+    content: {
+      testsPassed,
+      output,
+      blockingFindings: blocking.map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
+      iteration: run.iterationCount,
+    },
+  });
+
+  if (testsPassed && blocking.length === 0) return { artifactIds: [artifactId] };
+
+  // The engine — not this handler — decides between a fix iteration and the gate.
+  await applyEvent(db, {
+    name: 'run.iteration.needed',
+    payload: { runId: run.id, blockingFindingIds: blocking.map((f) => f.id), testsPassed },
+  });
+  return { artifactIds: [artifactId], suppressCompletion: true };
+}
+
+export async function packageStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
+  const repo = await requireRepo(db, run);
+  const planArtifact = await latestArtifact(db, run.id, 'implementation_plan');
+  const diffArtifact = await latestArtifact(db, run.id, 'diff');
+  const testArtifact = await latestArtifact(db, run.id, 'test_report');
+  const reviewArtifact = await latestArtifact(db, run.id, 'review_report');
+  const plan = planArtifact ? ImplementationPlan.parse(planArtifact.content) : null;
+  const branch = runBranch(run);
+
+  const body = [
+    `## Summary`,
+    plan?.summary ?? ticket.description,
+    '',
+    `## Plan`,
+    ...(plan?.steps.map((s, i) => `${i + 1}. ${s.title}`) ?? []),
+    '',
+    `## Evidence`,
+    `- Review: ${(reviewArtifact?.content as { summary?: string })?.summary ?? 'n/a'}`,
+    `- Tests: ${(testArtifact?.content as { testsPassed?: boolean })?.testsPassed ? 'passed' : 'see report'}`,
+    `- Iterations used: ${run.iterationCount}`,
+  ].join('\n');
+
+  let prUrl: string | null = null;
+  let prError: string | null = null;
+  const githubRef = parseGitHubRemote(repo.remoteUrl);
+  if (githubRef && services.githubToken) {
+    try {
+      const { checkoutDir } = repoPaths(services, repo.id, run.id);
+      await pushBranch(checkoutDir, branch, githubRef, services.githubToken);
+      const pr = await createPullRequest(githubRef, services.githubToken, {
+        title: ticket.title,
+        body,
+        head: branch,
+        base: repo.defaultBranch,
+      });
+      prUrl = pr.url;
+    } catch (err) {
+      prError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  const { artifactId } = await createArtifact(db, {
+    runId: run.id,
+    kind: 'pr_package',
+    content: {
+      branch,
+      baseBranch: repo.defaultBranch,
+      title: ticket.title,
+      body,
+      diffStat: summarizeDiff((diffArtifact?.content as { diff?: string })?.diff ?? ''),
+      prUrl,
+      prError,
+    },
+  });
+  return { artifactIds: [artifactId] };
+}
+
+function summarizeDiff(diff: string): { files: number; additions: number; deletions: number } {
+  let files = 0;
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git')) files++;
+    else if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+  }
+  return { files, additions, deletions };
+}

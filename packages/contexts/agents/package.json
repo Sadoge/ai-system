@@ -1,27 +1,29 @@
 {
-  "name": "@ai-system/cli",
+  "name": "@ai-system/agents",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": {
-    "ai-system": "./dist/main.js"
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
-    "dev": "tsx src/main.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-system/brain": "workspace:*",
-    "@ai-system/db": "workspace:*",
     "@ai-system/domain": "workspace:*",
-    "@ai-system/orchestration": "workspace:*",
-    "commander": "^12.1.0",
-    "drizzle-orm": "^0.38.3"
+    "@ai-system/model-gateway": "workspace:*",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"
   }

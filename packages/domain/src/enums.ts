@@ -95,6 +95,31 @@ export const AgentFailureReason = z.enum([
 ]);
 export type AgentFailureReason = z.infer<typeof AgentFailureReason>;
 
+export const FindingSeverity = z.enum(['blocker', 'major', 'minor', 'info']);
+export type FindingSeverity = z.infer<typeof FindingSeverity>;
+
+export const BLOCKING_SEVERITIES: readonly FindingSeverity[] = ['blocker', 'major'];
+
+export const FindingStatus = z.enum(['open', 'resolved', 'superseded', 'waived']);
+export type FindingStatus = z.infer<typeof FindingStatus>;
+
+export const KnowledgeKind = z.enum([
+  'architecture_rule',
+  'convention',
+  'adr',
+  'pitfall',
+  'pattern',
+  'glossary',
+  'business_rule',
+]);
+export type KnowledgeKind = z.infer<typeof KnowledgeKind>;
+
+export const KnowledgeOrigin = z.enum(['manual', 'learned']);
+export type KnowledgeOrigin = z.infer<typeof KnowledgeOrigin>;
+
+export const KnowledgeStatus = z.enum(['proposed', 'approved', 'deprecated', 'rejected']);
+export type KnowledgeStatus = z.infer<typeof KnowledgeStatus>;
+
 export const ArtifactKind = z.enum([
   'ticket_snapshot',
   'research_report',

@@ -81,6 +81,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
       error: result.error ?? row.error,
       version: row.version + 1,
       updatedAt: new Date(),
+      ...(result.iterationCount !== undefined ? { iterationCount: result.iterationCount } : {}),
     })
     .where(and(eq(pipelineRuns.id, runId), eq(pipelineRuns.version, row.version)))
     .returning({ id: pipelineRuns.id });

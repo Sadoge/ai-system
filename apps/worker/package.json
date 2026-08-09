@@ -11,8 +11,12 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@ai-system/agent-execution": "workspace:*",
+    "@ai-system/agents": "workspace:*",
+    "@ai-system/brain": "workspace:*",
     "@ai-system/db": "workspace:*",
     "@ai-system/domain": "workspace:*",
+    "@ai-system/integrations": "workspace:*",
     "@ai-system/model-gateway": "workspace:*",
     "@ai-system/orchestration": "workspace:*",
     "drizzle-orm": "^0.38.3",

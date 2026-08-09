@@ -17,6 +17,14 @@ export function advance(run: RunSnapshot, event: EngineEvent): AdvanceResult {
       return onRunCreated(run);
     case 'run.stage.completed':
       return onStageCompleted(run, event.payload.stage);
+    case 'run.complexity.classified':
+      // Non-epic complexity is data (recorded by the classify handler);
+      // epic is a control decision: reject and hand back to the human.
+      if (event.payload.complexity !== 'epic') return ignored('complexity recorded, not a transition');
+      if (run.status !== 'classifying') return ignored(`epic classification in status ${run.status}`);
+      return transitioned('awaiting_split', run.currentStage, []);
+    case 'run.iteration.needed':
+      return onIterationNeeded(run);
     case 'run.stage.failed':
       return onStageFailed(run, event.payload.stage, event.payload.reason);
     case 'run.gate.resolved':
@@ -50,6 +58,9 @@ function onStageCompleted(run: RunSnapshot, stage: RunSnapshot['currentStage']):
   if (stage !== run.currentStage) {
     return ignored(`stage.completed for ${stage} but current stage is ${run.currentStage}`);
   }
+  if (isAwaiting(run.status)) {
+    return ignored(`stage.completed while parked in ${run.status} (duplicate delivery)`);
+  }
   const def = pipelineFor(run.policy);
   if (stage === null) return ignored('no active stage');
 
@@ -75,6 +86,30 @@ function onStageFailed(
   return { outcome: 'transitioned', status: 'failed', currentStage: stage, commands: [], error: reason };
 }
 
+/**
+ * The iteration decision (docs/05 §5), deterministically: budget remaining →
+ * consume one iteration and re-enter coding; exhausted → hand to a human.
+ */
+function onIterationNeeded(run: RunSnapshot): AdvanceResult {
+  if (run.status !== 'testing' || run.currentStage !== 'test') {
+    return ignored(`iteration.needed in status ${run.status}`);
+  }
+  if (run.iterationCount < run.policy.iterationBudget) {
+    return {
+      ...reenter(run, 'code'),
+      iterationCount: run.iterationCount + 1,
+    } as AdvanceResult;
+  }
+  return transitioned('awaiting_iteration_gate', run.currentStage, [
+    {
+      kind: 'request_gate',
+      runId: run.runId,
+      gate: 'iteration_extension',
+      payload: { iterationCount: run.iterationCount, iterationBudget: run.policy.iterationBudget },
+    },
+  ]);
+}
+
 function onGateResolved(
   run: RunSnapshot,
   gate: GateKind,
@@ -89,6 +124,16 @@ function onGateResolved(
     if (decision === 'approved') return transitioned('completed', null, []);
     // Changes requested → re-enter the coding stage (docs/05 §6).
     return reenter(run, 'code');
+  }
+  if (gate === 'iteration_extension') {
+    if (decision === 'approved') {
+      // One more iteration, explicitly human-granted — bypasses the budget check once.
+      return { ...reenter(run, 'code'), iterationCount: run.iterationCount + 1 } as AdvanceResult;
+    }
+    // Accept as-is: remaining findings are explicitly waived; continue to packaging.
+    const afterTest = nextStage(def, 'test');
+    if (!afterTest) return transitioned('completed', null, []);
+    return transitioned(def.statusDuring(afterTest), afterTest, [executeStage(run.runId, afterTest)]);
   }
   if (gate === 'plan_approval') {
     if (decision === 'approved') {

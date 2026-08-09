@@ -79,6 +79,9 @@ export const repositories = pgTable('repositories', {
   defaultBranch: text('default_branch').notNull().default('main'),
   // Pointer into the secret store — the credential itself never lives here.
   credentialsRef: text('credentials_ref'),
+  // Per-repository execution settings: allowlisted commands the sandbox may
+  // run (testCommand, lintCommand), branch naming, etc. (docs/06 §4).
+  settings: jsonb('settings').notNull().default({}),
   createdAt: createdAt(),
 });
 
@@ -233,6 +236,65 @@ export const gateDecisions = pgTable('gate_decisions', {
   decidedByUserId: uuid('decided_by_user_id').references(() => users.id),
   createdAt: createdAt(),
 });
+
+export const reviewFindings = pgTable(
+  'review_findings',
+  {
+    id: id(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    agentRunId: uuid('agent_run_id').references(() => agentRuns.id),
+    severity: text('severity').notNull(),
+    category: text('category').notNull(),
+    title: text('title').notNull(),
+    detail: text('detail').notNull(),
+    filePath: text('file_path'),
+    status: text('status').notNull().default('open'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('review_findings_run_idx').on(t.runId, t.status)],
+);
+
+// ── Project Brain ─────────────────────────────────────────────────────
+
+export const knowledgeItems = pgTable(
+  'knowledge_items',
+  {
+    id: id(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    projectId: uuid('project_id').references(() => projects.id),
+    repositoryId: uuid('repository_id').references(() => repositories.id),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    origin: text('origin').notNull().default('manual'),
+    status: text('status').notNull().default('approved'),
+    scopeTags: jsonb('scope_tags').notNull().default([]),
+    version: integer('version').notNull().default(1),
+    sourceRunId: uuid('source_run_id'),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('knowledge_items_project_idx').on(t.projectId, t.status, t.kind)],
+);
+
+// Layer 1 cache, never truth (docs/08 §1): rebuildable from the repo.
+export const repoIndexSnapshots = pgTable(
+  'repo_index_snapshots',
+  {
+    id: id(),
+    repositoryId: uuid('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    commitSha: text('commit_sha').notNull(),
+    index: jsonb('index').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('repo_index_snapshots_repo_idx').on(t.repositoryId, t.createdAt)],
+);
 
 // ── Model Gateway ─────────────────────────────────────────────────────
 

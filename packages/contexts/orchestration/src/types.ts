@@ -13,7 +13,7 @@ export interface RunSnapshot {
 /** Side effects the engine requests. The runtime writes them to the outbox; the dispatcher enqueues them. */
 export type Command =
   | { kind: 'execute_stage'; runId: string; stage: StageKind }
-  | { kind: 'request_gate'; runId: string; gate: GateKind };
+  | { kind: 'request_gate'; runId: string; gate: GateKind; payload?: Record<string, unknown> };
 
 export type AdvanceResult =
   | {
@@ -22,6 +22,8 @@ export type AdvanceResult =
       currentStage: StageKind | null;
       commands: Command[];
       error?: string;
+      /** Set when the transition consumed or granted an iteration (docs/05 §5). */
+      iterationCount?: number;
     }
   | {
       /** Event is not applicable in the current state (duplicate delivery, stale event). A safe no-op. */

@@ -46,6 +46,20 @@ export function gatesForAutomationLevel(level: AutomationLevel): GateKind[] {
   }
 }
 
+export function defaultMvpPolicy(
+  automationLevel: Extract<AutomationLevel, 'plan_gated' | 'autonomous'> = 'plan_gated',
+): PolicySnapshot {
+  return {
+    pipeline: 'mvp_linear',
+    automationLevel,
+    enabledGates: gatesForAutomationLevel(automationLevel),
+    maxParallelTasks: 1,
+    iterationBudget: 2,
+    maxTaskAttempts: 2,
+    budgetUsd: null,
+  };
+}
+
 export function defaultTrivialPolicy(): PolicySnapshot {
   return {
     pipeline: 'trivial',

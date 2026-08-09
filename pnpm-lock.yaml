@@ -35,6 +35,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@ai-system/brain':
+        specifier: workspace:*
+        version: link:../../packages/contexts/brain
       '@ai-system/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -63,12 +66,24 @@ importers:
 
   apps/worker:
     dependencies:
+      '@ai-system/agent-execution':
+        specifier: workspace:*
+        version: link:../../packages/contexts/agent-execution
+      '@ai-system/agents':
+        specifier: workspace:*
+        version: link:../../packages/contexts/agents
+      '@ai-system/brain':
+        specifier: workspace:*
+        version: link:../../packages/contexts/brain
       '@ai-system/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@ai-system/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ai-system/integrations':
+        specifier: workspace:*
+        version: link:../../packages/contexts/integrations
       '@ai-system/model-gateway':
         specifier: workspace:*
         version: link:../../packages/contexts/model-gateway
@@ -91,6 +106,79 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.11
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.11)
+
+  packages/contexts/agent-execution:
+    dependencies:
+      '@ai-system/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.11)
+
+  packages/contexts/agents:
+    dependencies:
+      '@ai-system/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@ai-system/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      '@ai-system/model-gateway':
+        specifier: workspace:*
+        version: link:../model-gateway
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.24.1
+        version: 3.25.2(zod@3.25.76)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.11)
+
+  packages/contexts/brain:
+    dependencies:
+      '@ai-system/db':
+        specifier: workspace:*
+        version: link:../../db
+      '@ai-system/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/pg@8.21.0)(pg@8.23.0)
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.11)
+
+  packages/contexts/integrations:
+    dependencies:
+      '@ai-system/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -1860,6 +1948,11 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod-to-json-schema@3.25.2:
+    resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
+    peerDependencies:
+      zod: ^3.25.28 || ^4
+
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
@@ -3246,5 +3339,9 @@ snapshots:
   xtend@4.0.2: {}
 
   yocto-queue@0.1.0: {}
+
+  zod-to-json-schema@3.25.2(zod@3.25.76):
+    dependencies:
+      zod: 3.25.76
 
   zod@3.25.76: {}

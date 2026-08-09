@@ -1,0 +1,28 @@
+{
+  "name": "@ai-system/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@ai-system/db": "workspace:*",
+    "@ai-system/domain": "workspace:*",
+    "@ai-system/model-gateway": "workspace:*",
+    "@ai-system/orchestration": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "pg-boss": "^10.1.6",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

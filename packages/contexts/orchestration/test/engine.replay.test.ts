@@ -1,0 +1,210 @@
+import { describe, expect, it } from 'vitest';
+import type { DomainEvent, PolicySnapshot } from '@ai-system/domain';
+import { defaultTrivialPolicy, gatesForAutomationLevel } from '@ai-system/domain';
+import { advance } from '../src/engine.js';
+import type { RunSnapshot } from '../src/types.js';
+
+const RUN_ID = '01936b00-0000-7000-8000-000000000001';
+const PROJECT_ID = '01936b00-0000-7000-8000-000000000002';
+const STAGE_EXEC_ID = '01936b00-0000-7000-8000-000000000003';
+const GATE_REQ_ID = '01936b00-0000-7000-8000-000000000004';
+
+function initialRun(policy: PolicySnapshot): RunSnapshot {
+  return { runId: RUN_ID, status: 'created', currentStage: null, version: 1, policy, iterationCount: 0 };
+}
+
+/** Fold a recorded event sequence through advance(), asserting every step transitions. */
+function replay(start: RunSnapshot, events: DomainEvent[]) {
+  let run = start;
+  const trace: { status: string; commands: unknown[] }[] = [];
+  for (const event of events) {
+    const result = advance(run, event);
+    if (result.outcome === 'ignored') {
+      throw new Error(`unexpected ignore at ${event.name}: ${result.reason}`);
+    }
+    run = { ...run, status: result.status, currentStage: result.currentStage, version: run.version + 1 };
+    trace.push({ status: result.status, commands: result.commands });
+  }
+  return { run, trace };
+}
+
+const created: DomainEvent = {
+  name: 'run.created',
+  payload: { runId: RUN_ID, projectId: PROJECT_ID, ticket: { source: 'manual', title: 'T', description: '', acceptanceCriteria: [], labels: [] } },
+};
+
+function stageCompleted(stage: string): DomainEvent {
+  return {
+    name: 'run.stage.completed',
+    payload: { runId: RUN_ID, stageExecutionId: STAGE_EXEC_ID, stage, artifactIds: [] },
+  } as DomainEvent;
+}
+
+function gateResolved(gate: string, decision: 'approved' | 'rejected'): DomainEvent {
+  return {
+    name: 'run.gate.resolved',
+    payload: { runId: RUN_ID, gateRequestId: GATE_REQ_ID, gate, decision },
+  } as DomainEvent;
+}
+
+function mvpPolicy(automationLevel: 'plan_gated' | 'autonomous'): PolicySnapshot {
+  return {
+    pipeline: 'mvp_linear',
+    automationLevel,
+    enabledGates: gatesForAutomationLevel(automationLevel),
+    maxParallelTasks: 1,
+    iterationBudget: 2,
+    maxTaskAttempts: 2,
+    budgetUsd: null,
+  };
+}
+
+describe('trivial pipeline (Phase 0)', () => {
+  it('runs intake → echo_agent → completed, enqueuing each stage exactly once', () => {
+    const { run, trace } = replay(initialRun(defaultTrivialPolicy()), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('echo_agent'),
+    ]);
+    expect(run.status).toBe('completed');
+    expect(trace).toEqual([
+      { status: 'executing', commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'intake' }] },
+      { status: 'executing', commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'echo_agent' }] },
+      { status: 'completed', commands: [] },
+    ]);
+  });
+
+  it('ignores a duplicate stage completion (redelivery safety)', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [created, stageCompleted('intake')]);
+    const dup = advance(run, stageCompleted('intake'));
+    expect(dup).toEqual({ outcome: 'ignored', reason: expect.stringContaining('current stage is echo_agent') });
+  });
+
+  it('fails the run when the active stage fails, capturing the reason', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [created]);
+    const result = advance(run, {
+      name: 'run.stage.failed',
+      payload: { runId: RUN_ID, stageExecutionId: STAGE_EXEC_ID, stage: 'intake', reason: 'boom' },
+    });
+    expect(result).toMatchObject({ outcome: 'transitioned', status: 'failed', error: 'boom', commands: [] });
+  });
+
+  it('absorbs events after a terminal state', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('echo_agent'),
+    ]);
+    expect(advance(run, stageCompleted('echo_agent'))).toMatchObject({ outcome: 'ignored' });
+    expect(advance(run, { name: 'run.cancelled', payload: { runId: RUN_ID } })).toMatchObject({
+      outcome: 'ignored',
+    });
+  });
+
+  it('can be cancelled from any active state', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [created]);
+    const result = advance(run, { name: 'run.cancelled', payload: { runId: RUN_ID } });
+    expect(result).toMatchObject({ outcome: 'transitioned', status: 'cancelled' });
+  });
+
+  it('pauses and resumes, re-enqueuing the interrupted stage', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [created]);
+    const paused = advance(run, { name: 'run.paused', payload: { runId: RUN_ID, reason: 'manual' } });
+    expect(paused).toMatchObject({ outcome: 'transitioned', status: 'paused', currentStage: 'intake' });
+    const pausedRun: RunSnapshot = { ...run, status: 'paused' };
+    const resumed = advance(pausedRun, { name: 'run.resumed', payload: { runId: RUN_ID } });
+    expect(resumed).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'intake' }],
+    });
+  });
+});
+
+describe('mvp_linear pipeline gates', () => {
+  it('parks at plan approval when plan_gated, then continues to code on approval', () => {
+    const { run, trace } = replay(initialRun(mvpPolicy('plan_gated')), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('classify'),
+      stageCompleted('research'),
+      stageCompleted('plan'),
+    ]);
+    expect(run.status).toBe('awaiting_plan_approval');
+    expect(trace.at(-1)!.commands).toEqual([{ kind: 'request_gate', runId: RUN_ID, gate: 'plan_approval' }]);
+
+    const approved = advance(run, gateResolved('plan_approval', 'approved'));
+    expect(approved).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
+    });
+  });
+
+  it('returns to planning when the plan is rejected', () => {
+    const { run } = replay(initialRun(mvpPolicy('plan_gated')), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('classify'),
+      stageCompleted('research'),
+      stageCompleted('plan'),
+    ]);
+    const rejected = advance(run, gateResolved('plan_approval', 'rejected'));
+    expect(rejected).toMatchObject({
+      outcome: 'transitioned',
+      status: 'planning',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'plan' }],
+    });
+  });
+
+  it('always requests the final PR gate, even at automation level autonomous', () => {
+    const { run, trace } = replay(initialRun(mvpPolicy('autonomous')), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('classify'),
+      stageCompleted('research'),
+      stageCompleted('plan'), // no plan gate at this level
+      stageCompleted('code'),
+      stageCompleted('review'),
+      stageCompleted('test'),
+      stageCompleted('package'),
+    ]);
+    expect(run.status).toBe('awaiting_final_approval');
+    expect(trace.at(-1)!.commands).toEqual([{ kind: 'request_gate', runId: RUN_ID, gate: 'final_pr' }]);
+  });
+
+  it('final approval completes the run; rejection re-enters coding', () => {
+    const base = replay(initialRun(mvpPolicy('autonomous')), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('classify'),
+      stageCompleted('research'),
+      stageCompleted('plan'),
+      stageCompleted('code'),
+      stageCompleted('review'),
+      stageCompleted('test'),
+      stageCompleted('package'),
+    ]).run;
+
+    expect(advance(base, gateResolved('final_pr', 'approved'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'completed',
+    });
+    expect(advance(base, gateResolved('final_pr', 'rejected'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
+    });
+  });
+
+  it('ignores a gate resolution that does not match the parked gate', () => {
+    const { run } = replay(initialRun(mvpPolicy('plan_gated')), [
+      created,
+      stageCompleted('intake'),
+      stageCompleted('classify'),
+      stageCompleted('research'),
+      stageCompleted('plan'),
+    ]);
+    expect(advance(run, gateResolved('final_pr', 'approved'))).toMatchObject({ outcome: 'ignored' });
+  });
+});

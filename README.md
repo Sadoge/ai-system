@@ -6,7 +6,33 @@ This is not a coding agent. It is the machinery around agents: pipeline orchestr
 
 ## Status
 
-**Design phase.** The complete system design lives in [`docs/`](docs/README.md):
+**Phase 0 — Foundations** ([roadmap](docs/10-roadmap.md)): the monorepo skeleton, deterministic
+`advance()` engine with replay tests, Postgres schema + transactional outbox, Model Gateway v1
+(Anthropic + OpenAI adapters, ledger, budget guard), pg-boss worker, and operator CLI are built.
+The trivial pipeline (intake → echo agent → done) runs end-to-end and survives worker crashes.
+The API and web UI arrive with Phase 1.
+
+### Quickstart
+
+```bash
+pnpm install && pnpm build
+docker compose -f infra/docker/docker-compose.yml up -d   # Postgres 16 + pgvector
+cp .env.example .env
+
+node apps/cli/dist/main.js db migrate
+node apps/cli/dist/main.js seed
+node apps/worker/dist/main.js &                            # or: pnpm --filter @ai-system/worker dev
+
+echo '# My first ticket' > ticket.md
+node apps/cli/dist/main.js run start ticket.md
+node apps/cli/dist/main.js run status <run-id>
+```
+
+`pnpm test` runs the engine replay tests and gateway tests; no database or API key required.
+
+## Design
+
+The complete system design lives in [`docs/`](docs/README.md):
 
 - [High-Level Architecture](docs/01-architecture.md)
 - [Bounded Contexts](docs/02-bounded-contexts.md)

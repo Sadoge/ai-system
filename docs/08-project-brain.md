@@ -112,7 +112,23 @@ sequenceDiagram
 - The approval gate batches proposals per run and renders a diff-style view (new rule vs. existing related rules) so approval takes seconds, not archaeology. Approving knowledge must be cheap or it will not happen.
 - Rejected items persist as negative examples for the distiller.
 
-## 4. Static vs. learned — the operational distinction
+## 4. Retrieval tuning from outcomes
+
+The Brain's value proposition is that better context produces better first drafts. That claim is testable, so the platform tests it.
+
+**Grants.** Every assembled context writes one `context_grants` row per source the run received — approved rules, semantic hits, episodes — recording the section it landed in and the retrieval score at the time. One row per run per source: the grant means "this run saw this", not how often.
+
+**Outcomes.** A run is *settled* once it reaches the final gate or stops for good; it is a *first-pass success* when it settles without failing and consumes no iteration. Joining grants to settled runs gives, per source: how many runs received it, how many of those needed no iteration, and the average iteration count. Evaluation replays are excluded, exactly as they are from analytics.
+
+**The prior.** Sources measurably above the project's baseline first-pass rate earn a small positive ranking adjustment; those below earn a negative one. Three constraints keep this from becoming superstition:
+
+- **Sample floor.** Fewer than three settled runs earns nothing. One lucky run must not pin a rule to the top of every future context window.
+- **Bounded.** The adjustment is clamped to ±0.05 on a cosine scale — a tiebreak, not a re-ranking. It cannot overturn a real similarity gap.
+- **Applied after search, never to rules.** The prior reorders what nearest-neighbour retrieval already returned; it can never introduce material similarity rejected. Approved rules are unaffected: they are always included in full regardless of how the runs that received them fared.
+
+**It is correlation, and every surface says so.** Material is retrieved because it looks relevant, and the hardest tickets attract the most of it, so a genuinely good rule can show a below-baseline rate simply by being granted where the work is hard. The analytics view, the CLI (`ai-system brain effectiveness`), and the API response all label it as correlation and show the sample size. A number that would be misread is worse than no number.
+
+## 5. Static vs. learned — the operational distinction
 
 | | Static knowledge | Learned knowledge |
 |---|---|---|
@@ -124,7 +140,7 @@ sequenceDiagram
 
 One storage model, one approval mechanic, one retrieval path — the distinction is governance metadata, not infrastructure.
 
-## 5. Bootstrapping a new project
+## 6. Bootstrapping a new project
 
 Day-one value without months of accumulation:
 
@@ -133,7 +149,7 @@ Day-one value without months of accumulation:
 3. **Interview mode (optional):** a guided session where the platform asks targeted questions ("three layers or four?", "where do integration tests live?") and drafts rules from the answers.
 4. From then on, the learning loop compounds.
 
-## 6. UI surface
+## 7. UI surface
 
 - **Knowledge base browser:** filter by kind/scope/status; full version history; provenance links to source runs.
 - **Approval inbox:** pending proposals with evidence and conflict diffs.

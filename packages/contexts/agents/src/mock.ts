@@ -114,6 +114,30 @@ export function createMockAgents(): Agents {
     },
 
     async review(input) {
+      // Specialized passes: one deterministic non-blocking finding on the
+      // first iteration, so tagging and aggregation are exercised without
+      // changing any pipeline outcome.
+      if (input.specialty) {
+        if (input.iterationCount > 0) return { summary: `Mock ${input.specialty} review: clean.`, findings: [] };
+        // The migration pass has nothing to say about a diff with no migration,
+        // which is the honest deterministic answer and keeps the mock roster
+        // faithful to the real prompt's instruction.
+        if (input.specialty === 'migration' && !/migrations?\//i.test(input.diff)) {
+          return { summary: 'Mock migration review: no migration in this diff.', findings: [] };
+        }
+        return {
+          summary: `Mock ${input.specialty} review: one advisory finding.`,
+          findings: [
+            {
+              severity: 'minor',
+              category: input.specialty,
+              title: `Mock ${input.specialty} advisory`,
+              detail: `Deterministic ${input.specialty} finding for pipeline verification.`,
+              filePath: null,
+            },
+          ],
+        };
+      }
       if (input.iterationCount === 0 && !input.diff.includes('FIX:')) {
         return {
           summary: 'Mock review: one major finding to exercise the iteration loop.',

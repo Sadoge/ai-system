@@ -6,7 +6,9 @@ This is not a coding agent. It is the machinery around agents: pipeline orchestr
 
 ## Status
 
-**Phase 1 — MVP** ([roadmap](docs/10-roadmap.md)): the full linear pipeline runs end to
+**Phases 0–4 are delivered** ([roadmap](docs/10-roadmap.md)).
+
+**Phase 1 — MVP**: the full linear pipeline runs end to
 end — intake → classify → research → plan → **plan gate** → code (agent in an isolated git
 worktree) → review → test → **iteration loop** → package → **final PR gate** — on the Phase 0
 foundations (deterministic `advance()` engine, transactional outbox, Model Gateway, pg-boss
@@ -86,6 +88,42 @@ backs semantic retrieval, so the whole loop is exercisable offline.
 ```bash
 ai-system org bootstrap --name "Acme" --key-name founder   # org + owner key + project
 ai-system org quotas --org <id> --max-concurrent-runs 5
+```
+
+**Phase 4 — the moat.** What makes the platform measurably better at *your*
+projects than any generic agent:
+
+- **Evaluation harness** — replay a historical ticket through the pipeline as configured *today*
+  (current prompts, models, approved rules) and diff the outcome: iterations, findings, cost,
+  duration. Eval runs never feed analytics or the learning loop, so measuring the platform
+  cannot change it.
+- **`api_loop` is now a real coding agent** — `edit_file` requires a unique exact match
+  (ambiguity is an error, never a guess) and `run_command` executes only commands the repository
+  declared; the model selects from an allowlist, it never composes shell.
+- **Specialized reviewers** — opt-in security and performance passes per repository, each blind
+  to everything outside its dimension, attributed through the finding category.
+  Three of them ship: `security`, `performance`, and `migration` (irreversible steps, unsafe
+  deploy ordering, missing backfills).
+- **Cross-project knowledge** — promote a proven project rule to organization scope.
+- **Retrieval tuning from outcomes** — every run records the Brain material it received, and
+  settled outcomes turn that into a bounded ranking prior: a sample floor of three runs, clamped
+  to ±0.05 on a cosine scale, applied after nearest-neighbour search and never to approved rules.
+  It reorders what similarity retrieved; it cannot conjure what similarity rejected. Reported as
+  correlation, with the sample size, because material is retrieved *because* it looks relevant and
+  the hardest tickets attract the most of it.
+- **Every forge, every tracker** — GitHub, GitLab, and Bitbucket behind one git-host port;
+  Jira, Linear, and Azure DevOps behind one intake port. A recognized remote with no credentials
+  says so in the package artifact instead of quietly producing no link.
+- **Outbound webhooks** — endpoints tail the domain event log through their own cursor, so the
+  engine never learns about subscribers. HMAC-SHA256 signatures over `"<timestamp>.<body>"`,
+  five bounded retries, and refusal to POST at private or metadata addresses.
+
+```bash
+ai-system eval replay <run-id> && ai-system eval compare <eval-run-id>
+ai-system knowledge promote <knowledge-item-id>
+ai-system repo register <url> --reviewers security,migration
+ai-system brain effectiveness          # which context correlates with first-pass success
+ai-system webhook add https://example.com/hooks --events 'run.*'
 ```
 
 

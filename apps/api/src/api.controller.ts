@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -21,8 +22,10 @@ import {
   AssignGateBody,
   CatalogEntryBody,
   CreateApiKeyBody,
+  CreateWebhookBody,
   DecideKnowledgeBody,
   JiraWebhookBody,
+  WebhookActiveBody,
   QuotasBody,
   RegisterRepoBody,
   ResolveGateBody,
@@ -66,6 +69,59 @@ export class ApiController {
   @Post('api-keys/:id/revoke')
   revokeApiKey(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
     return this.service.revokeApiKey(principal, id);
+  }
+
+  // ── outbound webhooks ───────────────────────────────────────────────
+
+  @Get('webhooks')
+  listWebhooks(@CurrentPrincipal() principal: Principal) {
+    return this.service.listWebhooks(principal);
+  }
+
+  @Post('webhooks')
+  createWebhook(@CurrentPrincipal() principal: Principal, @Body() body: unknown) {
+    const parsed = parse(CreateWebhookBody, body);
+    return this.service.createWebhook(principal, {
+      url: parsed.url,
+      ...(parsed.description !== undefined ? { description: parsed.description } : {}),
+      ...(parsed.events !== undefined ? { events: parsed.events } : {}),
+    });
+  }
+
+  @Post('webhooks/:id/active')
+  setWebhookActive(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.service.setWebhookActive(principal, id, parse(WebhookActiveBody, body).active);
+  }
+
+  @Post('webhooks/:id/rotate-secret')
+  rotateWebhookSecret(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.rotateWebhookSecret(principal, id);
+  }
+
+  @Delete('webhooks/:id')
+  deleteWebhook(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.deleteWebhook(principal, id);
+  }
+
+  @Get('webhook-deliveries')
+  listWebhookDeliveries(
+    @CurrentPrincipal() principal: Principal,
+    @Query('endpointId') endpointId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listWebhookDeliveries(principal, {
+      ...(endpointId ? { endpointId } : {}),
+      ...(limit ? { limit: Number(limit) } : {}),
+    });
+  }
+
+  @Post('webhook-deliveries/:id/redeliver')
+  redeliverWebhook(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.redeliverWebhook(principal, id);
   }
 
   @Get('audit')
@@ -160,6 +216,16 @@ export class ApiController {
     });
   }
 
+  @Post('runs/:id/eval')
+  startEval(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.startEval(principal, id);
+  }
+
+  @Get('runs/:id/eval-compare')
+  compareEval(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.compareEval(principal, id);
+  }
+
   // ── gates ───────────────────────────────────────────────────────────
 
   @Get('gates')
@@ -229,6 +295,24 @@ export class ApiController {
       editedTitle: parsed.editedTitle,
       editedContent: parsed.editedContent,
     });
+  }
+
+  @Post('knowledge/:id/promote')
+  promoteKnowledge(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.promoteKnowledge(principal, id);
+  }
+
+  @Get('analytics/knowledge')
+  knowledgeEffectiveness(@CurrentPrincipal() principal: Principal) {
+    return this.service.knowledgeEffectiveness(principal);
+  }
+
+  @Get('analytics/context')
+  contextEffectiveness(
+    @CurrentPrincipal() principal: Principal,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.service.contextEffectiveness(principal, projectId);
   }
 
   // ── models ──────────────────────────────────────────────────────────

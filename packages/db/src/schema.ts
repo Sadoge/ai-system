@@ -155,10 +155,17 @@ export const pipelineRuns = pgTable(
     ticket: jsonb('ticket').notNull(),
     iterationCount: integer('iteration_count').notNull().default(0),
     error: text('error'),
+    // Set when this run is an evaluation replay of another run (docs/10
+    // Phase 4). Eval runs are excluded from analytics and from the learning
+    // loop, so measuring the platform never changes it.
+    evalOfRunId: uuid('eval_of_run_id'),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('pipeline_runs_project_idx').on(t.projectId, t.createdAt)],
+  (t) => [
+    index('pipeline_runs_project_idx').on(t.projectId, t.createdAt),
+    index('pipeline_runs_eval_idx').on(t.evalOfRunId),
+  ],
 );
 
 export const stageExecutions = pgTable(
@@ -457,4 +464,85 @@ export const auditRecords = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('audit_records_org_idx').on(t.organizationId, t.createdAt)],
+);
+
+/**
+ * What Brain material a run actually received (docs/08 §4). One row per run per
+ * source: the grant is "this run saw this", not "how often". Outcomes are joined
+ * from `pipeline_runs` at query time rather than denormalized here, because a
+ * run's outcome changes after the grant is written.
+ */
+export const contextGrants = pgTable(
+  'context_grants',
+  {
+    id: id(),
+    organizationId: uuid('organization_id').notNull(),
+    projectId: uuid('project_id'),
+    runId: uuid('run_id').notNull(),
+    // knowledge_item | run | finding — mirrors knowledge_chunks.source_type.
+    sourceType: text('source_type').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    title: text('title').notNull(),
+    // Which part of the assembled context it landed in: related | episodes.
+    section: text('section').notNull(),
+    rank: integer('rank').notNull().default(0),
+    // Retrieval score at grant time, kept so a prior can never be recomputed
+    // from a later embedding and silently rewrite history.
+    score: numeric('score', { precision: 8, scale: 6 }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('context_grants_run_source_idx').on(t.runId, t.sourceType, t.sourceId),
+    index('context_grants_source_idx').on(t.sourceType, t.sourceId),
+    index('context_grants_project_idx').on(t.projectId),
+  ],
+);
+
+// ── Outbound webhooks ─────────────────────────────────────────────────
+
+export const webhookEndpoints = pgTable(
+  'webhook_endpoints',
+  {
+    id: id(),
+    organizationId: uuid('organization_id').notNull(),
+    url: text('url').notNull(),
+    description: text('description').notNull().default(''),
+    // Signing secret for the HMAC-SHA256 signature header. Shown once at
+    // creation, like an API key.
+    secret: text('secret').notNull(),
+    // Domain event names this endpoint wants; empty = every event.
+    events: jsonb('events').notNull().default([]),
+    active: boolean('active').notNull().default(true),
+    /**
+     * Tail position in `domain_events`. Set to the newest event at creation, so
+     * a new endpoint receives what happens next rather than replaying history.
+     * Ids are UUIDv7, so "greater than the cursor" is "later than the cursor".
+     */
+    cursorEventId: uuid('cursor_event_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('webhook_endpoints_org_idx').on(t.organizationId, t.active)],
+);
+
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: id(),
+    organizationId: uuid('organization_id').notNull(),
+    endpointId: uuid('endpoint_id').notNull(),
+    eventName: text('event_name').notNull(),
+    payload: jsonb('payload').notNull(),
+    // pending | delivered | failed
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    responseStatus: integer('response_status'),
+    lastError: text('last_error'),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('webhook_deliveries_pending_idx').on(t.status, t.nextAttemptAt),
+    index('webhook_deliveries_endpoint_idx').on(t.endpointId, t.createdAt),
+  ],
 );

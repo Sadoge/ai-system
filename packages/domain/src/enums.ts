@@ -143,3 +143,16 @@ export const ArtifactKind = z.enum([
   'echo_output',
 ]);
 export type ArtifactKind = z.infer<typeof ArtifactKind>;
+
+/**
+ * Specialized review passes a repository can opt into. Each pass looks at one
+ * dimension and is blind to the rest, so its findings can be attributed — and
+ * so a repository pays only for the scrutiny it asked for (docs/10 Phase 4).
+ *
+ * This list is the single source of truth: the agent prompts, the repository
+ * settings validator, and the CLI all read it, so adding a specialty is one
+ * edit plus a prompt.
+ */
+export const ReviewSpecialty = z.enum(['security', 'performance', 'migration']);
+export type ReviewSpecialty = z.infer<typeof ReviewSpecialty>;
+export const REVIEW_SPECIALTIES = ReviewSpecialty.options;

@@ -22,6 +22,10 @@ export async function distillKnowledge(
   const runRows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, input.runId));
   const run = runRows[0];
   if (!run) return { proposed: 0 };
+  // Eval replays measure the platform; they must never teach it. Learning
+  // from a replay would double-count the source run's lessons and pollute
+  // episodic memory with near-duplicates.
+  if (run.evalOfRunId) return { proposed: 0 };
 
   if (services.embedder) {
     await recordEpisode(db, services.embedder, { runId: run.id });

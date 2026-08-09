@@ -25,6 +25,12 @@ export interface AgentExecutionInput {
   worktreeDir: string;
   taskSpec: CodingTaskSpec;
   limits: { timeoutMs: number };
+  /**
+   * Commands the repository has declared safe to run in its sandbox
+   * (docs/06 §4). The api_loop run_command tool accepts EXACTLY these
+   * strings — never arbitrary shell composed by the model.
+   */
+  allowedCommands?: string[];
 }
 
 /** What an execution cost, when the executor can tell us (CLIs report their own spend). */

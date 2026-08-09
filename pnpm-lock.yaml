@@ -56,6 +56,9 @@ importers:
       '@ai-system/tenancy':
         specifier: workspace:*
         version: link:../../packages/contexts/tenancy
+      '@ai-system/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/contexts/webhooks
       '@nestjs/common':
         specifier: ^10.4.15
         version: 10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -120,6 +123,9 @@ importers:
       '@ai-system/tenancy':
         specifier: workspace:*
         version: link:../../packages/contexts/tenancy
+      '@ai-system/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/contexts/webhooks
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -194,6 +200,9 @@ importers:
       '@ai-system/orchestration':
         specifier: workspace:*
         version: link:../../packages/contexts/orchestration
+      '@ai-system/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/contexts/webhooks
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@types/pg@8.21.0)(@types/react@19.2.18)(pg@8.23.0)(react@19.2.8)
@@ -341,6 +350,25 @@ importers:
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.11)
 
   packages/contexts/tenancy:
+    dependencies:
+      '@ai-system/db':
+        specifier: workspace:*
+        version: link:../../db
+      '@ai-system/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/pg@8.21.0)(@types/react@19.2.18)(pg@8.23.0)(react@19.2.8)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.11)
+
+  packages/contexts/webhooks:
     dependencies:
       '@ai-system/db':
         specifier: workspace:*

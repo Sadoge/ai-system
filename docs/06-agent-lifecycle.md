@@ -167,7 +167,10 @@ Task-DAG fan-out is the only parallelism. The engine marks tasks `ready` when de
 | Coding | **cli** | task spec + bundle → diff on task branch | the workhorse |
 | Integration | deterministic + cli on conflict | task branches → run branch | git first, agent second |
 | Review | cli (read-only) | run diff + plan + rules → findings | explains, never rewrites |
+| Specialized review | cli (read-only) | run diff → findings in one dimension | opt-in per repository: `security`, `performance`, `migration`; each pass is blind to the other dimensions, and attribution rides in the finding category |
 | Testing | deterministic + single call | run branch → test report (+ suggested fixes on failure) | tests run as plain commands; the LLM only interprets |
 | Documentation | cli | diff + plan → docs/changelog updates | own task branch, reviewed like code |
 
 Adding an agent type = a definition (schemas, context policy, prompt template) + executor support + stage or task registration. The engine does not change.
+
+**Specialized reviewers** are the cheapest version of that rule: the specialty list is data (`ReviewSpecialty` in the domain package), and adding one is a new entry plus a system prompt. A repository opts in with `repo register --reviewers security,migration`; a repository that opts into nothing pays for nothing. Each pass is deliberately narrow — a reviewer that reports everything reports nothing in particular, and category-based attribution stops meaning anything.

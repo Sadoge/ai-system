@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { knowledgeItems, type Db } from '@ai-system/db';
 import { semanticSearch } from './chunks.js';
+import { applyPriors, type RetrievalPriors } from './retrieval.js';
 import type { Embedder } from './embedding.js';
 import type { BrainContext, BrainHit, BrainNeed, BrainRule, RepoIndex } from './types.js';
 
@@ -29,6 +30,12 @@ export async function brainQuery(
     need: BrainNeed;
     /** Optional: without it, semantic and episodic needs are skipped. */
     embedder?: Embedder;
+    /**
+     * Outcome-derived ranking nudge (docs/08 §4). Applied AFTER nearest-neighbour
+     * search, so it reorders what similarity already retrieved and can never
+     * introduce material similarity rejected. Never applied to rules.
+     */
+    priors?: RetrievalPriors;
     maxTokens?: number;
   },
 ): Promise<BrainContext> {
@@ -85,6 +92,14 @@ export async function brainQuery(
         sourceTypes: ['run', 'finding'],
       });
     }
+  }
+
+  // Outcome priors reorder the ranked sections only — rules are untouched, and
+  // so is the structural layer. Under budget pressure this decides what
+  // survives, which is the entire point of measuring effectiveness.
+  if (input.priors && input.priors.size > 0) {
+    related = applyPriors(related, input.priors);
+    episodes = applyPriors(episodes, input.priors);
   }
 
   // ── budget: trim ranked material first, never rules ─────────────────

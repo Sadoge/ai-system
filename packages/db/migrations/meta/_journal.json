@@ -36,6 +36,20 @@
       "when": 1786275109757,
       "tag": "0004_lethal_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786277789072,
+      "tag": "0005_gifted_firelord",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786314199684,
+      "tag": "0006_purple_loners",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,10 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, asc, desc, eq, gt, gte, isNull, or, sql } from 'drizzle-orm';
 import {
   artifacts,
@@ -27,15 +33,36 @@ import {
   type GateDecisionKind,
   type KnowledgeKind,
 } from '@ai-system/domain';
-import { applyEvent, listTasks, resolveGate, startRun } from '@ai-system/orchestration';
 import {
+  applyEvent,
+  compareEvalRun,
+  listTasks,
+  resolveGate,
+  startEvalReplay,
+  startRun,
+} from '@ai-system/orchestration';
+import {
+  PRIOR_MIN_SAMPLE,
   addManualKnowledge,
   brainQuery,
+  contextEffectiveness,
   decideKnowledge,
   latestIndexSnapshot,
+  promoteKnowledge,
+  retrievalPriors,
   type Embedder,
 } from '@ai-system/brain';
 import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
+import {
+  createEndpoint,
+  deleteEndpoint,
+  endpointStats,
+  listDeliveries,
+  listEndpoints,
+  redeliver,
+  rotateEndpointSecret,
+  setEndpointActive,
+} from '@ai-system/webhooks';
 import {
   DrizzleCallLedger,
   LocalHashEmbeddingAdapter,
@@ -114,6 +141,7 @@ export class ApiService {
       testCommand?: string | undefined;
       executor?: string | undefined;
       executorModel?: string | undefined;
+      reviewers?: string[] | undefined;
       projectId?: string | undefined;
     },
   ) {
@@ -131,6 +159,7 @@ export class ApiService {
         ...(input.testCommand ? { testCommand: input.testCommand } : {}),
         ...(input.executor ? { executor: input.executor } : {}),
         ...(input.executorModel ? { executorModel: input.executorModel } : {}),
+        ...(input.reviewers?.length ? { reviewers: input.reviewers } : {}),
       },
     });
     await recordAudit(this.db, {
@@ -301,6 +330,30 @@ export class ApiService {
       .from(modelCalls)
       .where(eq(modelCalls.runId, runId));
     return Number(rows[0]?.total ?? 0);
+  }
+
+  // ── evaluation harness ──────────────────────────────────────────────
+
+  async startEval(principal: Principal, sourceRunId: string) {
+    assertCan(principal.role, 'run:start');
+    await this.requireRun(principal, sourceRunId);
+    const result = await startEvalReplay(this.db, {
+      sourceRunId,
+      organizationId: principal.organizationId,
+    });
+    await recordAudit(this.db, {
+      principal,
+      action: 'eval.started',
+      subjectType: 'pipeline_run',
+      subjectId: result.evalRunId,
+      data: { sourceRunId },
+    });
+    return result;
+  }
+
+  async compareEval(principal: Principal, evalRunId: string) {
+    await this.requireRun(principal, evalRunId);
+    return compareEvalRun(this.db, { evalRunId, organizationId: principal.organizationId });
   }
 
   // ── gates ───────────────────────────────────────────────────────────
@@ -500,6 +553,95 @@ export class ApiService {
     return result;
   }
 
+  async promoteKnowledge(principal: Principal, knowledgeItemId: string) {
+    assertCan(principal.role, 'knowledge:approve');
+    await promoteKnowledge(
+      this.db,
+      { knowledgeItemId, organizationId: principal.organizationId },
+      this.embedder,
+    );
+    await recordAudit(this.db, {
+      principal,
+      action: 'knowledge.promoted',
+      subjectType: 'knowledge_item',
+      subjectId: knowledgeItemId,
+      data: { scope: 'organization' },
+    });
+    return { promoted: true };
+  }
+
+  /**
+   * Retrieval tuning from outcomes (docs/10 Phase 4), the honest version:
+   * for each approved rule, how did runs that actually received it fare?
+   * Correlation, not causation — the numbers earn a closer look, they do not
+   * pass judgment. Reads inline task_spec artifacts only, so S3-offloaded
+   * bundles are excluded (noted in the response).
+   */
+  /**
+   * Which approved rules correlate with first-pass success.
+   *
+   * The source of truth is `context_grants` — what each run actually received —
+   * so the answer no longer depends on a rule's title appearing in an inline
+   * task-spec artifact, and offloaded artifacts are no longer invisible here.
+   * It remains correlation: rules are granted because they looked relevant, and
+   * the hard tickets attract the most rules.
+   */
+  async knowledgeEffectiveness(principal: Principal) {
+    assertCan(principal.role, 'knowledge:read');
+    const measured = await contextEffectiveness(this.db, {
+      organizationId: principal.organizationId,
+    });
+    const byId = new Map(measured.rows.map((row) => [row.sourceId, row]));
+
+    const items = await this.db
+      .select()
+      .from(knowledgeItems)
+      .where(
+        and(
+          eq(knowledgeItems.organizationId, principal.organizationId),
+          eq(knowledgeItems.status, 'approved'),
+        ),
+      );
+
+    const rows = items
+      .map((item) => {
+        const measurement = byId.get(item.id);
+        return {
+          id: item.id,
+          title: item.title,
+          kind: item.kind,
+          orgWide: item.projectId === null,
+          settledRuns: measurement?.settledRuns ?? 0,
+          firstPassRuns: measurement?.firstPassRuns ?? 0,
+          firstPassRate: measurement?.firstPassRate ?? 0,
+          avgIterations: measurement?.avgIterations ?? 0,
+        };
+      })
+      .sort((a, b) => b.settledRuns - a.settledRuns || a.title.localeCompare(b.title));
+
+    return {
+      baselineFirstPassRate: measured.baselineFirstPassRate,
+      baselineRuns: measured.baselineRuns,
+      minSample: PRIOR_MIN_SAMPLE,
+      correlationOnly: true,
+      rows,
+    };
+  }
+
+  /**
+   * The same measurement across every kind of retrieved material, including
+   * episodic memory — the input to retrieval tuning (docs/08 §4).
+   */
+  async contextEffectiveness(principal: Principal, projectId?: string) {
+    assertCan(principal.role, 'knowledge:read');
+    const project = projectId ? await this.pickProject(principal, projectId) : null;
+    const measured = await contextEffectiveness(this.db, {
+      organizationId: principal.organizationId,
+      ...(project ? { projectId: project.id } : {}),
+    });
+    return { ...measured, minSample: PRIOR_MIN_SAMPLE, correlationOnly: true };
+  }
+
   async inspectBrain(
     principal: Principal,
     input: { projectId?: string; query: string; repositoryId?: string },
@@ -522,6 +664,12 @@ export class ApiService {
       ),
     ].slice(0, 12);
 
+    // The inspector applies the same outcome priors the agents get; an
+    // inspector that ranks differently from production is worse than none.
+    const priors = await retrievalPriors(this.db, {
+      organizationId: principal.organizationId,
+      projectId: project.id,
+    });
     const context = await brainQuery(this.db, {
       projectId: project.id,
       ...(repo ? { repositoryId: repo.id } : {}),
@@ -533,12 +681,14 @@ export class ApiService {
         episodic: { query: input.query },
       },
       ...(this.embedder ? { embedder: this.embedder } : {}),
+      priors,
     });
     return {
       query: input.query,
       keywords,
       hasIndex: index !== null,
       embedderAvailable: this.embedder !== undefined,
+      priorsApplied: priors.size,
       ...context,
     };
   }
@@ -658,7 +808,11 @@ export class ApiService {
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
       .where(
-        and(eq(pipelineRuns.organizationId, principal.organizationId), gte(modelCalls.createdAt, since)),
+        and(
+          eq(pipelineRuns.organizationId, principal.organizationId),
+          gte(modelCalls.createdAt, since),
+          isNull(pipelineRuns.evalOfRunId),
+        ),
       )
       .groupBy(sql`1`, modelCalls.provider)
       .orderBy(sql`1`);
@@ -682,7 +836,11 @@ export class ApiService {
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
       .where(
-        and(eq(pipelineRuns.organizationId, principal.organizationId), gte(modelCalls.createdAt, since)),
+        and(
+          eq(pipelineRuns.organizationId, principal.organizationId),
+          gte(modelCalls.createdAt, since),
+          isNull(pipelineRuns.evalOfRunId),
+        ),
       )
       .groupBy(modelCalls.purpose)
       .orderBy(desc(sql`sum(${modelCalls.costUsd})`));
@@ -706,6 +864,8 @@ export class ApiService {
         and(
           eq(pipelineRuns.organizationId, principal.organizationId),
           gte(pipelineRuns.createdAt, since),
+          // Eval replays measure the platform; they are not delivery work.
+          isNull(pipelineRuns.evalOfRunId),
         ),
       )
       .groupBy(pipelineRuns.status, sql`2`);
@@ -763,6 +923,111 @@ export class ApiService {
       subjectId: apiKeyId,
     });
     return { revoked: true };
+  }
+
+  // ── outbound webhooks ───────────────────────────────────────────────
+
+  async listWebhooks(principal: Principal) {
+    assertCan(principal.role, 'org:admin');
+    const [endpoints, stats] = await Promise.all([
+      listEndpoints(this.db, principal.organizationId),
+      endpointStats(this.db, principal.organizationId),
+    ]);
+    const byId = new Map(stats.map((s) => [s.id, s]));
+    return endpoints.map((endpoint) => ({
+      ...endpoint,
+      deliveries: byId.get(endpoint.id) ?? {
+        pending: 0,
+        delivered: 0,
+        failed: 0,
+        lastDeliveredAt: null,
+      },
+    }));
+  }
+
+  async createWebhook(
+    principal: Principal,
+    input: { url: string; description?: string; events?: string[] },
+  ) {
+    assertCan(principal.role, 'org:admin');
+    let created: { id: string; secret: string };
+    try {
+      created = await createEndpoint(this.db, {
+        organizationId: principal.organizationId,
+        url: input.url,
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.events !== undefined ? { events: input.events } : {}),
+      });
+    } catch (err) {
+      // A rejected target is the caller's mistake, not a server fault.
+      throw new BadRequestException(err instanceof Error ? err.message : String(err));
+    }
+    await recordAudit(this.db, {
+      principal,
+      action: 'webhook.created',
+      subjectType: 'webhook_endpoint',
+      subjectId: created.id,
+      data: { url: input.url, events: input.events ?? [] },
+    });
+    // The signing secret is returned once here and never again.
+    return created;
+  }
+
+  async setWebhookActive(principal: Principal, endpointId: string, active: boolean) {
+    assertCan(principal.role, 'org:admin');
+    const ok = await setEndpointActive(this.db, principal.organizationId, endpointId, active);
+    if (!ok) throw new NotFoundException('unknown webhook endpoint');
+    await recordAudit(this.db, {
+      principal,
+      action: active ? 'webhook.enabled' : 'webhook.disabled',
+      subjectType: 'webhook_endpoint',
+      subjectId: endpointId,
+    });
+    return { active };
+  }
+
+  async deleteWebhook(principal: Principal, endpointId: string) {
+    assertCan(principal.role, 'org:admin');
+    const ok = await deleteEndpoint(this.db, principal.organizationId, endpointId);
+    if (!ok) throw new NotFoundException('unknown webhook endpoint');
+    await recordAudit(this.db, {
+      principal,
+      action: 'webhook.deleted',
+      subjectType: 'webhook_endpoint',
+      subjectId: endpointId,
+    });
+    return { deleted: true };
+  }
+
+  async rotateWebhookSecret(principal: Principal, endpointId: string) {
+    assertCan(principal.role, 'org:admin');
+    const rotated = await rotateEndpointSecret(this.db, principal.organizationId, endpointId);
+    if (!rotated) throw new NotFoundException('unknown webhook endpoint');
+    await recordAudit(this.db, {
+      principal,
+      action: 'webhook.secret_rotated',
+      subjectType: 'webhook_endpoint',
+      subjectId: endpointId,
+    });
+    return rotated;
+  }
+
+  async listWebhookDeliveries(principal: Principal, input: { endpointId?: string; limit?: number }) {
+    assertCan(principal.role, 'org:admin');
+    return listDeliveries(this.db, principal.organizationId, input);
+  }
+
+  async redeliverWebhook(principal: Principal, deliveryId: string) {
+    assertCan(principal.role, 'org:admin');
+    const ok = await redeliver(this.db, principal.organizationId, deliveryId);
+    if (!ok) throw new NotFoundException('unknown delivery');
+    await recordAudit(this.db, {
+      principal,
+      action: 'webhook.redelivered',
+      subjectType: 'webhook_delivery',
+      subjectId: deliveryId,
+    });
+    return { queued: true };
   }
 
   async getOrganization(principal: Principal) {

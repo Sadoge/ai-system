@@ -80,7 +80,19 @@ content-addressed, so a restore never has to reconcile conflicting versions.
 Repository checkouts and worktrees under `AI_DATA_DIR` are disposable — they
 are rebuilt from the git remote on demand and need no backup.
 
-## 8. Observability
+## 8. Outbound webhooks
+
+External systems subscribe to run activity instead of polling. An endpoint is created per organization with `ai-system webhook add <url>` (or `POST /api/webhooks`), which returns a signing secret exactly once.
+
+**Delivery.** The worker tails `domain_events` through a per-endpoint cursor, creates a `webhook_deliveries` row for each matching event, and POSTs it. A new endpoint's cursor starts at the newest event, so subscribing never replays history. Only run-scoped events are deliverable: an event with no run cannot be attributed to a tenant, and delivering unattributed events across an organization boundary is worse than delivering nothing.
+
+**Signing.** Each request carries `x-ai-system-signature: v1=<hex>`, an HMAC-SHA256 over `"<timestamp>.<body>"` using the endpoint secret, plus `x-ai-system-timestamp`, `x-ai-system-event`, and `x-ai-system-delivery`. The timestamp is inside the signed string so a captured request cannot be replayed against a receiver that enforces a freshness window. Verify in constant time, and reject anything older than your window.
+
+**Retries.** Five attempts on the schedule 5s, 30s, 2m, 10m, 1h, then the delivery is marked `failed` and left for manual `webhook redeliver`. The schedule lives in the delivery row rather than in the job queue, so an operator can see exactly when the next attempt happens. Delivery is at-least-once; every payload carries a stable event id for receiver-side deduplication.
+
+**SSRF.** A tenant supplies the URL, which would otherwise make the platform a proxy into its own network. Targets must be https (localhost may use http for development), and the host is resolved before each request with private, loopback, link-local, and carrier-grade-NAT addresses refused — including `169.254.169.254`, where cloud instance metadata lives. Set `WEBHOOK_ALLOW_PRIVATE=true` only for local development. The resolution happens shortly before the request rather than in the socket, so a DNS record that changes in between is not covered; this removes the easy case and is not a substitute for egress rules.
+
+## 9. Observability
 
 Structured logs (pino) on every service. The domain event stream is the audit
 trail of what the machine did, and `model_calls` is the cost ledger — including

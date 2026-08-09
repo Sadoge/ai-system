@@ -34,7 +34,13 @@ import {
   renderCodingPrompt,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
-import { createPullRequest, parseGitHubRemote, pushBranch } from '@ai-system/integrations';
+import {
+  addJiraComment,
+  createPullRequest,
+  jiraConfigFromEnv,
+  parseGitHubRemote,
+  pushBranch,
+} from '@ai-system/integrations';
 import { createArtifact } from './artifacts.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
@@ -123,7 +129,8 @@ async function openBlockingFindings(db: Db, runId: string) {
 
 export async function classifyStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
   const ticket = TicketSnapshot.parse(run.ticket);
-  const result = await services.agents.classify({ ticket }, agentCtx(run));
+  const agents = await services.agents(run);
+  const result = await agents.classify({ ticket }, agentCtx(run));
   await services.db
     .update(pipelineRuns)
     .set({ complexity: result.complexity })
@@ -141,7 +148,8 @@ export async function researchStage(services: StageServices, run: RunRow): Promi
   const ticket = TicketSnapshot.parse(run.ticket);
   const repo = run.repositoryId ? await requireRepo(db, run) : null;
   const brain = await getBrainContext(services, run, repo);
-  const report = await services.agents.research({ ticket, brain }, agentCtx(run));
+  const agents = await services.agents(run);
+  const report = await agents.research({ ticket, brain }, agentCtx(run));
   const { artifactId } = await createArtifact(db, {
     runId: run.id,
     kind: 'research_report',
@@ -160,7 +168,8 @@ export async function planStage(services: StageServices, run: RunRow): Promise<S
   const brain = await getBrainContext(services, run, repo);
   const rejectionFeedback = await latestPlanRejectionComment(db, run.id);
 
-  const plan = await services.agents.plan(
+  const agents = await services.agents(run);
+  const plan = await agents.plan(
     { ticket, research, brain, ...(rejectionFeedback ? { rejectionFeedback } : {}) },
     agentCtx(run),
   );
@@ -284,7 +293,8 @@ export async function reviewStage(services: StageServices, run: RunRow): Promise
     .set({ status: 'superseded' })
     .where(and(eq(reviewFindings.runId, run.id), eq(reviewFindings.status, 'open')));
 
-  const report = await services.agents.review(
+  const agents = await services.agents(run);
+  const report = await agents.review(
     { ticket, plan, diff, brain, iterationCount: run.iterationCount },
     agentCtx(run),
   );
@@ -397,6 +407,14 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  // MVP Jira write-back: a PR-link comment, nothing more (docs/10).
+  const jira = jiraConfigFromEnv();
+  if (prUrl && jira && ticket.source === 'jira' && ticket.externalKey) {
+    await addJiraComment(jira, ticket.externalKey, `ai-system opened a pull request: ${prUrl}`).catch(
+      () => {}, // comment failure never fails the packaging stage
+    );
   }
 
   const { artifactId } = await createArtifact(db, {

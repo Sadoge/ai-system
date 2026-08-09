@@ -32,6 +32,7 @@ import {
   uuidv7,
 } from '@ai-system/domain';
 import { addManualKnowledge } from '@ai-system/brain';
+import { fetchJiraTicket, jiraConfigFromEnv } from '@ai-system/integrations';
 import { resolveGate, startRun } from '@ai-system/orchestration';
 
 // Phase 0: the CLI is the UI before the UI (docs/10). It talks to the same
@@ -118,20 +119,30 @@ repoCmd
 const runCmd = program.command('run').description('pipeline runs');
 
 runCmd
-  .command('start <ticket-file>')
-  .description('start a run from a ticket file (JSON matching TicketSnapshot, or plain text)')
+  .command('start [ticket-file]')
+  .description('start a run from a ticket file (JSON or plain text) or a Jira issue (--jira)')
   .option('--project <id>', 'project id (defaults to the only project)')
   .option('--pipeline <name>', 'trivial | mvp', 'trivial')
   .option('--automation <level>', 'plan_gated | autonomous (mvp only)', 'plan_gated')
   .option('--repo <id>', 'repository id (defaults to the only repo of the project)')
+  .option('--jira <issue-key>', 'fetch the ticket from Jira (needs JIRA_BASE_URL/EMAIL/API_TOKEN)')
   .action(
     withDb(
       async (
         db,
-        ticketFile: string,
-        opts: { project?: string; pipeline: string; automation: string; repo?: string },
+        ticketFile: string | undefined,
+        opts: { project?: string; pipeline: string; automation: string; repo?: string; jira?: string },
       ) => {
-        const ticket = readTicketFile(ticketFile);
+        let ticket: TicketSnapshot;
+        if (opts.jira) {
+          const jira = jiraConfigFromEnv();
+          if (!jira) throw new Error('Jira env not configured (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)');
+          ticket = await fetchJiraTicket(jira, opts.jira);
+        } else if (ticketFile) {
+          ticket = readTicketFile(ticketFile);
+        } else {
+          throw new Error('pass a ticket file or --jira <issue-key>');
+        }
         const project = await pickProject(db, opts.project);
         let repositoryId: string | undefined;
         if (opts.pipeline === 'mvp') {

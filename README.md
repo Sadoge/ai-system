@@ -6,18 +6,23 @@ This is not a coding agent. It is the machinery around agents: pipeline orchestr
 
 ## Status
 
-**Phase 1 — MVP pipeline** ([roadmap](docs/10-roadmap.md)): on top of the Phase 0 foundations
-(deterministic `advance()` engine, transactional outbox, Model Gateway, pg-boss worker, CLI), the
-full linear pipeline now runs: intake → classify → research → plan → **plan gate** → code (agent in
-an isolated git worktree) → review → test → **iteration loop** → package → **final PR gate**.
-Includes Project Brain v1 (structural repo index + curated rules, always injected into agent
-context), typed single-call agents with invalid-output retry, the pluggable coding executor
-(`cli` wrapping a headless agent CLI; `scripted` for keyless runs), review findings driving
-bounded fix iterations, and GitHub branch push + PR creation in the package stage.
+**Phase 1 — MVP complete** ([roadmap](docs/10-roadmap.md)): the full linear pipeline runs end to
+end — intake → classify → research → plan → **plan gate** → code (agent in an isolated git
+worktree) → review → test → **iteration loop** → package → **final PR gate** — on the Phase 0
+foundations (deterministic `advance()` engine, transactional outbox, Model Gateway, pg-boss
+worker). Phase 1 delivers:
 
-Set `MOCK_MODELS=true` to run the entire pipeline deterministically with no API key — mock agents
-plant one review finding so you can watch the iteration loop work. Still to come in Phase 1: Jira
-intake, the web UI, and per-project model profile resolution.
+- **Project Brain v1** — structural repo index + curated rules, always injected into agent context
+- **Typed agents** (classifier/research/planner/reviewer) with invalid-output retry; deterministic
+  mock roster via `MOCK_MODELS=true` (no API key needed — one planted finding exercises iteration)
+- **Pluggable coding executor** — `cli` wraps a headless agent CLI (Claude Code by default) in a
+  worktree; credentials never enter the sandbox
+- **Jira read integration** — `run start --jira KEY`, webhook trigger, PR-link comment write-back
+- **GitHub** — branch push + PR with plan/review/test evidence in the body
+- **Control plane API** (NestJS/Fastify) — REST + SSE live run streams, bearer-token single-user auth
+- **Web UI** (Next.js) — runs list, run detail with live updates, gate approval screens, knowledge
+  editor, model profile settings, per-run cost
+- **Per-project model profiles** — resolution cascade project → org → platform default
 
 ### Quickstart
 
@@ -39,6 +44,10 @@ node apps/cli/dist/main.js repo register /path/to/repo --test-command 'npm test'
 MOCK_MODELS=true node apps/worker/dist/main.js &
 node apps/cli/dist/main.js run start ticket.md --pipeline mvp
 node apps/cli/dist/main.js gate list                      # approve the plan, then the final PR
+
+# Or drive everything from the API + web UI:
+node apps/api/dist/main.js &                              # control plane on :3001
+pnpm --filter @ai-system/web start &                      # UI on :3000
 ```
 
 `pnpm test` runs the engine replay tests and gateway tests; no database or API key required.

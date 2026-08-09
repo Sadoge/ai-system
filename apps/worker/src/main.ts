@@ -11,7 +11,7 @@ import {
   DrizzleCallLedger,
   ModelGateway,
   OpenAiAdapter,
-  PLATFORM_DEFAULT_PROFILES,
+  resolveProfile,
 } from '@ai-system/model-gateway';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import {
@@ -22,6 +22,7 @@ import {
 import { OutboxDispatcher } from './outbox-dispatcher.js';
 import { executeStage } from './stages.js';
 import type { StageServices } from './services.js';
+// (Agents type is used for the mock roster's explicit annotation.)
 
 const log = pino({ name: 'worker', level: process.env.LOG_LEVEL ?? 'info' });
 
@@ -42,24 +43,37 @@ const QUEUES = ['stage.execute', 'gate.request'] as const;
 
 function buildServices(db: Db): StageServices {
   const mock = process.env.MOCK_MODELS === 'true';
-  let agents: Agents;
+  let agents: StageServices['agents'];
   let executor: AgentExecutor;
 
   if (mock) {
     log.warn('MOCK_MODELS=true — deterministic agents and scripted executor (no LLM calls)');
-    agents = createMockAgents();
+    const mockAgents: Agents = createMockAgents();
+    agents = async () => mockAgents;
     executor = new ScriptedAgentExecutor();
   } else {
     const gateway = new ModelGateway(
       [new AnthropicAdapter(), new OpenAiAdapter()],
       new DrizzleCallLedger(db),
     );
-    agents = createLlmAgents(gateway, {
-      classifier: PLATFORM_DEFAULT_PROFILES.classifier!,
-      research: PLATFORM_DEFAULT_PROFILES.research!,
-      planning: PLATFORM_DEFAULT_PROFILES.planning!,
-      review: PLATFORM_DEFAULT_PROFILES.review!,
-    });
+    // Profiles resolve per run (project > org > platform default) and are
+    // cached for the run's lifetime in this worker.
+    const cache = new Map<string, Agents>();
+    agents = async (run) => {
+      const cached = cache.get(run.id);
+      if (cached) return cached;
+      const scope = { projectId: run.projectId, organizationId: run.organizationId };
+      const [classifier, research, planning, review] = await Promise.all([
+        resolveProfile(db, { purpose: 'classifier', ...scope }),
+        resolveProfile(db, { purpose: 'research', ...scope }),
+        resolveProfile(db, { purpose: 'planning', ...scope }),
+        resolveProfile(db, { purpose: 'review', ...scope }),
+      ]);
+      const built = createLlmAgents(gateway, { classifier, research, planning, review });
+      cache.set(run.id, built);
+      if (cache.size > 500) cache.clear();
+      return built;
+    };
     executor = new CliAgentExecutor({
       ...(process.env.CODING_AGENT_CMD ? { commandTemplate: process.env.CODING_AGENT_CMD } : {}),
     });

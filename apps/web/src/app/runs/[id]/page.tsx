@@ -14,6 +14,7 @@ import {
 } from '@/lib/ui';
 import { LiveRefresh } from './live-refresh';
 import { RunSystem } from './system';
+import { ExecutionMonitor } from './execution-monitor';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
@@ -23,10 +24,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
+  const activeProcessCount =
+    run.stages.filter((stage) => stage.status === 'running').length +
+    run.tasks.filter((task) => task.status === 'running').length +
+    (run.agents ?? []).filter((agent) => agent.status === 'running').length;
 
   return (
     <main>
-      <LiveRefresh runId={id} active={!terminal} />
+      <LiveRefresh runId={id} active={!terminal || activeProcessCount > 0} />
 
       {/* Programme head */}
       <div className="mb-8">
@@ -121,9 +126,21 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <RunSystem run={run} />
       </System>
 
+      <System
+        mark="B"
+        title="Execution ledger"
+        aside={
+          terminal && activeProcessCount === 0
+            ? 'settled'
+            : `${activeProcessCount} active processes`
+        }
+      >
+        <ExecutionMonitor run={run} />
+      </System>
+
       {/* Editorial marks: what the reviewer wrote in the margin. */}
       {run.findings.length > 0 && (
-        <System mark="B" title="Editorial marks" aside={`${run.findings.length}`}>
+        <System mark="C" title="Editorial marks" aside={`${run.findings.length}`}>
           <ul className="space-y-5">
             {run.findings.map((f) => (
               <li
@@ -144,7 +161,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </System>
       )}
 
-      <System mark="C" title="Parts" aside={`${run.artifacts.length}`}>
+      <System mark="D" title="Parts" aside={`${run.artifacts.length}`}>
         {run.artifacts.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">
             No parts written yet. They appear as the run produces them.

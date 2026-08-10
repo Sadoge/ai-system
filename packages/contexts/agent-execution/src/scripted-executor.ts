@@ -15,11 +15,13 @@ export class ScriptedAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
     const spec = input.taskSpec;
+    await input.onActivity?.({ kind: 'agent', message: 'Scripted agent started' }).catch(() => {});
 
     // Conflict-resolution mode: keep both sides by stripping the markers.
     if (spec.conflicts && spec.conflicts.length > 0) {
       const { readFile, writeFile: write } = await import('node:fs/promises');
       for (const file of spec.conflicts) {
+        await input.onActivity?.({ kind: 'tool', message: `Resolving ${file}` }).catch(() => {});
         const full = join(input.worktreeDir, file);
         const content = await readFile(full, 'utf8');
         await write(
@@ -31,13 +33,16 @@ export class ScriptedAgentExecutor implements AgentExecutor {
           'utf8',
         );
       }
-      return { status: 'succeeded', transcript: `resolved ${spec.conflicts.length} conflicted file(s)` };
+      return {
+        status: 'succeeded',
+        transcript: `resolved ${spec.conflicts.length} conflicted file(s)`,
+      };
     }
     // One file per task keeps parallel task branches conflict-free.
     const targetFile =
-      spec.steps.flatMap((s) => s.files)[0] ??
-      `${slug(spec.taskTitle ?? spec.ticketTitle)}.md`;
+      spec.steps.flatMap((s) => s.files)[0] ?? `${slug(spec.taskTitle ?? spec.ticketTitle)}.md`;
     const path = join(input.worktreeDir, targetFile);
+    await input.onActivity?.({ kind: 'tool', message: `Writing ${targetFile}` }).catch(() => {});
 
     if (spec.findings.length === 0) {
       await writeFile(
@@ -52,6 +57,7 @@ export class ScriptedAgentExecutor implements AgentExecutor {
       await appendFile(path, `\n${fixes}\n`, 'utf8');
     }
 
+    await input.onActivity?.({ kind: 'agent', message: 'Scripted agent finished' }).catch(() => {});
     return { status: 'succeeded', transcript: renderCodingPrompt(spec) };
   }
 }

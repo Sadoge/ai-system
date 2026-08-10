@@ -14,6 +14,7 @@ import {
 } from './mvp-stages.js';
 import { decomposeStage, documentStage, executeTask, integrateStage } from './team-stages.js';
 import type { StageServices } from './services.js';
+import { reportActivity } from './activity.js';
 
 export interface StageOutcome {
   artifactIds: string[];
@@ -59,6 +60,11 @@ export async function executeStage(
     name: 'run.stage.started',
     payload: { runId: run.id, stageExecutionId, stage },
   });
+  await reportActivity(
+    db,
+    { runId: run.id, stage, stageExecutionId },
+    { kind: 'stage', message: STAGE_ACTIVITY[stage] },
+  );
 
   try {
     const outcome = await runStage(services, stage, run);
@@ -84,6 +90,21 @@ export async function executeStage(
     });
   }
 }
+
+const STAGE_ACTIVITY: Record<StageKind, string> = {
+  intake: 'Capturing the ticket snapshot',
+  echo_agent: 'Running the echo agent',
+  classify: 'Classifying ticket complexity',
+  research: 'Gathering repository and Project Brain context',
+  plan: 'Drafting the implementation plan',
+  decompose: 'Building the task dependency graph',
+  code: 'Preparing the coding worktree and agent',
+  integrate: 'Merging completed task branches',
+  review: 'Reviewing the implementation for findings',
+  test: 'Running repository validation and tests',
+  document: 'Writing implementation documentation',
+  package: 'Preparing the pull-request package',
+};
 
 async function runStage(
   services: StageServices,

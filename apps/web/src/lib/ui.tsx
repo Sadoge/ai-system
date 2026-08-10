@@ -21,6 +21,7 @@ export function readState(status: string): StateRead {
   }
   switch (status) {
     case 'completed':
+    case 'succeeded':
     case 'approved':
     case 'active':
       return { tone: 'done', head: 'filled' };
@@ -36,6 +37,8 @@ export function readState(status: string): StateRead {
       return { tone: 'inert', head: 'rest' };
     case 'running':
     case 'in_progress':
+    case 'preparing':
+    case 'validating':
       return { tone: 'live', head: 'hollow' };
     default:
       return { tone: 'inert', head: 'hollow' };

@@ -29,11 +29,7 @@ import {
   saveIndexSnapshot,
   type BrainContext,
 } from '@ai-system/brain';
-import {
-  ImplementationPlan,
-  ResearchReport,
-  type AgentContext,
-} from '@ai-system/agents';
+import { ImplementationPlan, ResearchReport, type AgentContext } from '@ai-system/agents';
 import {
   commitAll,
   diffAgainst,
@@ -47,6 +43,7 @@ import { createArtifact } from './artifacts.js';
 import { detectGitHost, gitHostFor } from './git-host.js';
 import { notifyTracker } from './trackers.js';
 import { recordExecutorUsage } from './executors.js';
+import { agentActivityReporter, reportActivity } from './activity.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
 
@@ -249,6 +246,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
   if (!planArtifact) throw new Error('no implementation plan to code from');
   const plan = ImplementationPlan.parse(planArtifact.content);
   const findings = await openBlockingFindings(db, run.id);
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code' },
+    { kind: 'stage', message: 'Loading repository context and coding rules' },
+  );
   const brain = await getBrainContext(services, run, repo);
 
   const { checkoutDir, worktreeDir } = repoPaths(services, repo.id, run.id);
@@ -294,6 +296,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     taskSpec,
     limits: { timeoutMs: services.codingTimeoutMs },
     allowedCommands: allowedCommandsFor(repo),
+    onActivity: agentActivityReporter(db, {
+      runId: run.id,
+      stage: 'code',
+      agentRunId,
+    }),
   });
   await recordExecutorUsage(db, {
     runId: run.id,

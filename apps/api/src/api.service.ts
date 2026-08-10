@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, gte, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
+  agentRuns,
   artifacts,
   createDb,
   createPool,
@@ -25,6 +26,7 @@ import {
   type Db,
 } from '@ai-system/db';
 import {
+  PolicySnapshot,
   TicketSnapshot,
   defaultMvpPolicy,
   defaultTeamPolicy,
@@ -41,6 +43,7 @@ import {
   retryRun as retryFailedRun,
   startEvalReplay,
   startRun,
+  pipelineFor,
 } from '@ai-system/orchestration';
 import {
   PRIOR_MIN_SAMPLE,
@@ -273,36 +276,82 @@ export class ApiService {
 
   async getRun(principal: Principal, runId: string) {
     const run = await this.requireRun(principal, runId);
-    const [stages, arts, findings, gates, cost, taskRows] = await Promise.all([
-      this.db
-        .select()
-        .from(stageExecutions)
-        .where(eq(stageExecutions.runId, runId))
-        .orderBy(asc(stageExecutions.createdAt)),
-      this.db
-        .select({
-          id: artifacts.id,
-          kind: artifacts.kind,
-          contentHash: artifacts.contentHash,
-          createdAt: artifacts.createdAt,
-        })
-        .from(artifacts)
-        .where(eq(artifacts.runId, runId))
-        .orderBy(asc(artifacts.createdAt)),
-      this.db
-        .select()
-        .from(reviewFindings)
-        .where(eq(reviewFindings.runId, runId))
-        .orderBy(asc(reviewFindings.createdAt)),
-      this.db
-        .select()
-        .from(gateRequests)
-        .where(eq(gateRequests.runId, runId))
-        .orderBy(asc(gateRequests.createdAt)),
-      this.runCostUsd(runId),
-      listTasks(this.db, runId),
-    ]);
-    return { ...run, stages, artifacts: arts, findings, gates, costUsd: cost, tasks: taskRows };
+    const [stages, arts, findings, gates, cost, taskRows, agents, recentEvents] = await Promise.all(
+      [
+        this.db
+          .select()
+          .from(stageExecutions)
+          .where(eq(stageExecutions.runId, runId))
+          .orderBy(asc(stageExecutions.createdAt)),
+        this.db
+          .select({
+            id: artifacts.id,
+            kind: artifacts.kind,
+            contentHash: artifacts.contentHash,
+            createdAt: artifacts.createdAt,
+          })
+          .from(artifacts)
+          .where(eq(artifacts.runId, runId))
+          .orderBy(asc(artifacts.createdAt)),
+        this.db
+          .select()
+          .from(reviewFindings)
+          .where(eq(reviewFindings.runId, runId))
+          .orderBy(asc(reviewFindings.createdAt)),
+        this.db
+          .select()
+          .from(gateRequests)
+          .where(eq(gateRequests.runId, runId))
+          .orderBy(asc(gateRequests.createdAt)),
+        this.runCostUsd(runId),
+        listTasks(this.db, runId),
+        this.db
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.runId, runId))
+          .orderBy(asc(agentRuns.createdAt)),
+        this.db
+          .select({
+            id: domainEvents.id,
+            name: domainEvents.name,
+            payload: domainEvents.payload,
+            createdAt: domainEvents.createdAt,
+          })
+          .from(domainEvents)
+          .where(
+            and(
+              eq(domainEvents.runId, runId),
+              inArray(domainEvents.name, [
+                'run.activity',
+                'run.stage.started',
+                'run.stage.completed',
+                'run.stage.failed',
+                'task.created',
+                'task.started',
+                'task.completed',
+                'task.failed',
+                'run.gate.requested',
+                'run.gate.resolved',
+              ]),
+            ),
+          )
+          .orderBy(desc(domainEvents.id))
+          .limit(200),
+      ],
+    );
+    const policy = PolicySnapshot.parse(run.policySnapshot);
+    return {
+      ...run,
+      stageOrder: [...pipelineFor(policy).stages],
+      stages,
+      artifacts: arts,
+      findings,
+      gates,
+      costUsd: cost,
+      tasks: taskRows,
+      agents,
+      events: recentEvents.reverse(),
+    };
   }
 
   async retryRun(principal: Principal, runId: string) {

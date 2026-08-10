@@ -20,6 +20,7 @@ import {
 import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
 import { recordExecutorUsage } from './executors.js';
+import { agentActivityReporter, reportActivity } from './activity.js';
 import {
   agentCtx,
   allowedCommandsFor,
@@ -140,6 +141,12 @@ export async function executeTask(
   // Redelivery guard: only a task the engine has marked running may execute.
   if (task.status !== 'running') return;
 
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', taskId: task.id },
+    { kind: 'stage', message: 'Preparing an isolated worktree and project context' },
+  );
+
   const ticket = TicketSnapshot.parse(run.ticket);
   const repo = await requireRepo(db, run);
   const brain = await getBrainContext(services, run, repo);
@@ -204,6 +211,12 @@ export async function executeTask(
       taskSpec,
       limits: { timeoutMs: services.codingTimeoutMs },
       allowedCommands: allowedCommandsFor(repo),
+      onActivity: agentActivityReporter(db, {
+        runId: run.id,
+        stage: 'code',
+        taskId: task.id,
+        agentRunId,
+      }),
     });
     await recordExecutorUsage(db, {
       runId: run.id,
@@ -377,6 +390,11 @@ async function resolveConflicts(
       conflicts,
     },
     limits: { timeoutMs: services.codingTimeoutMs },
+    onActivity: agentActivityReporter(services.db, {
+      runId: run.id,
+      stage: 'integrate',
+      agentRunId,
+    }),
   });
 
   const stillConflicted =

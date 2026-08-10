@@ -31,6 +31,16 @@ export interface AgentExecutionInput {
    * strings — never arbitrary shell composed by the model.
    */
   allowedCommands?: string[];
+  /**
+   * Best-effort, operator-safe progress telemetry. A reporting failure must
+   * never change the execution result, but implementations preserve ordering.
+   */
+  onActivity?: (activity: AgentExecutionActivity) => Promise<void>;
+}
+
+export interface AgentExecutionActivity {
+  kind: 'agent' | 'tool' | 'message' | 'heartbeat';
+  message: string;
 }
 
 /** What an execution cost, when the executor can tell us (CLIs report their own spend). */

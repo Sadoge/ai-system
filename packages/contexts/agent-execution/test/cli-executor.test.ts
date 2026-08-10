@@ -134,6 +134,7 @@ describe('presets', () => {
   });
 
   it('codex parses JSONL output and falls back to raw text', () => {
+    expect(CODEX_PRESET.buildArgs({ model: undefined })).toContain('--json');
     expect(CODEX_PRESET.buildArgs({ model: 'codex-model', effort: 'high' })).toContain(
       'model_reasoning_effort="high"',
     );
@@ -142,8 +143,39 @@ describe('presets', () => {
       '',
     );
     expect(jsonl).toMatchObject({ text: 'done', usage: { inputTokens: 5 } });
+    const currentJsonl = CODEX_PRESET.parse(
+      [
+        JSON.stringify({
+          type: 'item.completed',
+          item: { type: 'agent_message', text: 'Implemented and verified.' },
+        }),
+        JSON.stringify({
+          type: 'turn.completed',
+          usage: { input_tokens: 120, output_tokens: 45 },
+        }),
+      ].join('\n'),
+      '',
+    );
+    expect(currentJsonl).toMatchObject({
+      text: 'Implemented and verified.',
+      usage: { inputTokens: 120, outputTokens: 45 },
+    });
     const plain = CODEX_PRESET.parse('just some output', '');
     expect(plain).toMatchObject({ text: 'just some output', isError: false });
+
+    expect(
+      CODEX_PRESET.activity?.(
+        JSON.stringify({
+          type: 'item.started',
+          item: { type: 'command_execution', command: 'API_TOKEN=secret pnpm test' },
+        }),
+      ),
+    ).toEqual({ kind: 'tool', message: 'Running API_TOKEN=[redacted] pnpm test' });
+    expect(
+      CODEX_PRESET.activity?.(
+        JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Done.' } }),
+      ),
+    ).toEqual({ kind: 'message', message: 'Done.' });
   });
 
   it('never forwards repository credentials into the sandbox', () => {

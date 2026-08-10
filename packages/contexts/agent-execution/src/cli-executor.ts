@@ -88,16 +88,44 @@ export class CliAgentExecutor implements AgentExecutor {
 
       let stdout = '';
       let stderr = '';
+      let stdoutLines = '';
+      let settled = false;
+      let activityChain = Promise.resolve();
+      const emit = (activity: Parameters<NonNullable<typeof input.onActivity>>[0]) => {
+        if (!input.onActivity) return;
+        activityChain = activityChain.then(() => input.onActivity!(activity)).catch(() => {});
+      };
+      const finish = async (result: AgentExecutionResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(heartbeat);
+        await activityChain;
+        resolve(result);
+      };
+
+      emit({ kind: 'agent', message: `${this.cliName} process started` });
       child.stdout.on('data', (chunk: Buffer) => {
         if (stdout.length < TRANSCRIPT_LIMIT) stdout += chunk.toString('utf8');
+        stdoutLines += chunk.toString('utf8');
+        const lines = stdoutLines.split('\n');
+        stdoutLines = lines.pop() ?? '';
+        for (const line of lines) {
+          const activity = this.preset.activity?.(line);
+          if (activity) emit(activity);
+        }
       });
       child.stderr.on('data', (chunk: Buffer) => {
         if (stderr.length < TRANSCRIPT_LIMIT) stderr += chunk.toString('utf8');
       });
 
+      const heartbeat = setInterval(() => {
+        emit({ kind: 'heartbeat', message: `${this.cliName} is still working` });
+      }, 15_000);
+
       const timer = setTimeout(() => {
         child.kill('SIGKILL');
-        resolve({
+        void finish({
           status: 'failed',
           failureReason: 'timeout',
           transcript: `${stdout}\n${stderr}`,
@@ -106,8 +134,7 @@ export class CliAgentExecutor implements AgentExecutor {
       }, input.limits.timeoutMs);
 
       child.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({
+        void finish({
           status: 'failed',
           failureReason: 'sandbox_error',
           transcript: `${stderr}\n${err.message}`,
@@ -119,7 +146,8 @@ export class CliAgentExecutor implements AgentExecutor {
       });
 
       child.on('close', (code) => {
-        clearTimeout(timer);
+        const finalActivity = this.preset.activity?.(stdoutLines);
+        if (finalActivity) emit(finalActivity);
         const parsed = this.preset.parse(stdout, stderr);
         const transcript = [parsed.text, stderr]
           .filter(Boolean)
@@ -127,7 +155,7 @@ export class CliAgentExecutor implements AgentExecutor {
           .slice(-TRANSCRIPT_LIMIT);
 
         if (code !== 0) {
-          resolve({
+          void finish({
             status: 'failed',
             failureReason: 'sandbox_error',
             transcript: `${transcript}\n(exit code ${code})`,
@@ -139,7 +167,7 @@ export class CliAgentExecutor implements AgentExecutor {
           // The CLI ran fine but the agent itself reported failure — that is a
           // model-level failure, not a sandbox one, and the distinction drives
           // the engine's retry decision.
-          resolve({
+          void finish({
             status: 'failed',
             failureReason: 'model_error',
             transcript: `${transcript}\n${parsed.errorMessage ?? ''}`.trim(),
@@ -147,7 +175,7 @@ export class CliAgentExecutor implements AgentExecutor {
           });
           return;
         }
-        resolve({ status: 'succeeded', transcript, usage: parsed.usage });
+        void finish({ status: 'succeeded', transcript, usage: parsed.usage });
       });
 
       if (this.preset.promptDelivery === 'stdin') {

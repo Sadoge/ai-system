@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
 import {
@@ -67,15 +67,16 @@ export function runBranch(run: RunRow): string {
 }
 
 export function repoPaths(services: StageServices, repoId: string, runId: string) {
+  const dataDir = resolve(services.dataDir);
   return {
-    checkoutDir: join(services.dataDir, 'repos', repoId),
+    checkoutDir: join(dataDir, 'repos', repoId),
     // The run branch's worktree. Task worktrees are siblings of it.
-    worktreeDir: join(services.dataDir, 'worktrees', runId, 'run'),
+    worktreeDir: join(dataDir, 'worktrees', runId, 'run'),
   };
 }
 
 export function taskWorktreeDir(services: StageServices, runId: string, taskId: string): string {
-  return join(services.dataDir, 'worktrees', runId, `task-${taskId.slice(-8)}`);
+  return join(resolve(services.dataDir), 'worktrees', runId, `task-${taskId.slice(-8)}`);
 }
 
 export function taskBranch(run: RunRow, taskId: string): string {

@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import PgBoss from 'pg-boss';
 import { pino } from 'pino';
 import { z } from 'zod';
@@ -299,7 +299,10 @@ async function buildServices(db: Db): Promise<StageServices> {
     agents,
     executorFor,
     embedder,
-    dataDir: process.env.AI_DATA_DIR ?? join(process.cwd(), 'data'),
+    // Git resolves worktree paths relative to the checkout it runs inside.
+    // Keep this root absolute so checkout and worktree operations agree even
+    // when AI_DATA_DIR is configured as the documented relative `./data`.
+    dataDir: resolve(process.env.AI_DATA_DIR ?? join(process.cwd(), 'data')),
     codingTimeoutMs: Number(process.env.CODING_TIMEOUT_MS ?? 15 * 60 * 1000),
     githubToken: process.env.GITHUB_TOKEN,
   };

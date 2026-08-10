@@ -18,6 +18,13 @@ export async function startRunAction(formData: FormData): Promise<void> {
   revalidatePath('/');
 }
 
+export async function retryRunAction(formData: FormData): Promise<void> {
+  const runId = String(formData.get('runId'));
+  await apiPost(`/runs/${runId}/retry`, {});
+  revalidatePath(`/runs/${runId}`);
+  revalidatePath('/');
+}
+
 export async function resolveGateAction(formData: FormData): Promise<void> {
   const gateId = String(formData.get('gateId'));
   const decision = String(formData.get('decision'));

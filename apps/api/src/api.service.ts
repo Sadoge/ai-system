@@ -38,6 +38,7 @@ import {
   compareEvalRun,
   listTasks,
   resolveGate,
+  retryRun as retryFailedRun,
   startEvalReplay,
   startRun,
 } from '@ai-system/orchestration';
@@ -218,7 +219,8 @@ export class ApiService {
     let ticket = input.ticket;
     if (!ticket && input.jiraKey) {
       const jira = jiraConfigFromEnv();
-      if (!jira) throw new NotFoundException('Jira is not configured (JIRA_BASE_URL/EMAIL/API_TOKEN)');
+      if (!jira)
+        throw new NotFoundException('Jira is not configured (JIRA_BASE_URL/EMAIL/API_TOKEN)');
       ticket = await fetchJiraTicket(jira, input.jiraKey);
     }
     if (!ticket) throw new NotFoundException('no ticket provided');
@@ -240,7 +242,8 @@ export class ApiService {
           throw new NotFoundException('unknown repository for this organization');
         }
       } else {
-        if (repos.length !== 1) throw new NotFoundException('pass repositoryId (0 or >1 repos registered)');
+        if (repos.length !== 1)
+          throw new NotFoundException('pass repositoryId (0 or >1 repos registered)');
         repositoryId = repos[0]!.id;
       }
     }
@@ -300,6 +303,34 @@ export class ApiService {
       listTasks(this.db, runId),
     ]);
     return { ...run, stages, artifacts: arts, findings, gates, costUsd: cost, tasks: taskRows };
+  }
+
+  async retryRun(principal: Principal, runId: string) {
+    assertCan(principal.role, 'run:start');
+    const run = await this.requireRun(principal, runId);
+    if (run.status !== 'failed') {
+      throw new BadRequestException(`only failed runs can be retried (status: ${run.status})`);
+    }
+    try {
+      await assertRunAllowed(this.db, principal.organizationId);
+    } catch (err: unknown) {
+      if (err instanceof QuotaExceededError) throw new ForbiddenException(err.message);
+      throw err;
+    }
+
+    const result = await retryFailedRun(this.db, runId);
+    if (result.outcome === 'ignored') throw new BadRequestException(result.reason);
+    if (result.outcome !== 'transitioned') {
+      throw new BadRequestException('retry did not transition the run');
+    }
+    await recordAudit(this.db, {
+      principal,
+      action: 'run.retried',
+      subjectType: 'pipeline_run',
+      subjectId: runId,
+      data: { stage: run.currentStage },
+    });
+    return { runId, status: result.status };
   }
 
   async getArtifact(principal: Principal, runId: string, artifactId: string) {
@@ -906,7 +937,9 @@ export class ApiService {
       avgMinutes: Number(r.avgMinutes ?? 0),
     }));
     const finished = byStatus.filter((r) => ['completed', 'failed'].includes(r.status));
-    const completed = finished.filter((r) => r.status === 'completed').reduce((n, r) => n + r.count, 0);
+    const completed = finished
+      .filter((r) => r.status === 'completed')
+      .reduce((n, r) => n + r.count, 0);
     const total = finished.reduce((n, r) => n + r.count, 0);
     return {
       byStatus,
@@ -1040,7 +1073,10 @@ export class ApiService {
     return rotated;
   }
 
-  async listWebhookDeliveries(principal: Principal, input: { endpointId?: string; limit?: number }) {
+  async listWebhookDeliveries(
+    principal: Principal,
+    input: { endpointId?: string; limit?: number },
+  ) {
     assertCan(principal.role, 'org:admin');
     return listDeliveries(this.db, principal.organizationId, input);
   }

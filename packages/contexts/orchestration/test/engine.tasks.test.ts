@@ -144,6 +144,37 @@ describe('task failure handling', () => {
     expect(result.outcome === 'transitioned' && result.error).toContain('agent crashed');
   });
 
+  it('manually retries incomplete tasks while preserving completed task work', () => {
+    const run: RunSnapshot = {
+      ...runWithTasks(
+        [
+          task(T.a, { status: 'failed', attemptCount: 2, maxAttempts: 2 }),
+          task(T.b, { status: 'completed', attemptCount: 1 }),
+          task(T.c, { status: 'created', dependsOn: [T.a, T.b] }),
+        ],
+        2,
+      ),
+      status: 'failed',
+    };
+
+    const result = advance(run, {
+      name: 'run.retry.requested',
+      payload: { runId: RUN_ID },
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      currentStage: 'code',
+      clearError: true,
+      commands: [{ kind: 'execute_task', runId: RUN_ID, taskId: T.a }],
+      taskUpdates: [
+        { taskId: T.a, status: 'created' },
+        { taskId: T.a, status: 'running' },
+      ],
+    });
+  });
+
   it('ignores a failure for an unknown task', () => {
     const run = runWithTasks([task(T.a, { status: 'running' })], 2);
     expect(advance(run, failed(T.c))).toMatchObject({ outcome: 'ignored' });

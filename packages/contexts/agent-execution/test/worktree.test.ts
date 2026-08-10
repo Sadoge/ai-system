@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -63,7 +63,9 @@ describe('worktree lifecycle with scripted executor', () => {
       worktreeDir: worktree,
       taskSpec: {
         ...spec,
-        findings: [{ severity: 'major', title: 'Missing FIX marker', detail: 'add it', filePath: null }],
+        findings: [
+          { severity: 'major', title: 'Missing FIX marker', detail: 'add it', filePath: null },
+        ],
       },
       limits: { timeoutMs: 5000 },
     });
@@ -90,6 +92,22 @@ describe('worktree lifecycle with scripted executor', () => {
     const diff = await diffAgainst(worktree, 'main');
     expect(diff).toContain('real-change.txt');
     expect(diff).not.toContain('.ai-system-prompt.md');
+  });
+
+  it('moves a branch registered at an old worktree path to the canonical path', async () => {
+    const origin = makeOriginRepo();
+    const base = mkdtempSync(join(tmpdir(), 'exec-move-'));
+    const checkout = join(base, 'checkout');
+    const oldWorktree = join(checkout, 'data', 'worktrees', 'run');
+    const canonicalWorktree = join(base, 'worktrees', 'run');
+    await ensureCheckout(origin, checkout);
+    await ensureWorktree(checkout, oldWorktree, 'ai/run-moved', 'main');
+    writeFileSync(join(oldWorktree, 'partial.txt'), 'preserve me');
+
+    await ensureWorktree(checkout, canonicalWorktree, 'ai/run-moved', 'main');
+
+    expect(existsSync(oldWorktree)).toBe(false);
+    expect(existsSync(join(canonicalWorktree, 'partial.txt'))).toBe(true);
   });
 
   it('writes each task to its own file so parallel task branches do not collide', async () => {

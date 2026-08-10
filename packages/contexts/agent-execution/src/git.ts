@@ -37,11 +37,45 @@ export async function ensureWorktree(
 
   const branches = await git(checkoutDir, 'branch', '--list', branch);
   if (branches.trim()) {
-    await git(checkoutDir, 'worktree', 'add', worktreeDir, branch);
+    const registered = await registeredWorktreeForBranch(checkoutDir, branch);
+    if (registered) {
+      const { existsSync } = await import('node:fs');
+      const { mkdir } = await import('node:fs/promises');
+      const { dirname, resolve } = await import('node:path');
+      const destination = resolve(worktreeDir);
+      if (resolve(registered) !== destination) {
+        await mkdir(dirname(destination), { recursive: true });
+        if (existsSync(registered)) {
+          // Preserve any partial agent work while repairing paths produced by
+          // an older relative-AI_DATA_DIR worker.
+          await git(checkoutDir, 'worktree', 'move', registered, destination);
+        } else {
+          await git(checkoutDir, 'worktree', 'prune');
+          await git(checkoutDir, 'worktree', 'add', destination, branch);
+        }
+      }
+    } else {
+      await git(checkoutDir, 'worktree', 'add', worktreeDir, branch);
+    }
   } else {
     await git(checkoutDir, 'worktree', 'add', '-b', branch, worktreeDir, baseBranch);
   }
   await excludePlatformFiles(worktreeDir);
+}
+
+async function registeredWorktreeForBranch(
+  checkoutDir: string,
+  branch: string,
+): Promise<string | null> {
+  const output = await git(checkoutDir, 'worktree', 'list', '--porcelain');
+  const wanted = `refs/heads/${branch}`;
+  let path: string | null = null;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('worktree ')) path = line.slice('worktree '.length);
+    if (line === `branch ${wanted}` && path) return path;
+    if (line === '') path = null;
+  }
+  return null;
 }
 
 /** Files the platform writes into the worktree for its own purposes. */
@@ -87,9 +121,7 @@ export async function removeWorktree(checkoutDir: string, worktreeDir: string): 
 }
 
 export type MergeResult =
-  | { status: 'merged' }
-  | { status: 'up_to_date' }
-  | { status: 'conflict'; conflicts: string[] };
+  { status: 'merged' } | { status: 'up_to_date' } | { status: 'conflict'; conflicts: string[] };
 
 /**
  * Merge a completed task's branch into the run branch. Conflicts are never
@@ -176,7 +208,10 @@ export async function completeMerge(worktreeDir: string, message: string): Promi
   );
 }
 
-export async function conflictMarkersRemain(worktreeDir: string, paths: string[]): Promise<boolean> {
+export async function conflictMarkersRemain(
+  worktreeDir: string,
+  paths: string[],
+): Promise<boolean> {
   const { readFile } = await import('node:fs/promises');
   const { join } = await import('node:path');
   for (const path of paths) {

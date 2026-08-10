@@ -19,6 +19,9 @@ type TaskUpdate = { taskId: string; status: TaskStatus };
  * by the runtime, so any historical transition can be replayed in tests.
  */
 export function advance(run: RunSnapshot, event: EngineEvent): AdvanceResult {
+  // Failed is normally terminal, but a human retry is an explicit transition
+  // back into the frozen run rather than a new run with a copied ticket.
+  if (event.name === 'run.retry.requested') return onRetryRequested(run);
   if (TERMINAL_RUN_STATUSES.includes(run.status)) {
     return ignored(`run is terminal (${run.status})`);
   }
@@ -102,7 +105,52 @@ function onStageFailed(run: RunSnapshot, stage: StageKind, reason: string): Adva
   if (stage !== run.currentStage) {
     return ignored(`stage.failed for ${stage} but current stage is ${run.currentStage}`);
   }
-  return { outcome: 'transitioned', status: 'failed', currentStage: stage, commands: [], error: reason };
+  return {
+    outcome: 'transitioned',
+    status: 'failed',
+    currentStage: stage,
+    commands: [],
+    error: reason,
+  };
+}
+
+function onRetryRequested(run: RunSnapshot): AdvanceResult {
+  if (run.status !== 'failed')
+    return ignored(`run retry requires failed status (got ${run.status})`);
+  if (!run.currentStage) return ignored('failed run has no stage to retry');
+
+  const def = pipelineFor(run.policy);
+  const stage = run.currentStage;
+  if (!def.stages.includes(stage)) {
+    return ignored(`stage ${stage} not in pipeline ${def.name}`);
+  }
+
+  if (def.taskStage === stage) {
+    // A task can finish after a sibling has already failed the run. Its event
+    // is then ignored because the run is terminal, leaving it `running` in
+    // storage. Reset every incomplete in-flight/failed task into the ready
+    // pool; completed tasks and their branches remain intact.
+    const retryable = run.tasks.filter(
+      (task) => task.status === 'failed' || task.status === 'running',
+    );
+    const tasks = run.tasks.map((task) =>
+      retryable.some((candidate) => candidate.id === task.id)
+        ? { ...task, status: 'created' as TaskStatus }
+        : task,
+    );
+    const dispatched = dispatchOrAdvance(run, def, stage, tasks);
+    if (dispatched.outcome === 'ignored') return dispatched;
+    return {
+      ...dispatched,
+      clearError: true,
+      taskUpdates: [
+        ...retryable.map((task) => ({ taskId: task.id, status: 'created' as TaskStatus })),
+        ...(dispatched.taskUpdates ?? []),
+      ],
+    };
+  }
+
+  return { ...enterStage(run, def, stage), clearError: true } as AdvanceResult;
 }
 
 // ── task DAG (Phase 2) ────────────────────────────────────────────────
@@ -118,7 +166,10 @@ function onTaskCompleted(run: RunSnapshot, taskId: string): AdvanceResult {
   if (task.status === 'completed') return ignored(`duplicate completion of task ${taskId}`);
 
   const tasks = replaceTask(run.tasks, taskId, { status: 'completed' });
-  return withTaskUpdates([{ taskId, status: 'completed' }], dispatchOrAdvance(run, def, stage, tasks));
+  return withTaskUpdates(
+    [{ taskId, status: 'completed' }],
+    dispatchOrAdvance(run, def, stage, tasks),
+  );
 }
 
 function onTaskFailed(run: RunSnapshot, taskId: string, reason: string): AdvanceResult {
@@ -134,7 +185,10 @@ function onTaskFailed(run: RunSnapshot, taskId: string, reason: string): Advance
   if (task.attemptCount < task.maxAttempts) {
     // Retry: back to the ready pool, re-dispatched below if a slot is free.
     const tasks = replaceTask(run.tasks, taskId, { status: 'created' });
-    return withTaskUpdates([{ taskId, status: 'created' }], dispatchOrAdvance(run, def, stage, tasks));
+    return withTaskUpdates(
+      [{ taskId, status: 'created' }],
+      dispatchOrAdvance(run, def, stage, tasks),
+    );
   }
   return {
     outcome: 'transitioned',
@@ -186,7 +240,9 @@ function dispatchOrAdvance(
     outcome: 'transitioned',
     status: def.statusDuring(stage),
     currentStage: stage,
-    commands: ready.map((t) => ({ kind: 'execute_task', runId: run.runId, taskId: t.id }) as Command),
+    commands: ready.map(
+      (t) => ({ kind: 'execute_task', runId: run.runId, taskId: t.id }) as Command,
+    ),
     taskUpdates: ready.map((t) => ({ taskId: t.id, status: 'running' as TaskStatus })),
   };
 }

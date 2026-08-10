@@ -51,6 +51,7 @@ export interface RunDetail extends RunSummary {
     id: string;
     stage: string;
     status: string;
+    attempt: number;
     error: string | null;
     createdAt: string;
     finishedAt: string | null;

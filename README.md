@@ -152,6 +152,7 @@ node apps/worker/dist/main.js &                            # or: pnpm --filter @
 echo '# My first ticket' > ticket.md
 node apps/cli/dist/main.js run start ticket.md            # trivial pipeline
 node apps/cli/dist/main.js run status <run-id>
+node apps/cli/dist/main.js run retry <run-id>      # retry only the failed stage/tasks
 
 # Full MVP pipeline against a real repository using the signed-in Codex CLI
 # for both reasoning and code (no provider API key required):

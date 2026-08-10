@@ -165,6 +165,11 @@ export class ApiController {
     return this.service.getRun(principal, id);
   }
 
+  @Post('runs/:id/retry')
+  retryRun(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
+    return this.service.retryRun(principal, id);
+  }
+
   @Get('runs/:id/artifacts/:artifactId')
   getArtifact(
     @CurrentPrincipal() principal: Principal,

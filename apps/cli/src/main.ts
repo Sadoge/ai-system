@@ -77,6 +77,7 @@ import {
   compareEvalRun,
   listTasks,
   resolveGate,
+  retryRun,
   startEvalReplay,
   startRun,
 } from '@ai-system/orchestration';
@@ -485,6 +486,18 @@ runCmd
       for (const e of events.reverse()) {
         console.log(`    ${e.createdAt.toISOString()}  ${e.name}`);
       }
+    }),
+  );
+
+runCmd
+  .command('retry <run-id>')
+  .description('retry a failed run from its failed stage, preserving completed work')
+  .action(
+    withDb(async (db, runId: string) => {
+      const result = await retryRun(db, runId);
+      if (result.outcome === 'ignored') throw new Error(result.reason);
+      if (result.outcome !== 'transitioned') throw new Error('retry did not transition the run');
+      console.log(`run retried: ${runId} (status: ${result.status})`);
     }),
   );
 

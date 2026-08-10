@@ -14,4 +14,17 @@ data/
 
 # Machine-local Claude Code overrides (impeccable installs its hook here)
 .claude/settings.local.json
-.impeccable/
+
+# Impeccable transient state. DESIGN.md's sidecar (.impeccable/design.json) and
+# .impeccable/live/config.json are project config and stay tracked.
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+.impeccable/config.local.json
+.impeccable/history/
+.impeccable/live/sessions/
+.impeccable/live/previews/
+.impeccable/live/annotations/
+.impeccable/live/artifacts/
+.impeccable/live/locks/
+.impeccable/live/cache/
+.impeccable/live/server.json

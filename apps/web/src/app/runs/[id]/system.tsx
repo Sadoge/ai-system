@@ -5,21 +5,27 @@ import { Notehead, StatusMark, readState } from '@/lib/ui';
  * The system: the run's own voice on the top stave, and the task voices
  * braced beneath it, all crossing one shared set of stage barlines.
  *
- * The horizontal axis is real. Stage columns come from the run's own stage
- * list. A task voice is placed by its **dependency depth** — the earliest
- * beat it could sound, since a task cannot begin before the tasks it depends
- * on have finished — and depths are laid across the span of the pipeline in
- * which the team pipeline actually runs tasks. Voices at the same depth are
- * genuinely parallel and align vertically; a dependent sits later and is
- * joined to what it waited for by a tie.
+ * The page is divided the way an engraved score is. A left margin carries
+ * the part names and their annotations; everything right of the margin rule
+ * is plotted space, and a mark's horizontal position there means something.
+ * Nothing but notation is placed inside the plotted span, so a label can
+ * never be misread as a time position.
  *
- * Nothing here is positioned by anything the API does not report: the API
- * gives no per-task timings, so duration is deliberately not drawn.
+ * The axis is real. Stage columns come from the run's own stage list. A task
+ * voice is placed by its **dependency depth** — the earliest beat it could
+ * sound, since a task cannot begin before the tasks it depends on have
+ * finished — and depths are laid across the span of the pipeline in which
+ * the team pipeline actually runs tasks. Voices at the same depth are
+ * genuinely parallel and align vertically; a dependent sits later and is
+ * joined to what it waited for by a tie. The API reports no per-task
+ * timings, so duration is deliberately not drawn.
  */
 
-const VOICE_ROW = 46;
+const VOICE_ROW = 58;
 const STAGE_ROW = 62;
 const TIE_VIEW_W = 1000;
+/** The engraved left margin that holds part names, outside plotted space. */
+const LABEL_W = '12rem';
 
 /** Earliest beat a task can sound: one past the deepest thing it waits on. */
 function depths(tasks: RunDetail['tasks']): Map<string, number> {
@@ -29,8 +35,7 @@ function depths(tasks: RunDetail['tasks']): Map<string, number> {
     if (memo.has(id)) return memo.get(id)!;
     if (seen.has(id)) return 0; // defensive: a cycle sounds at the downbeat
     seen.add(id);
-    const task = byId.get(id);
-    const deps = task?.dependsOn.filter((d) => byId.has(d)) ?? [];
+    const deps = byId.get(id)?.dependsOn.filter((d) => byId.has(d)) ?? [];
     const d = deps.length === 0 ? 0 : 1 + Math.max(...deps.map((x) => walk(x, seen)));
     seen.delete(id);
     memo.set(id, d);
@@ -40,26 +45,34 @@ function depths(tasks: RunDetail['tasks']): Map<string, number> {
   return memo;
 }
 
+/** Position within the plotted span, measured from the margin rule. */
+const plotted = (frac: number) => `calc(${LABEL_W} + (100% - ${LABEL_W}) * ${frac})`;
+
+function toneClass(tone: ReturnType<typeof readState>['tone'], current: boolean) {
+  if (tone === 'fault') return 'text-mark-bright';
+  if (tone === 'hold') return 'text-hold-bright';
+  if (tone === 'live' || current) return 'pulse-live text-cue-bright';
+  if (tone === 'done') return 'text-ink-secondary';
+  return 'text-ink-faint';
+}
+
 export function RunSystem({ run }: { run: RunDetail }) {
   const stages = run.stages;
   const n = Math.max(stages.length, 1);
-  const tasks = run.tasks;
-  const depth = depths(tasks);
+  const depth = depths(run.tasks);
   const beats = Math.max(1, Math.max(0, ...[...depth.values()]) + 1);
 
-  // The span of the pipeline in which task voices actually sound. Falls back
-  // to the whole width when the pipeline has no decompose/integrate pair.
   const idxOf = (name: string) => stages.findIndex((s) => s.stage === name);
   const first = idxOf('decompose') >= 0 ? idxOf('decompose') : idxOf('code');
   const last = idxOf('integrate') >= 0 ? idxOf('integrate') : idxOf('code');
   const spanStart = first >= 0 ? first : 0;
   const spanEnd = last >= first && last >= 0 ? last + 1 : n;
 
-  const stageX = (i: number) => ((i + 0.5) / n) * 100;
-  const beatX = (b: number) =>
-    ((spanStart + ((b + 0.5) / beats) * (spanEnd - spanStart)) / n) * 100;
+  const stageFrac = (i: number) => (i + 0.5) / n;
+  const beatFrac = (b: number) =>
+    (spanStart + ((b + 0.5) / beats) * (spanEnd - spanStart)) / n;
 
-  const ordered = [...tasks].sort(
+  const ordered = [...run.tasks].sort(
     (a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0),
   );
   const rowOf = new Map(ordered.map((t, i) => [t.id, i]));
@@ -70,17 +83,17 @@ export function RunSystem({ run }: { run: RunDetail }) {
       .filter((d) => rowOf.has(d))
       .map((d) => ({
         key: `${d}->${task.id}`,
-        x1: (beatX(depth.get(d) ?? 0) / 100) * TIE_VIEW_W,
+        x1: beatFrac(depth.get(d) ?? 0) * TIE_VIEW_W,
         y1: STAGE_ROW + (rowOf.get(d)! + 0.5) * VOICE_ROW,
-        x2: (beatX(depth.get(task.id) ?? 0) / 100) * TIE_VIEW_W,
+        x2: beatFrac(depth.get(task.id) ?? 0) * TIE_VIEW_W,
         y2: STAGE_ROW + (rowOf.get(task.id)! + 0.5) * VOICE_ROW,
       })),
   );
 
   return (
     <>
-      {/* The engraved system. Decorative for assistive tech: the compact
-          reading below carries the same facts in text. */}
+      {/* The engraved system. Decorative for assistive tech: the reading
+          below carries the same facts in text. */}
       <div className="hidden sm:block" aria-hidden>
         <div className="relative w-full" style={{ height }}>
           {/* Barlines cross every voice, which is what makes this one system. */}
@@ -91,14 +104,27 @@ export function RunSystem({ run }: { run: RunDetail }) {
                 className={`absolute top-0 ${
                   s.stage === run.currentStage ? 'barline-now' : 'barline'
                 }`}
-                style={{ left: `${(i / n) * 100}%`, height }}
+                style={{ left: plotted(i / n), height }}
               />
             ),
           )}
 
+          {/* The margin rule: left of it is the part list, right of it is
+              plotted space where position carries meaning. */}
+          <span
+            className="absolute top-0 w-px bg-rule-strong"
+            style={{ left: LABEL_W, height }}
+          />
+
           {/* The run's own voice. */}
           <div className="absolute inset-x-0 top-0" style={{ height: STAGE_ROW }}>
-            <div className="stave absolute inset-0" />
+            <div className="stave absolute inset-y-0" style={{ left: LABEL_W, right: 0 }} />
+            <span
+              className="annot absolute left-0 text-xs text-ink-label"
+              style={{ top: STAGE_ROW / 2 - 8 }}
+            >
+              the run
+            </span>
             {stages.map((s, i) => {
               const { tone, head } = readState(s.status);
               const current = s.stage === run.currentStage;
@@ -106,19 +132,10 @@ export function RunSystem({ run }: { run: RunDetail }) {
                 <div
                   key={s.id}
                   className="absolute flex -translate-x-1/2 flex-col items-center gap-1.5"
-                  style={{ left: `${stageX(i)}%`, top: 10 }}
+                  style={{ left: plotted(stageFrac(i)), top: 10 }}
+                  title={s.error ?? undefined}
                 >
-                  <span
-                    className={`stave-clear ${
-                      tone === 'fault'
-                        ? 'text-mark-bright'
-                        : tone === 'done'
-                          ? 'text-ink-secondary'
-                          : current
-                            ? 'pulse-live text-cue-bright'
-                            : 'text-ink-faint'
-                    }`}
-                  >
+                  <span className={`stave-clear ${toneClass(tone, current)}`}>
                     <Notehead head={head} />
                   </span>
                   <span
@@ -136,7 +153,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
           {/* The brace joining the task voices into the system. */}
           {ordered.length > 0 && (
             <span
-              className="absolute left-0 w-px bg-rule-strong"
+              className="absolute left-0 w-0.5 bg-rule-strong"
               style={{ top: STAGE_ROW, height: ordered.length * VOICE_ROW }}
             />
           )}
@@ -144,56 +161,47 @@ export function RunSystem({ run }: { run: RunDetail }) {
           {/* Task voices, one stave each. */}
           {ordered.map((task, row) => {
             const { tone, head } = readState(task.status);
-            const b = depth.get(task.id) ?? 0;
             return (
               <div
                 key={task.id}
                 className="absolute inset-x-0"
                 style={{ top: STAGE_ROW + row * VOICE_ROW, height: VOICE_ROW }}
               >
-                <div className="stave absolute inset-0" />
+                <div className="stave absolute inset-y-0" style={{ left: LABEL_W, right: 0 }} />
+
+                {/* Part name and its annotation, in the margin. */}
+                <div
+                  className="absolute left-2 top-1.5 pr-3"
+                  style={{ width: `calc(${LABEL_W} - 0.5rem)` }}
+                >
+                  <p className="line-clamp-2 text-sm leading-tight text-ink" title={task.title}>
+                    {task.title}
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-micro text-ink-faint tnum">
+                    {task.origin === 'fix_iteration' && (
+                      <span className="annot mr-1.5 text-hold-bright">da capo</span>
+                    )}
+                    {task.executorKind ? `${task.executorKind} · ` : ''}
+                    {task.attemptCount}/{task.maxAttempts}
+                  </p>
+                </div>
+
                 <span
-                  className={`stave-clear absolute -translate-x-1/2 ${
-                    tone === 'fault'
-                      ? 'text-mark-bright'
-                      : tone === 'live'
-                        ? 'pulse-live text-cue-bright'
-                        : tone === 'hold'
-                          ? 'text-hold-bright'
-                          : tone === 'done'
-                            ? 'text-ink-secondary'
-                            : 'text-ink-faint'
-                  }`}
-                  style={{ left: `${beatX(b)}%`, top: VOICE_ROW / 2 - 6 }}
+                  className={`stave-clear absolute -translate-x-1/2 ${toneClass(tone, false)}`}
+                  style={{ left: plotted(beatFrac(depth.get(task.id) ?? 0)), top: VOICE_ROW / 2 - 6 }}
                 >
                   <Notehead head={head} />
-                </span>
-                {/* The part name, at the left margin where a score puts it. */}
-                <span
-                  className="stave-clear absolute left-2 max-w-[46%] truncate text-sm text-ink"
-                  style={{ top: VOICE_ROW / 2 - 10 }}
-                  title={task.title}
-                >
-                  {task.title}
-                </span>
-                <span
-                  className="stave-clear absolute right-2 font-mono text-micro text-ink-faint tnum"
-                  style={{ top: VOICE_ROW / 2 - 7 }}
-                >
-                  {task.origin === 'fix_iteration' && (
-                    <span className="annot mr-2 text-hold-bright">da capo</span>
-                  )}
-                  {task.executorKind ? `${task.executorKind} · ` : ''}
-                  {task.attemptCount}/{task.maxAttempts}
                 </span>
               </div>
             );
           })}
 
-          {/* Ties: a dependent is bound to what it waited for. */}
+          {/* Ties: a dependent is bound to what it waited for. Drawn inside
+              plotted space only. */}
           {ties.length > 0 && (
             <svg
-              className="pointer-events-none absolute inset-0 h-full w-full text-rule-strong"
+              className="pointer-events-none absolute top-0 text-rule-strong"
+              style={{ left: LABEL_W, right: 0, height }}
               viewBox={`0 0 ${TIE_VIEW_W} ${height}`}
               preserveAspectRatio="none"
             >
@@ -212,28 +220,42 @@ export function RunSystem({ run }: { run: RunDetail }) {
         </div>
       </div>
 
-      {/* The compact reading. Visible on phones, and the accessible text
-          equivalent of the engraved system at every width. */}
+      {/* The phone's reading: the same score, wrapped into successive systems
+          the way a score breaks its lines at the margin. Also the accessible
+          text equivalent of the engraved system at every width. */}
       <div className="sm:sr-only">
-        <ul className="border-t border-rule">
-          {stages.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center gap-3 border-b border-rule px-1 py-1.5"
-            >
-              <StatusMark status={s.status} />
-              <span className="font-mono text-xs text-ink-secondary">{s.stage}</span>
-              {s.stage === run.currentStage && (
-                <span className="annot ml-auto text-xs text-mark-bright">now</span>
-              )}
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-wrap items-stretch">
+          {stages.map((s, i) => {
+            const { tone, head } = readState(s.status);
+            const current = s.stage === run.currentStage;
+            return (
+              <div key={s.id} className="stave-seg flex items-stretch">
+                {i > 0 && (
+                  <span className={current ? 'barline-now' : 'barline'} aria-hidden />
+                )}
+                <div className="flex flex-col items-center gap-2 px-3 py-3">
+                  <span className={`stave-clear ${toneClass(tone, current)}`} aria-hidden>
+                    <Notehead head={head} />
+                  </span>
+                  <span
+                    className={`whitespace-nowrap font-mono text-micro ${
+                      current ? 'text-mark-bright' : 'text-ink-label'
+                    }`}
+                  >
+                    <span className="sr-only">{s.status} </span>
+                    {s.stage}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {ordered.length > 0 && (
-          <ul className="mt-4 border-t border-rule">
+          <ul className="mt-5 border-t border-rule">
             {ordered.map((task) => {
               const deps = task.dependsOn
-                .map((d) => tasks.find((t) => t.id === d)?.title ?? d.slice(-8))
+                .map((d) => run.tasks.find((t) => t.id === d)?.title ?? d.slice(-8))
                 .join(', ');
               return (
                 <li key={task.id} className="border-b border-rule px-1 py-2">
@@ -248,9 +270,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-ink">{task.title}</p>
-                  {deps && (
-                    <p className="annot mt-0.5 text-xs text-ink-label">after {deps}</p>
-                  )}
+                  {deps && <p className="annot mt-0.5 text-xs text-ink-label">after {deps}</p>}
                   {task.error && (
                     <p className="mt-0.5 font-mono text-xs text-mark-bright">{task.error}</p>
                   )}

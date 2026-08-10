@@ -71,7 +71,9 @@ body {
   content: '';
   position: absolute;
   inset: 0 0 0 0;
-  background-image: repeating-linear-gradient(
+  /* Non-repeating: a repeating gradient tiles once the box is taller than
+     its stop list, painting orphan rules above and below the stave. */
+  background-image: linear-gradient(
     to bottom,
     transparent 0,
     transparent calc(50% - 9px),
@@ -110,7 +112,7 @@ body {
    sit side by side and wrap into successive systems the way a score breaks
    its lines at the margin. */
 .stave-seg {
-  background-image: repeating-linear-gradient(
+  background-image: linear-gradient(
     to bottom,
     transparent 0,
     transparent calc(50% - 9px),

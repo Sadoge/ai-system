@@ -233,10 +233,15 @@ export function RunSystem({ run }: { run: RunDetail }) {
             const current = s.stage === run.currentStage;
             return (
               <div key={s.id} className="stave-seg flex h-14 items-stretch">
+                {/* A barline is bounded by the stave it crosses. Spanning the
+                    whole box would close each wrapped system into a box. */}
                 {i > 0 && (
-                  <span className={current ? 'barline-now' : 'barline'} aria-hidden />
+                  <span
+                    className={`${current ? 'barline-now' : 'barline'} h-[18px] self-center`}
+                    aria-hidden
+                  />
                 )}
-                <div className="flex w-[4.75rem] flex-col items-center justify-center gap-1.5">
+                <div className="flex min-w-[4.75rem] flex-col items-center justify-center gap-1.5 px-1.5">
                   <span className={`stave-clear ${toneClass(tone, current)}`} aria-hidden>
                     <Notehead head={head} />
                   </span>

@@ -135,6 +135,30 @@ export function SeverityMark({ severity }: { severity: string }) {
   );
 }
 
+/**
+ * A hairpin: the world's own sign for growing or diminishing. Used where a
+ * value sits above or below a baseline, so the comparison is drawn rather
+ * than typed and no state colour is spent on a quantity.
+ */
+export function Hairpin({
+  direction,
+  className = '',
+}: {
+  direction: 'cresc' | 'dim';
+  className?: string;
+}) {
+  return (
+    <svg width="14" height="8" viewBox="0 0 14 8" aria-hidden className={className}>
+      <path
+        d={direction === 'cresc' ? 'M13 1 L1 4 L13 7' : 'M1 1 L13 4 L1 7'}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+      />
+    </svg>
+  );
+}
+
 /** The boxed letter a conductor calls out to restart from. */
 export function RehearsalMark({ children }: { children: React.ReactNode }) {
   return (

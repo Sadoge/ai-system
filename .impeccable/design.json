@@ -3,236 +3,281 @@
   "generatedAt": "2026-08-10T00:00:00.000Z",
   "title": "Design System: ai-system",
   "extensions": {
+    "form": {
+      "name": "Conductor's Score",
+      "candidate": "3 of 7",
+      "seed": "3e3865ce"
+    },
     "colorMeta": {
-      "instrument-black": {
+      "ground": {
         "role": "neutral",
-        "displayName": "Instrument Black",
-        "canonical": "oklch(14.1% 0.005 285.823)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Diazo Ground",
+        "canonical": "#101a33",
+        "tonalRamp": ["#060a15", "#0b1123", "#101a33", "#17233f", "#1c2b4d", "#2f4470", "#46608f", "#8ba3c9"]
       },
-      "instrument-surface": {
+      "ground-raised": {
         "role": "neutral",
-        "displayName": "Instrument Surface",
-        "canonical": "oklch(21% 0.006 285.885)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Ground Raised",
+        "canonical": "#17233f",
+        "tonalRamp": ["#070b16", "#0d1426", "#131d35", "#17233f", "#1f2f52", "#2b4070", "#41598c", "#87a0c6"]
       },
-      "instrument-line": {
+      "ground-band": {
         "role": "neutral",
-        "displayName": "Instrument Line",
-        "canonical": "oklch(27.4% 0.006 286.033)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Ground Band",
+        "canonical": "#1c2b4d",
+        "tonalRamp": ["#080d18", "#0f1728", "#16223c", "#1c2b4d", "#25396a", "#324b88", "#5573ab", "#96abd0"]
       },
-      "instrument-line-strong": {
+      "rule": {
         "role": "neutral",
-        "displayName": "Instrument Line Strong",
-        "canonical": "oklch(37% 0.013 285.805)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Engraved Hairline",
+        "canonical": "#2f4470",
+        "tonalRamp": ["#0d1322", "#141d35", "#1e2b4c", "#2f4470", "#3d578c", "#5573ab", "#8299c5", "#c0cde2"]
       },
-      "readout-primary": {
+      "rule-strong": {
         "role": "neutral",
-        "displayName": "Readout Primary",
-        "canonical": "oklch(96.7% 0.001 286.375)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Heavy Engraving",
+        "canonical": "#46608f",
+        "tonalRamp": ["#111827", "#1a253c", "#263557", "#344a77", "#46608f", "#6a83ad", "#95a8ca", "#ccd6e6"]
       },
-      "readout-secondary": {
+      "ink": {
         "role": "neutral",
-        "displayName": "Readout Secondary",
-        "canonical": "oklch(87.1% 0.006 286.286)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Bone Ink",
+        "canonical": "#ece4d6",
+        "tonalRamp": ["#2b261d", "#463f31", "#655c48", "#877c63", "#aba088", "#cdc3ae", "#ece4d6", "#f8f4ec"]
       },
-      "readout-muted": {
+      "ink-secondary": {
         "role": "neutral",
-        "displayName": "Readout Muted",
-        "canonical": "oklch(70.5% 0.015 286.067)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Bone Secondary",
+        "canonical": "#c3cddf",
+        "tonalRamp": ["#1d2431", "#2c3648", "#414f68", "#5a6b88", "#7a8aa6", "#9daac2", "#c3cddf", "#e6ebf3"]
       },
-      "readout-label": {
+      "ink-muted": {
         "role": "neutral",
-        "displayName": "Readout Label",
-        "canonical": "oklch(55.2% 0.016 285.938)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Bone Muted",
+        "canonical": "#93a2c0",
+        "tonalRamp": ["#161c28", "#232c3e", "#334059", "#465878", "#5e7197", "#7889ae", "#93a2c0", "#c2cbdd"]
       },
-      "readout-faint": {
+      "ink-label": {
         "role": "neutral",
-        "displayName": "Readout Faint",
-        "canonical": "oklch(44.2% 0.017 285.786)",
-        "tonalRamp": ["oklch(14.1% 0.005 285.823)", "oklch(21% 0.006 285.885)", "oklch(27.4% 0.006 286.033)", "oklch(37% 0.013 285.805)", "oklch(44.2% 0.017 285.786)", "oklch(55.2% 0.016 285.938)", "oklch(87.1% 0.006 286.286)", "oklch(96.7% 0.001 286.375)"]
+        "displayName": "Bone Label",
+        "canonical": "#7f90b2",
+        "tonalRamp": ["#131923", "#1e2636", "#2d384f", "#3f4d6b", "#546489", "#697ba3", "#7f90b2", "#b3bed4"]
       },
-      "signal-emerald": {
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Bone Faint",
+        "canonical": "#7286ad",
+        "tonalRamp": ["#111621", "#1b2333", "#28334a", "#394765", "#4c5d83", "#5f72a0", "#7286ad", "#a9b6d0"]
+      },
+      "mark": {
         "role": "primary",
-        "displayName": "Signal Emerald",
-        "canonical": "oklch(76.5% 0.177 163.223)",
-        "tonalRamp": ["oklch(26.2% 0.051 172.552)", "oklch(37.8% 0.077 168.94)", "oklch(43.2% 0.095 166.913)", "oklch(50.8% 0.118 165.612)", "oklch(59.6% 0.145 163.225)", "oklch(69.6% 0.17 162.48)", "oklch(84.5% 0.143 164.978)", "oklch(95% 0.052 163.051)"]
+        "displayName": "Conductor's Vermilion",
+        "canonical": "#e2452f",
+        "contrastOnGround": "4.23:1",
+        "textSafeAlternative": "mark-bright",
+        "tonalRamp": ["#2d0d07", "#4c1610", "#6f2018", "#932b1f", "#c2361f", "#e2452f", "#f27a63", "#f9b6a8"]
       },
-      "signal-emerald-action": {
+      "mark-bright": {
         "role": "primary",
-        "displayName": "Signal Emerald Action",
-        "canonical": "oklch(50.8% 0.118 165.612)",
-        "tonalRamp": ["oklch(26.2% 0.051 172.552)", "oklch(37.8% 0.077 168.94)", "oklch(43.2% 0.095 166.913)", "oklch(50.8% 0.118 165.612)", "oklch(59.6% 0.145 163.225)", "oklch(69.6% 0.17 162.48)", "oklch(84.5% 0.143 164.978)", "oklch(95% 0.052 163.051)"]
+        "displayName": "Vermilion Bright",
+        "canonical": "#f27a63",
+        "tonalRamp": ["#361410", "#57201a", "#7b2e24", "#a23e30", "#c9563f", "#e2452f", "#f27a63", "#fbc9bd"]
       },
-      "standby-sky": {
+      "cue": {
         "role": "secondary",
-        "displayName": "Standby Sky",
-        "canonical": "oklch(82.8% 0.111 230.318)",
-        "tonalRamp": ["oklch(29.3% 0.066 243.157)", "oklch(39.1% 0.09 240.876)", "oklch(44.3% 0.11 240.79)", "oklch(50% 0.134 242.749)", "oklch(58.8% 0.158 241.966)", "oklch(68.5% 0.169 237.323)", "oklch(82.8% 0.111 230.318)", "oklch(95.1% 0.026 236.824)"]
+        "displayName": "Cobalt Cue",
+        "canonical": "#4b8fd6",
+        "tonalRamp": ["#0a1a2b", "#102845", "#173a63", "#204e85", "#2f6fb5", "#4b8fd6", "#8dbdec", "#c7dcf6"]
       },
-      "fault-red": {
-        "role": "tertiary",
-        "displayName": "Fault Red",
-        "canonical": "oklch(80.8% 0.114 19.571)",
-        "tonalRamp": ["oklch(25.8% 0.092 26.042)", "oklch(39.6% 0.141 25.723)", "oklch(44.4% 0.177 26.899)", "oklch(50.5% 0.213 27.518)", "oklch(57.7% 0.245 27.325)", "oklch(63.7% 0.237 25.331)", "oklch(80.8% 0.114 19.571)", "oklch(93.6% 0.032 17.717)"]
+      "cue-bright": {
+        "role": "secondary",
+        "displayName": "Cobalt Bright",
+        "canonical": "#8dbdec",
+        "tonalRamp": ["#0d1e30", "#153050", "#1f4574", "#2b5c9b", "#3d7cc2", "#5f9bda", "#8dbdec", "#d0e4f8"]
       },
-      "hold-amber": {
+      "hold": {
         "role": "tertiary",
-        "displayName": "Hold Amber",
-        "canonical": "oklch(87.9% 0.169 91.605)",
-        "tonalRamp": ["oklch(27.9% 0.077 45.635)", "oklch(41.4% 0.112 45.904)", "oklch(47.3% 0.137 46.201)", "oklch(55.5% 0.163 48.998)", "oklch(66.6% 0.179 58.318)", "oklch(76.9% 0.188 70.08)", "oklch(87.9% 0.169 91.605)", "oklch(96.2% 0.059 95.617)"]
+        "displayName": "Ochre Hold",
+        "canonical": "#d99a2b",
+        "tonalRamp": ["#2c1e06", "#48310b", "#684713", "#8b5f1b", "#b07a23", "#d99a2b", "#f0bf6a", "#f9dfae"]
       },
-      "running-indigo": {
+      "hold-bright": {
         "role": "tertiary",
-        "displayName": "Running Indigo",
-        "canonical": "oklch(78.5% 0.115 274.713)",
-        "tonalRamp": ["oklch(25.7% 0.09 281.288)", "oklch(35.9% 0.144 278.697)", "oklch(39.8% 0.195 277.366)", "oklch(45.7% 0.24 277.023)", "oklch(51.1% 0.262 276.966)", "oklch(58.5% 0.233 277.117)", "oklch(78.5% 0.115 274.713)", "oklch(93% 0.034 272.788)"]
+        "displayName": "Ochre Bright",
+        "canonical": "#f0bf6a",
+        "tonalRamp": ["#33240a", "#523a10", "#745218", "#976c20", "#bd8a2a", "#d99a2b", "#f0bf6a", "#fbe6bd"]
       }
     },
     "typographyMeta": {
-      "wordmark": { "displayName": "Wordmark", "purpose": "The ai-system mark in the header. The only bold monospace in the system." },
-      "title": { "displayName": "Title", "purpose": "Run titles on run detail. The largest human-written text anywhere." },
-      "label": { "displayName": "Section Label", "purpose": "Uppercase section headings. Organize without competing with content." },
-      "body": { "displayName": "Body", "purpose": "Ticket titles, finding details, knowledge content, and all human-written prose." },
-      "readout": { "displayName": "Readout", "purpose": "Every machine-produced value: IDs, statuses, stage names, costs, counts, attempt ratios. Tabular figures." }
+      "wordmark": { "displayName": "Wordmark", "purpose": "The programme head only — the product name in the page header. The single bold weight in the system." },
+      "headline": { "displayName": "Headline", "purpose": "The run's ticket title. The largest human text on any surface; there is no larger step." },
+      "title": { "displayName": "Title", "purpose": "A system's title, set in italic serif beside its rehearsal mark." },
+      "body": { "displayName": "Body", "purpose": "Part names, finding titles and details, list content. 1.625 line-height for running prose." },
+      "annotation": { "displayName": "Annotation", "purpose": "The conductor's voice: field labels, table headers, empty states, chart explanations, 'now', 'after …', 'beat 3'. Always italic serif." },
+      "readout": { "displayName": "Readout", "purpose": "Machine-produced values — statuses, costs, timestamps, attempt ratios, nav movements. Tabular figures." },
+      "micro": { "displayName": "Micro", "purpose": "Engraver's small type: stage labels under noteheads, rehearsal marks, right-margin task metadata. Sits under the content it labels." }
     },
-    "shadows": [],
-    "motion": [],
-    "breakpoints": []
+    "shadows": [
+      {
+        "name": "stave-knockout",
+        "value": "0 0 0 0.35rem var(--color-ground)",
+        "purpose": "NOT depth. A zero-offset, zero-blur ring of the ground colour that knocks a halo out of the staff ruling so type and noteheads are never struck through. The only box-shadow in the system; must stay 0 0 0."
+      }
+    ],
+    "motion": [
+      {
+        "name": "stave-pulse",
+        "value": "stave-pulse 1.9s ease-in-out infinite (opacity 1 → 0.45 → 1)",
+        "purpose": "The sounding voice breathes. Applied to the notehead of the currently running stage or task only. Removed entirely under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "container", "value": "72rem (max-w-6xl), padded 20px / 32px at sm" }
+    ],
+    "materials": [
+      {
+        "name": "stave",
+        "value": "repeating-linear-gradient three 1px rules at calc(50% - 9px), calc(50% - 1px), calc(50% + 7px) in var(--color-rule), masked to transparent over the outer 3rem",
+        "purpose": "The ruled line a voice is read along. Three hairlines, not five: five reads as ornament at UI scale. The end fade lets a voice enter and leave rather than be boxed."
+      },
+      {
+        "name": "caesura-hatch",
+        "value": "repeating-linear-gradient(-58deg, transparent 0 11px, color-mix(in oklab, var(--color-mark) 22%, transparent) 11px 13px) with 1px var(--color-mark) rules top and bottom",
+        "purpose": "Where the score holds for a human. The only element permitted to interrupt a system."
+      },
+      {
+        "name": "barline-final",
+        "value": "linear-gradient(to right, var(--color-rule-strong) 0 1px, transparent 1px 3px, var(--color-rule-strong) 3px 6px)",
+        "purpose": "The doubled closing barline, drawn as one painted pair rather than borders because it is notation, not a card edge. Defined in the stylesheet; not yet consumed by a surface."
+      }
+    ]
   },
   "components": [
     {
-      "name": "Primary Button",
+      "name": "The Mark (primary button)",
       "kind": "button",
-      "refersTo": "button-primary",
-      "description": "The single affirmative action on a surface — Start, Approve, Search, Save.",
-      "html": "<button class=\"ds-btn-primary\">Approve</button>",
-      "css": ".ds-btn-primary { background: oklch(50.8% 0.118 165.612); color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.429; padding: 0.375rem 0.75rem; border: none; border-radius: 0.25rem; cursor: pointer; } .ds-btn-primary:hover { background: oklch(59.6% 0.145 163.225); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(76.5% 0.177 163.223); outline-offset: 2px; }"
+      "refersTo": "button-mark",
+      "description": "The affirmative decision — approving a gate. Its weight comes from the vermilion stroke, not a fill; committing fills the stroke in.",
+      "html": "<button class=\"ds-btn-mark\">Approve</button>",
+      "css": ".ds-btn-mark { border: 2px solid var(--color-mark, #e2452f); background: transparent; color: var(--color-mark-bright, #f27a63); padding: 6px 12px; border-radius: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; cursor: pointer; } .ds-btn-mark:hover { background: var(--color-mark, #e2452f); color: var(--color-ground, #101a33); } .ds-btn-mark:focus-visible { outline: 2px solid var(--color-cue-bright, #8dbdec); outline-offset: 2px; }"
     },
     {
-      "name": "Danger Button",
+      "name": "The Other Decision (quiet button)",
       "kind": "button",
-      "refersTo": "button-danger",
-      "description": "Reject and destructive actions only. Never the default action on a surface.",
-      "html": "<button class=\"ds-btn-danger\">Reject</button>",
-      "css": ".ds-btn-danger { background: oklch(44.4% 0.177 26.899); color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.429; padding: 0.375rem 0.75rem; border: none; border-radius: 0.25rem; cursor: pointer; } .ds-btn-danger:hover { background: oklch(50.5% 0.213 27.518); } .ds-btn-danger:focus-visible { outline: 2px solid oklch(80.8% 0.114 19.571); outline-offset: 2px; }"
+      "refersTo": "button-quiet",
+      "description": "Rejecting a gate. Quiet at rest in bone on a hairline; it reaches for the conductor's pencil on hover.",
+      "html": "<button class=\"ds-btn-quiet\">Reject</button>",
+      "css": ".ds-btn-quiet { border: 1px solid var(--color-rule-strong, #46608f); background: transparent; color: var(--color-ink-muted, #93a2c0); padding: 6px 12px; border-radius: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; cursor: pointer; } .ds-btn-quiet:hover { border-color: var(--color-mark, #e2452f); color: var(--color-mark-bright, #f27a63); } .ds-btn-quiet:focus-visible { outline: 2px solid var(--color-cue-bright, #8dbdec); outline-offset: 2px; }"
     },
     {
-      "name": "Text Field",
+      "name": "Ruled Input",
       "kind": "input",
-      "refersTo": "input-text",
-      "description": "The one field style in the system; selects share it identically.",
-      "html": "<input class=\"ds-input\" placeholder=\"Comment (required for reject)\" />",
-      "css": ".ds-input { background: oklch(21% 0.006 285.885); color: oklch(96.7% 0.001 286.375); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; line-height: 1.429; padding: 0.375rem 0.75rem; border: 1px solid oklch(37% 0.013 285.805); border-radius: 0.25rem; min-width: 18rem; } .ds-input::placeholder { color: oklch(55.2% 0.016 285.938); } .ds-input:focus-visible { outline: none; border-color: oklch(76.5% 0.177 163.223); }"
+      "refersTo": "input-rule",
+      "description": "No box: a single bottom rule that turns cobalt on focus, with its label set above in the italic serif annotation voice.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Comment — required to reject</span><input class=\"ds-input-rule\" placeholder=\"Why\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; min-width: 224px; } .ds-field-label { font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif; font-style: italic; font-size: 0.75rem; color: var(--color-ink-label, #7f90b2); } .ds-input-rule { border: 0; border-bottom: 1px solid var(--color-rule-strong, #46608f); background: transparent; border-radius: 0; padding: 6px 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; color: var(--color-ink, #ece4d6); } .ds-input-rule::placeholder { color: var(--color-ink-faint, #7286ad); } .ds-input-rule:focus-visible { border-bottom-color: var(--color-cue, #4b8fd6); outline: 2px solid var(--color-cue-bright, #8dbdec); outline-offset: 2px; }"
     },
     {
-      "name": "Status Badge",
-      "kind": "chip",
-      "refersTo": "badge-status",
-      "description": "Identifies the state of a whole record. Uses the -field color depth.",
-      "html": "<span class=\"ds-badge ds-badge-completed\">completed</span> <span class=\"ds-badge ds-badge-failed\">failed</span> <span class=\"ds-badge ds-badge-awaiting\">awaiting_plan_approval</span> <span class=\"ds-badge ds-badge-paused\">paused</span> <span class=\"ds-badge ds-badge-running\">running</span>",
-      "css": ".ds-badge { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; line-height: 1.333; font-variant-numeric: tabular-nums; padding: 0.125rem 0.5rem; border-radius: 0.25rem; } .ds-badge-completed { background: oklch(37.8% 0.077 168.94); color: oklch(84.5% 0.143 164.978); } .ds-badge-failed { background: oklch(39.6% 0.141 25.723); color: oklch(80.8% 0.114 19.571); } .ds-badge-awaiting { background: oklch(39.1% 0.09 240.876); color: oklch(82.8% 0.111 230.318); } .ds-badge-paused { background: oklch(41.4% 0.112 45.904); color: oklch(87.9% 0.169 91.605); } .ds-badge-running { background: oklch(35.9% 0.144 278.697); color: oklch(78.5% 0.115 274.713); }"
+      "name": "Engraved Select",
+      "kind": "input",
+      "refersTo": "input-rule",
+      "description": "The same ruled field with the OS chevron replaced by an authored one, so no un-authored native widget sits inside a committed form.",
+      "html": "<select class=\"ds-select-chevron\"><option>all pipelines</option><option>standard</option></select>",
+      "css": ".ds-select-chevron { appearance: none; -webkit-appearance: none; border: 0; border-bottom: 1px solid var(--color-rule-strong, #46608f); background-color: transparent; border-radius: 0; padding: 6px 24px 6px 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; color: var(--color-ink, #ece4d6); cursor: pointer; background-repeat: no-repeat; background-position: right 0.15rem center; background-size: 0.6rem; background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237f90b2' stroke-width='1.2'/%3E%3C/svg%3E\"); } .ds-select-chevron:focus-visible { border-bottom-color: var(--color-cue, #4b8fd6); outline: 2px solid var(--color-cue-bright, #8dbdec); outline-offset: 2px; }"
     },
     {
-      "name": "Stage Chip",
-      "kind": "chip",
-      "refersTo": "chip-stage",
-      "description": "Inline state inside a record — pipeline stages and task status. Uses the darker -inline depth so it never shouts as loud as the record that contains it.",
-      "html": "<span class=\"ds-chip ds-chip-completed\">plan · completed</span> <span class=\"ds-chip ds-chip-failed\">test · failed</span> <span class=\"ds-chip ds-chip-inert\">package · pending</span>",
-      "css": ".ds-chip { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; line-height: 1.333; font-variant-numeric: tabular-nums; padding: 0.25rem 0.5rem; border-radius: 0.25rem; } .ds-chip-completed { background: oklch(26.2% 0.051 172.552); color: oklch(76.5% 0.177 163.223); } .ds-chip-failed { background: oklch(25.8% 0.092 26.042); color: oklch(70.4% 0.191 22.216); } .ds-chip-inert { background: oklch(21% 0.006 285.885); color: oklch(87.1% 0.006 286.286); }"
-    },
-    {
-      "name": "Panel Card",
-      "kind": "card",
-      "refersTo": "card-panel",
-      "description": "The default container. Same fill as the page — the border alone defines it.",
-      "html": "<div class=\"ds-card\"><p class=\"ds-card-text\">Proposals appear here after runs complete.</p></div>",
-      "css": ".ds-card { background: oklch(14.1% 0.005 285.823); border: 1px solid oklch(27.4% 0.006 286.033); border-radius: 0.25rem; padding: 1rem; } .ds-card-text { color: oklch(96.7% 0.001 286.375); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; line-height: 1.429; margin: 0; }"
-    },
-    {
-      "name": "Gate Card",
-      "kind": "card",
-      "refersTo": "card-gate",
-      "description": "The one tinted surface in the system, used only when a gate is blocking on the reader.",
-      "html": "<div class=\"ds-gate\"><p class=\"ds-gate-title\">Human gate: <span class=\"ds-gate-name\">plan_approval</span></p></div>",
-      "css": ".ds-gate { background: oklch(29.3% 0.066 243.157); border: 1px solid oklch(44.3% 0.11 240.79); border-radius: 0.25rem; padding: 1rem; } .ds-gate-title { color: oklch(90.1% 0.058 230.902); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.429; margin: 0; } .ds-gate-name { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }"
-    },
-    {
-      "name": "List Row",
-      "kind": "custom",
-      "refersTo": "row-list",
-      "description": "One outer box with hairline dividers. Badge leads, human title flexes and truncates, machine metadata is pushed right into an aligned column.",
-      "html": "<div class=\"ds-list\"><a class=\"ds-row\" href=\"#\"><span class=\"ds-badge ds-badge-completed\">completed</span><span class=\"ds-row-title\">Add a multiply function</span><span class=\"ds-row-meta\">mvp · simple · package</span><span class=\"ds-row-time\">10/08/2026, 14:22</span></a><a class=\"ds-row\" href=\"#\"><span class=\"ds-badge ds-badge-awaiting\">awaiting_plan_approval</span><span class=\"ds-row-title\">Harden the webhook retry path</span><span class=\"ds-row-meta\">team · complex · plan</span><span class=\"ds-row-time\">10/08/2026, 13:05</span></a></div>",
-      "css": ".ds-list { border: 1px solid oklch(27.4% 0.006 286.033); border-radius: 0.25rem; overflow: hidden; } .ds-row { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; text-decoration: none; } .ds-row + .ds-row { border-top: 1px solid oklch(27.4% 0.006 286.033); } .ds-row:hover { background: oklch(21% 0.006 285.885); } .ds-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(96.7% 0.001 286.375); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; } .ds-row-meta { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: oklch(55.2% 0.016 285.938); } .ds-row-time { font-size: 0.75rem; color: oklch(44.2% 0.017 285.786); }"
-    },
-    {
-      "name": "Navigation",
+      "name": "Movements (navigation)",
       "kind": "nav",
-      "refersTo": "nav-link",
-      "description": "A single horizontal rule of links above all content, with the emerald mono wordmark at the left.",
-      "html": "<header class=\"ds-nav\"><span class=\"ds-nav-mark\">ai-system</span><nav class=\"ds-nav-links\"><a class=\"ds-nav-link\" href=\"#\">Runs</a><a class=\"ds-nav-link\" href=\"#\">Gates</a><a class=\"ds-nav-link\" href=\"#\">Findings</a><a class=\"ds-nav-link\" href=\"#\">Brain</a></nav></header>",
-      "css": ".ds-nav { display: flex; align-items: center; gap: 1.5rem; border-bottom: 1px solid oklch(27.4% 0.006 286.033); padding-bottom: 1rem; } .ds-nav-mark { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 1.125rem; font-weight: 700; color: oklch(76.5% 0.177 163.223); } .ds-nav-links { display: flex; gap: 1rem; } .ds-nav-link { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; font-size: 0.875rem; color: oklch(70.5% 0.015 286.067); text-decoration: none; } .ds-nav-link:hover { color: oklch(96.7% 0.001 286.375); }"
+      "refersTo": "nav-movement",
+      "description": "A wrapped row of mono movement links under the programme head. The current movement goes full bone and takes a vermilion tick in the left margin — a conductor's mark, not a filled tab.",
+      "html": "<nav class=\"ds-movements\"><a class=\"ds-movement ds-movement-active\" href=\"#\" aria-current=\"page\">Runs</a><a class=\"ds-movement\" href=\"#\">Gates</a><a class=\"ds-movement\" href=\"#\">Findings</a><a class=\"ds-movement\" href=\"#\">Analytics</a></nav>",
+      "css": ".ds-movements { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; border-top: 1px solid var(--color-rule, #2f4470); padding-top: 12px; } .ds-movement { position: relative; padding: 2px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; letter-spacing: 0.025em; color: var(--color-ink-label, #7f90b2); text-decoration: none; } .ds-movement:hover { color: var(--color-ink-secondary, #c3cddf); } .ds-movement-active { color: var(--color-ink, #ece4d6); } .ds-movement-active::before { content: ''; position: absolute; left: -8px; top: 0; height: 100%; width: 2px; background: var(--color-mark, #e2452f); } .ds-movement:focus-visible { outline: 2px solid var(--color-cue-bright, #8dbdec); outline-offset: 2px; }"
     },
     {
-      "name": "Progress Bar",
+      "name": "System header",
       "kind": "custom",
-      "refersTo": "card-panel",
-      "description": "The system's one data-visualization primitive. Fixed-width mono side columns are what let a stack of bars read as a chart rather than a list.",
-      "html": "<div class=\"ds-bar-row\"><span class=\"ds-bar-label\">claude-sonnet-5</span><span class=\"ds-bar-track\"><span class=\"ds-bar-fill\" style=\"width:72%\"></span></span><span class=\"ds-bar-value\">$1.8420</span></div><div class=\"ds-bar-row\"><span class=\"ds-bar-label\">gpt-5-codex</span><span class=\"ds-bar-track\"><span class=\"ds-bar-fill\" style=\"width:34%\"></span></span><span class=\"ds-bar-value\">$0.8710</span></div>",
-      "css": ".ds-bar-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; } .ds-bar-label { width: 10rem; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; color: oklch(70.5% 0.015 286.067); } .ds-bar-track { display: block; height: 0.75rem; flex: 1; border-radius: 0.25rem; background: oklch(21% 0.006 285.885); } .ds-bar-fill { display: block; height: 0.75rem; border-radius: 0.25rem; background: oklch(50.8% 0.118 165.612); } .ds-bar-value { width: 6rem; flex-shrink: 0; text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: oklch(70.5% 0.015 286.067); }"
+      "refersTo": "rehearsal-mark",
+      "description": "The page's structural unit: a boxed rehearsal mark, an italic serif title, a hairline running to the right edge, and an optional tabular count at the far right.",
+      "html": "<header class=\"ds-system-head\"><span class=\"ds-rehearsal\">B</span><h2 class=\"ds-system-title\">Editorial marks</h2><span class=\"ds-system-rule\"></span><span class=\"ds-system-aside\">7</span></header>",
+      "css": ".ds-system-head { display: flex; align-items: center; gap: 12px; } .ds-rehearsal { flex-shrink: 0; border: 1px solid currentColor; border-radius: 0; padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; line-height: 1; font-variant-numeric: tabular-nums; color: var(--color-ink-label, #7f90b2); } .ds-system-title { margin: 0; font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif; font-style: italic; font-size: 1rem; font-weight: 400; color: var(--color-ink-secondary, #c3cddf); } .ds-system-rule { flex: 1; height: 1px; background: var(--color-rule, #2f4470); } .ds-system-aside { flex-shrink: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--color-ink-faint, #7286ad); }"
+    },
+    {
+      "name": "Caesura (gate hold)",
+      "kind": "card",
+      "refersTo": "caesura",
+      "description": "The signature interruption: a full-width vermilion hold carrying the fermata, the gate name and the mark control. The only element allowed to break a system, and the one surface committed to genuine mobile design.",
+      "html": "<div class=\"ds-caesura\"><div class=\"ds-caesura-head\"><svg class=\"ds-fermata\" width=\"18\" height=\"11\" viewBox=\"0 0 18 11\" aria-hidden=\"true\"><path d=\"M1 10a8 8 0 0 1 16 0\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"/><circle cx=\"9\" cy=\"7.2\" r=\"1.7\" fill=\"currentColor\"/></svg><span class=\"ds-caesura-title\">Held for you</span><span class=\"ds-caesura-gate\">plan_approval</span></div><div class=\"ds-caesura-actions\"><button class=\"ds-btn-mark\">Approve</button><button class=\"ds-btn-quiet\">Reject</button></div></div>",
+      "css": ".ds-caesura { position: relative; border-top: 1px solid var(--color-mark, #e2452f); border-bottom: 1px solid var(--color-mark, #e2452f); border-radius: 0; padding: 16px; background: repeating-linear-gradient(-58deg, transparent 0 11px, color-mix(in oklab, var(--color-mark, #e2452f) 22%, transparent) 11px 13px); } .ds-caesura-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 16px; } .ds-fermata { flex-shrink: 0; color: var(--color-mark-bright, #f27a63); } .ds-caesura-title { font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif; font-style: italic; font-size: 1rem; color: var(--color-ink, #ece4d6); } .ds-caesura-gate { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; color: var(--color-mark-bright, #f27a63); } .ds-caesura-actions { display: flex; flex-wrap: wrap; gap: 12px; }"
+    },
+    {
+      "name": "Stave with noteheads",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "A voice read along three ruled hairlines. The notehead says what the voice is doing: filled = played, hollow = sounding, cross = dead, bar = resting. Content rides above the ruling on a ground-colour knockout.",
+      "html": "<div class=\"ds-stave\"><span class=\"ds-stave-clear ds-part\">implement token layer</span><span class=\"ds-stave-clear ds-note ds-note-done\"><svg width=\"11\" height=\"11\" viewBox=\"0 0 11 11\" aria-hidden=\"true\"><ellipse cx=\"5.5\" cy=\"5.5\" rx=\"4.4\" ry=\"3.4\" transform=\"rotate(-20 5.5 5.5)\" fill=\"currentColor\"/></svg></span><span class=\"ds-stave-clear ds-note ds-note-live\"><svg width=\"11\" height=\"11\" viewBox=\"0 0 11 11\" aria-hidden=\"true\"><ellipse cx=\"5.5\" cy=\"5.5\" rx=\"4.4\" ry=\"3.4\" transform=\"rotate(-20 5.5 5.5)\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg></span><span class=\"ds-stave-clear ds-note ds-note-fault\"><svg width=\"11\" height=\"11\" viewBox=\"0 0 11 11\" aria-hidden=\"true\"><path d=\"M1.7 1.7 9.3 9.3M9.3 1.7 1.7 9.3\" stroke=\"currentColor\" stroke-width=\"1.8\"/></svg></span><span class=\"ds-stave-clear ds-meta\">codegen · 2/3</span></div>",
+      "css": ".ds-stave { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 0; } .ds-stave::before { content: ''; position: absolute; inset: 0; pointer-events: none; background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(50% - 9px), var(--color-rule, #2f4470) calc(50% - 9px), var(--color-rule, #2f4470) calc(50% - 8px), transparent calc(50% - 8px), transparent calc(50% - 1px), var(--color-rule, #2f4470) calc(50% - 1px), var(--color-rule, #2f4470) 50%, transparent 50%, transparent calc(50% + 7px), var(--color-rule, #2f4470) calc(50% + 7px), var(--color-rule, #2f4470) calc(50% + 8px), transparent calc(50% + 8px)); -webkit-mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent); mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent); } .ds-stave > * { position: relative; } .ds-stave-clear { background-color: var(--color-ground, #101a33); box-shadow: 0 0 0 0.35rem var(--color-ground, #101a33); } .ds-part { font-size: 0.875rem; color: var(--color-ink, #ece4d6); } .ds-note { display: inline-flex; } .ds-note-done { color: var(--color-ink-secondary, #c3cddf); } .ds-note-live { color: var(--color-cue-bright, #8dbdec); animation: ds-stave-pulse 1.9s ease-in-out infinite; } .ds-note-fault { color: var(--color-mark-bright, #f27a63); } .ds-meta { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; font-variant-numeric: tabular-nums; color: var(--color-ink-faint, #7286ad); } @keyframes ds-stave-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } } @media (prefers-reduced-motion: reduce) { .ds-note-live { animation: none; } }"
+    },
+    {
+      "name": "Dynamic (quantity bar)",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "A magnitude read along the stave. Quantity is always drawn in bone — never in a state colour, because a bar chart is not a state.",
+      "html": "<div class=\"ds-dynamic\"><span class=\"ds-dynamic-label\">anthropic</span><span class=\"ds-dynamic-track\"><span class=\"ds-dynamic-fill\" style=\"width:72%\"></span></span><span class=\"ds-dynamic-value\">$4.1832</span></div>",
+      "css": ".ds-dynamic { display: flex; align-items: center; gap: 16px; } .ds-dynamic-label { width: 144px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; color: var(--color-ink-muted, #93a2c0); } .ds-dynamic-track { flex: 1; height: 10px; background: var(--color-ground-band, #1c2b4d); } .ds-dynamic-fill { display: block; height: 10px; background: var(--color-ink-muted, #93a2c0); } .ds-dynamic-value { width: 96px; flex-shrink: 0; text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--color-ink-muted, #93a2c0); }"
+    },
+    {
+      "name": "Ruled table",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Ruled, never striped and never boxed: italic serif lowercase headers over a heavy rule, hairlines between rows, tabular mono numerics right-aligned.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>status</th><th>pipeline</th><th class=\"ds-num\">runs</th><th class=\"ds-num\">avg iterations</th></tr></thead><tbody><tr><td>completed</td><td class=\"ds-dim\">standard</td><td class=\"ds-num\">41</td><td class=\"ds-num\">1.4</td></tr><tr><td>failed</td><td class=\"ds-dim\">standard</td><td class=\"ds-num\">6</td><td class=\"ds-num\">2.8</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; } .ds-table th { text-align: left; padding: 6px 16px 6px 0; font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif; font-style: italic; font-weight: 400; color: var(--color-ink-label, #7f90b2); border-bottom: 1px solid var(--color-rule-strong, #46608f); } .ds-table td { padding: 6px 16px 6px 0; border-bottom: 1px solid var(--color-rule, #2f4470); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; color: var(--color-ink-secondary, #c3cddf); } .ds-table .ds-dim { color: var(--color-ink-muted, #93a2c0); } .ds-table .ds-num { text-align: right; font-variant-numeric: tabular-nums; }"
     }
   ],
   "narrative": {
-    "northStar": "The Control Room",
-    "overview": "This is a calm, dark room where one engineer watches a system they started and steps in at defined moments. Nothing in it competes for attention, because the thing worth attending to is the run: which stage it reached, what the reviewer found, whether it is waiting on a human. The interface is the glass in front of the instruments, not the instruments themselves. Its job is to disappear until a state changes, then make that change unmissable.\n\nThe material vocabulary is deliberately narrow. One near-black ground, one lifted surface, one hairline rule, one corner radius, and a type system with exactly two voices — a system sans for what humans wrote, and a monospace for what the machine produced. Density is high and deliberate: text is small, rows are tight, and a whole run's state fits in one screen without scrolling. That density is what makes the room readable at a glance, the same way a control panel is readable because everything is on it at once.\n\nColor is the only loud thing here, and it is loud exactly once per element. Every hue in this system means a state — completed, failed, awaiting a human, running, paused — and appears nowhere else. The result is that a screen with no color is a screen with nothing to worry about, and a single emerald or sky pixel is genuinely informative. The rejected alternative is the ambient product-UI look: gradient headers, tinted cards, decorative accent borders, brand color sprayed across surfaces that carry no state. That look would destroy the one signal this interface actually has.",
+    "northStar": "The Conductor's Score",
+    "overview": "A run is a score. Parallel voices proceed in strict time across a diazo blueprint ground, ruled with engraved bone hairlines, and a human reads them and decides when the music proceeds. The world is drafting-table, not dashboard: structure is carried by ruling and position rather than by boxes, and state is carried by notation — a notehead, a fermata, a barline — rather than by a filled pill. The confirmed anti-reference is the dark dashboard of status pills; nothing in this system fills a rounded chip with a state colour to say \"running\".\n\nDensity is high and unapologetic. The reading is horizontal: stage barlines cross every voice left to right, task voices are placed by dependency depth, and ties bind a dependent to what it waited for. The one place the system stops is the caesura — a full-width vermilion hold carrying the control that releases it. Colour is scarce and load-bearing: the blueprint and bone do all structural work, and the three annotation hues (vermilion, cobalt, ochre) appear only where a state demands them.\n\nThe annotation voice is a separate register. Italic serif is the conductor writing on the page — labels, asides, empty-state sentences, the explanations under a chart — while monospace carries every machine-produced value and system sans carries human prose. No web fonts are loaded at all; the type comes from the reader's own machine, which suits a tool that runs beside the terminal.",
     "keyCharacteristics": [
-      "Near-black ground (instrument-black) with a single lifted surface tone; no third layer",
-      "Hairline borders as the only structural device — zero shadows anywhere in the system",
-      "One radius (4px) on every element, without exception",
-      "Monospace for machine-produced values, system sans for human-written prose",
-      "Color reserved entirely for state; a monochrome screen is a healthy screen",
-      "Small type (12–14px dominant), tight rows, high information density",
-      "Dark-only; there is no light theme and none is planned"
+      "Diazo blueprint ground (#101a33) with engraved bone ink; near-monochrome until state speaks",
+      "Three-line staves, stage barlines, rehearsal marks and ties as the structural vocabulary",
+      "Zero border radius and zero shadows anywhere in the system",
+      "Three type registers: mono for machine values, system sans for prose, italic serif for annotation",
+      "Vermilion is reserved absolutely for \"a human must decide\" and \"this failed\"",
+      "No web fonts; no filled status pills; no decorative colour"
     ],
     "rules": [
-      { "name": "The State-Only Rule", "body": "Every hue in this system encodes a state. If a colored pixel is not telling you the status of a run, stage, task, gate, or finding — or marking the one affirmative action on the screen — it is a bug. Color is never applied for hierarchy, emphasis, branding, or decoration.", "section": "colors" },
-      { "name": "The Quiet Screen Rule", "body": "A screen with no color on it means nothing needs attention. Preserve that: never introduce a colored element that is always present regardless of state, because it raises the floor and destroys the signal.", "section": "colors" },
-      { "name": "The Two Depths Rule", "body": "State color appears at two intensities and they are not interchangeable. Badges that identify a whole record use the -field tone behind the bright tone. Inline chips inside a record — stage pills, task status — use the darker -inline tone. Depth encodes scope, so a stage never shouts as loud as the run that contains it.", "section": "colors" },
-      { "name": "The Machine Truth Rule", "body": "Monospace means the system produced this value. Run IDs, statuses, stage names, pipeline and automation names, executor kinds, costs, counts, and attempt ratios are always mono. Anything a human wrote — ticket titles, gate comments, finding descriptions, knowledge entries — is always sans. Never mix the two to create emphasis; the split carries meaning.", "section": "typography" },
-      { "name": "The Tabular Figures Rule", "body": "Every monospace readout sets font-variant-numeric: tabular-nums so costs, counts, and attempt ratios align vertically down a column. A cost figure that jitters between rows is unreadable at a glance, which defeats the entire point of the readout voice.", "section": "typography" },
-      { "name": "The Small Type Rule", "body": "0.75rem and 0.875rem carry this interface; 1.125rem is the ceiling. Density is a feature — a run's full state should fit one screen. Reach for hierarchy through weight, color, and the sans/mono split before reaching for size.", "section": "typography" },
-      { "name": "The One Column Rule", "body": "Every surface lives in the same 64rem centered column. No screen introduces a sidebar or a wider container; a dense screen earns its room by tightening rows, not by widening the page.", "section": "layout" },
-      { "name": "The No-Shadow Rule", "body": "box-shadow is prohibited system-wide, including on overlays and focused elements. If an element needs to separate from its surroundings, it gets a border. If it needs to advance, it gets the lifted surface tone.", "section": "elevation" },
-      { "name": "The Two-Surface Rule", "body": "Instrument Black and Instrument Surface are the only two backgrounds for neutral elements. A third neutral tone would blur the distinction between \"at rest\" and \"raised\", which is the only depth signal the system has.", "section": "elevation" },
-      { "name": "The Single Radius Rule", "body": "4px on every corner in the system. A component that wants a different radius is a component that wants to be from a different system.", "section": "shapes" }
+      { "name": "The Conductor's Pencil Rule", "body": "Vermilion means a human must decide, or something failed. Nothing else in the system may use it — not headings, not emphasis, not brand furniture. Cobalt means in progress; ochre means held. If a colour on the screen does not encode state, it is wrong.", "section": "colors" },
+      { "name": "The 4.23 Rule", "body": "#e2452f measures 4.23:1 on the blueprint ground, which is under the bar for 12–14px text. It is therefore permitted only where it is not text — barlines, rules, borders, the caesura edge and hatch, icon strokes at 16px+. Small vermilion text always takes mark-bright.", "section": "colors" },
+      { "name": "The Bone Quantity Rule", "body": "Quantities are drawn in bone, never in a state colour. Analytics bars, counts, costs, rates and finding tallies use ink-muted or ink-secondary. A bar chart is not a state, and colouring one vermilion would spend the pencil on arithmetic.", "section": "colors" },
+      { "name": "The Three Voices Rule", "body": "Machine-produced values are monospace with tabular figures so costs, counts and attempt ratios align down a column. Human prose is system sans. Annotation is italic serif. A value never gets the serif; a sentence never gets the mono.", "section": "typography" },
+      { "name": "The Unloaded Type Rule", "body": "No web font is loaded anywhere. The ramp is built from -apple-system, ui-monospace and ui-serif stacks; a new surface that adds a font file breaks the system.", "section": "typography" },
+      { "name": "The Small Type Floor Rule", "body": "0.6875rem is the floor and it is reserved for labels beneath their content. Nothing a reader must act on is set at micro.", "section": "typography" },
+      { "name": "The No Shadow Rule", "body": "No offset, no blur, no glow, anywhere. If a surface needs to be distinguished, rule it or shift its ink weight. The only permitted box-shadow is the .stave-clear knockout, and only at 0 0 0.", "section": "elevation" }
     ],
     "dos": [
-      "Do use 4px radius on every corner, with no exceptions for size or component type.",
-      "Do express separation with a 1px Instrument Line border, and elevation with the Instrument Surface fill.",
-      "Do set every machine-produced value in monospace with tabular figures, and everything a human wrote in the system sans.",
-      "Do reserve color for state — run, stage, task, gate, finding — plus the single affirmative action on a surface.",
-      "Do match state-color depth to scope: -field behind badges that label a whole record, -inline behind chips inside one.",
-      "Do push machine metadata right with margin-left: auto so it forms an aligned column down a list.",
-      "Do write empty states that name the thing and the action that creates it.",
-      "Do give the gate card the Standby Sky tint — it is the one surface allowed to be tinted, because it is the one surface that blocks the reader.",
-      "Do design gate approval to work at phone width; it is the one committed mobile surface."
+      "Do spend vermilion only on \"a human must decide\" and \"this failed\"; cobalt on in-progress; ochre on held.",
+      "Do use mark-bright for any vermilion word at 12–14px, and reserve mark for rules, barlines, borders and the caesura edge (The 4.23 Rule).",
+      "Do set every machine-produced value in mono with font-variant-numeric: tabular-nums so columns align.",
+      "Do draw quantities in bone (The Bone Quantity Rule).",
+      "Do carry structure with hairline rules and position rather than with cards, boxes or fills.",
+      "Do open every page section with a rehearsal mark, an italic serif title and a rule that runs to the right edge.",
+      "Do give the engraved run system a text equivalent that is visible on phones and readable by assistive tech, and mark the graphic aria-hidden.",
+      "Do keep gate approval fully usable at phone width — it is the one committed mobile surface.",
+      "Do put a 2px cobalt focus ring, offset 2px, on every interactive element.",
+      "Do kill the live pulse under prefers-reduced-motion."
     ],
     "donts": [
-      "Don't add a box-shadow anywhere, including modals, hovers, and focus states.",
-      "Don't introduce a third neutral surface tone above Instrument Black and Instrument Surface.",
-      "Don't use color decoratively — no gradient headers, no tinted cards outside the gate card, no accent borders or left-edge status stripes, no brand color on surfaces that carry no state.",
-      "Don't use monospace for emphasis on human-written text, or sans for a machine value.",
-      "Don't exceed 1.125rem for any text, or widen the 64rem column.",
-      "Don't give each row in a list its own border; one outer box with hairline dividers.",
-      "Don't add a light theme or a theme toggle — this system is dark-only by design.",
-      "Don't introduce a pill, circle, or squared corner, or a second radius value.",
-      "Don't add a secondary or ghost button style; non-primary actions are underlined links."
+      "Don't use a filled status pill or a rounded state chip; state is a notehead, a fermata or a barline.",
+      "Don't add a border radius. The system is square everywhere.",
+      "Don't add a shadow. The only box-shadow permitted is the zero-offset .stave-clear knockout, and it is not depth.",
+      "Don't load a web font, or introduce a fourth type register beyond mono, sans and italic serif.",
+      "Don't draw five staff lines. Three.",
+      "Don't let a state colour touch a chart, a count, a total or a rate.",
+      "Don't ship an un-authored native control surface (an OS select chevron) inside a committed form.",
+      "Don't interrupt a system with anything but a caesura, and only for a decision that is genuinely blocking.",
+      "Don't plot anything the API does not report — per-task duration is not drawn because there are no per-task timings.",
+      "Don't set actionable content at the 0.6875rem micro step."
     ]
   }
 }

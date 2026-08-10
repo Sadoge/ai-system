@@ -1,5 +1,5 @@
 import { apiGet } from '@/lib/api';
-import { System } from '@/lib/ui';
+import { Hairpin, System } from '@/lib/ui';
 
 interface CostPoint {
   day: string;
@@ -219,7 +219,8 @@ export default async function AnalyticsPage() {
           </span>{' '}
           over {context.baselineRuns} settled run(s). This is correlation, not cause: material is
           retrieved because it looks relevant, and the hardest tickets attract the most of it. Rows
-          with fewer than {context.minSample} runs get no ranking prior.
+          with fewer than {context.minSample} runs get no ranking prior and are marked with an
+          asterisk; a hairpin shows whether a row sits above or below the baseline.
         </p>
         {context.rows.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">
@@ -255,16 +256,21 @@ export default async function AnalyticsPage() {
                       <td className="py-1.5 pr-4 text-right font-mono text-ink-secondary tnum">
                         {row.settledRuns}
                       </td>
-                      {/* Above or below baseline is marked with a notation
-                          sign, not a state colour. */}
+                      {/* Above or below baseline is drawn as a hairpin — the
+                          world's own sign — not typed and not coloured. */}
                       <td
                         className={`py-1.5 pr-4 text-right font-mono tnum ${
                           thin ? 'text-ink-faint' : 'text-ink-secondary'
                         }`}
                       >
-                        {(row.firstPassRate * 100).toFixed(0)}%{thin ? '*' : ''}
-                        <span className="ml-1 text-ink-faint" title={better ? 'above baseline' : 'below baseline'}>
-                          {thin ? '' : better ? '▲' : '▼'}
+                        <span className="inline-flex items-center justify-end gap-1.5">
+                          {(row.firstPassRate * 100).toFixed(0)}%{thin ? '*' : ''}
+                          {!thin && (
+                            <Hairpin
+                              direction={better ? 'cresc' : 'dim'}
+                              className="shrink-0 text-ink-faint"
+                            />
+                          )}
                         </span>
                       </td>
                       <td className="py-1.5 text-right font-mono text-ink-secondary tnum">

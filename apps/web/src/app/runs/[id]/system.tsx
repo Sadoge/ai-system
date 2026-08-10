@@ -144,6 +144,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
                     }`}
                   >
                     {s.stage}
+                    {s.attempt > 1 ? ` #${s.attempt}` : ''}
                   </span>
                 </div>
               );
@@ -255,6 +256,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
                   >
                     <span className="sr-only">{s.status} </span>
                     {s.stage}
+                    {s.attempt > 1 ? ` #${s.attempt}` : ''}
                   </span>
                 </div>
               </div>

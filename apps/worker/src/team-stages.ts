@@ -40,10 +40,7 @@ import type { RunRow, StageOutcome } from './stages.js';
  * same stage decomposes open findings — or a human's PR rejection comment —
  * into fix tasks, so the pipeline re-enters here rather than replanning.
  */
-export async function decomposeStage(
-  services: StageServices,
-  run: RunRow,
-): Promise<StageOutcome> {
+export async function decomposeStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
   const { db } = services;
   const ticket = TicketSnapshot.parse(run.ticket);
   const policy = PolicySnapshot.parse(run.policySnapshot);
@@ -154,7 +151,7 @@ export async function executeTask(
   const { checkoutDir, worktreeDir: runWorktree } = repoPaths(services, repo.id, run.id);
   const worktreeDir = taskWorktreeDir(services, run.id, task.id);
   const agentRunId = uuidv7();
-  const executor = services.executorFor(repo);
+  const executor = await services.executorFor(run, repo, 'coding');
 
   try {
     await ensureCheckout(repo.remoteUrl, checkoutDir);
@@ -271,10 +268,7 @@ async function failTask(
  * reported, never force-resolved — the stage fails and a human decides
  * (docs/05 §6; the conflict-resolution agent is a later increment).
  */
-export async function integrateStage(
-  services: StageServices,
-  run: RunRow,
-): Promise<StageOutcome> {
+export async function integrateStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
   const { db } = services;
   const repo = await requireRepo(db, run);
   const { checkoutDir, worktreeDir } = repoPaths(services, repo.id, run.id);
@@ -296,7 +290,15 @@ export async function integrateStage(
       // Conflict-resolution agent works in the run worktree with the conflict
       // markers in place. If it cannot clear them, the merge is aborted and
       // the stage fails — never a forced resolution (docs/05 §6).
-      const outcome = await resolveConflicts(services, run, ticket.title, task.title, conflicts, worktreeDir);
+      const outcome = await resolveConflicts(
+        services,
+        run,
+        repo,
+        ticket.title,
+        task.title,
+        conflicts,
+        worktreeDir,
+      );
       if (!outcome.resolved) {
         await abortMerge(worktreeDir);
         throw new Error(
@@ -344,13 +346,14 @@ async function headSha(worktreeDir: string): Promise<string> {
 async function resolveConflicts(
   services: StageServices,
   run: RunRow,
+  repo: Awaited<ReturnType<typeof requireRepo>>,
   ticketTitle: string,
   taskTitle: string,
   conflicts: string[],
   worktreeDir: string,
 ): Promise<{ resolved: boolean; reason: string }> {
   const agentRunId = uuidv7();
-  const executor = services.executorFor(null);
+  const executor = await services.executorFor(run, repo, 'integration');
   await services.db.insert(agentRuns).values({
     id: agentRunId,
     runId: run.id,

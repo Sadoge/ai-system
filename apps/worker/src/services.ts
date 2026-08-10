@@ -12,10 +12,14 @@ export interface StageServices {
    */
   agents: (run: typeof pipelineRuns.$inferSelect) => Promise<Agents>;
   /**
-   * Resolved per repository, so different projects can run different coding
-   * agents (Claude Code, Codex, the platform's own api_loop).
+   * Resolved per run and purpose, so coding and conflict resolution can use
+   * different subscription-backed editing agents.
    */
-  executorFor: (repo: { settings: unknown } | null) => AgentExecutor;
+  executorFor: (
+    run: typeof pipelineRuns.$inferSelect,
+    repo: { settings: unknown } | null,
+    purpose: 'coding' | 'integration',
+  ) => Promise<AgentExecutor>;
   /** Absent only if embeddings are unavailable; retrieval degrades to structural + rules. */
   embedder: Embedder | undefined;
   /** Root for cached checkouts (repos/<id>) and run worktrees (worktrees/<runId>). */

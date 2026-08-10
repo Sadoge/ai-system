@@ -7,6 +7,7 @@ import {
   type AgentExecutionUsage,
   type AgentExecutor,
 } from '@ai-system/agent-execution';
+import type { ResolvedProfile } from '@ai-system/model-gateway';
 
 export type RepoRow = typeof repositories.$inferSelect;
 
@@ -16,6 +17,7 @@ export interface ExecutorSettings {
   executorBinary?: string;
   executorArgs?: string[];
   executorModel?: string;
+  executorEffort?: 'low' | 'medium' | 'high';
 }
 
 export interface ExecutorFactoryDeps {
@@ -31,15 +33,27 @@ export interface ExecutorFactoryDeps {
  * run mocked planning with a real coding CLI (useful for testing the CLI
  * integration without provider keys for everything else).
  *
- * Resolution order: repository setting → CODING_EXECUTOR env →
- * scripted (mock mode) or claude_code.
+ * The worker normally supplies a resolved stage profile. Repository settings
+ * and CODING_EXECUTOR remain the backward-compatible fallback when it does not.
  */
-export function resolveExecutor(repo: RepoRow | null, deps: ExecutorFactoryDeps): AgentExecutor {
+export function resolveExecutor(
+  repo: RepoRow | null,
+  deps: ExecutorFactoryDeps,
+  assignment?: ResolvedProfile,
+): AgentExecutor {
   const settings = (repo?.settings ?? {}) as ExecutorSettings;
-  const choice =
-    settings.executor ??
-    process.env.CODING_EXECUTOR ??
-    (deps.mock ? 'scripted' : 'claude_code');
+  const assignedProvider = assignment?.primary.provider;
+  const choice = assignedProvider
+    ? assignedProvider === 'claude_cli'
+      ? 'claude_code'
+      : assignedProvider === 'codex_cli'
+        ? 'codex'
+        : assignedProvider
+    : (settings.executor ??
+      process.env.CODING_EXECUTOR ??
+      (deps.mock ? 'scripted' : 'claude_code'));
+  const assignedModel = assignment?.primary.model;
+  const effort = assignment?.primary.params?.reasoningEffort ?? settings.executorEffort;
 
   switch (choice) {
     case 'scripted':
@@ -53,11 +67,13 @@ export function resolveExecutor(repo: RepoRow | null, deps: ExecutorFactoryDeps)
         preset: choice === 'cli' ? 'claude_code' : choice,
         binary: settings.executorBinary,
         args: settings.executorArgs,
-        model: settings.executorModel,
+        model:
+          assignedModel && assignedModel !== 'default' ? assignedModel : settings.executorModel,
+        effort,
       });
     default:
       throw new Error(
-        `unknown executor "${choice}" — expected claude_code, codex, api_loop or scripted`,
+        `provider "${choice}" cannot edit a worktree — use claude_cli or codex_cli for this stage`,
       );
   }
 }
@@ -77,6 +93,7 @@ export async function recordExecutorUsage(
     usage: AgentExecutionUsage | undefined;
     status: 'succeeded' | 'failed';
     latencyMs: number;
+    purpose?: string;
   },
 ): Promise<void> {
   const usage = input.usage;
@@ -89,7 +106,7 @@ export async function recordExecutorUsage(
     // Namespaced so cost dashboards can separate gateway spend from CLI spend.
     provider: `cli:${input.cliName ?? input.executorKind}`,
     model: usage.model ?? 'unknown',
-    purpose: 'coding',
+    purpose: input.purpose ?? 'coding',
     promptHash: 'n/a-cli',
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,

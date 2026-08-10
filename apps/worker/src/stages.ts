@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { agentRuns, pipelineRuns, stageExecutions, type Db } from '@ai-system/db';
 import { StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
 import { applyEvent } from '@ai-system/orchestration';
@@ -39,12 +39,20 @@ export async function executeStage(
   // Idempotency guard: a redelivered job for a stage the run has moved past is a no-op.
   if (run.currentStage !== stage) return;
 
+  const previousAttempts = await db
+    .select({ attempt: stageExecutions.attempt })
+    .from(stageExecutions)
+    .where(and(eq(stageExecutions.runId, run.id), eq(stageExecutions.stage, stage)))
+    .orderBy(desc(stageExecutions.createdAt))
+    .limit(1);
+  const attempt = (previousAttempts[0]?.attempt ?? 0) + 1;
   const stageExecutionId = uuidv7();
   await db.insert(stageExecutions).values({
     id: stageExecutionId,
     runId: run.id,
     stage,
     status: 'running',
+    attempt,
     startedAt: new Date(),
   });
   await applyEvent(db, {

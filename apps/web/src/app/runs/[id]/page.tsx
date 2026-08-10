@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { apiGet, type RunDetail } from '@/lib/api';
-import { resolveGateAction } from '@/lib/actions';
+import { resolveGateAction, retryRunAction } from '@/lib/actions';
 import {
   Caesura,
   Fermata,
@@ -47,6 +47,28 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
           {run.error}
         </p>
+      )}
+
+      {run.status === 'failed' && (
+        <div className="mb-8">
+          <Caesura>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="annot text-base text-ink">Retry from the failure</p>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-label">
+                  Completed stages, artifacts, and completed task branches stay in place. Only the
+                  failed stage or incomplete team tasks are queued again.
+                </p>
+              </div>
+              <form action={retryRunAction}>
+                <input type="hidden" name="runId" value={run.id} />
+                <button type="submit" className={buttonCls}>
+                  Retry{run.currentStage ? ` ${run.currentStage}` : ''}
+                </button>
+              </form>
+            </div>
+          </Caesura>
+        </div>
       )}
 
       {/* The hold. Every voice waits here until a human marks it. */}

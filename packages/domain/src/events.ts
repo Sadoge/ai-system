@@ -57,6 +57,9 @@ export const EventPayloads = {
   'run.resumed': z.object({
     runId: z.string().uuid(),
   }),
+  'run.retry.requested': z.object({
+    runId: z.string().uuid(),
+  }),
   'artifact.created': z.object({
     runId: z.string().uuid(),
     artifactId: z.string().uuid(),

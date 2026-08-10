@@ -97,6 +97,33 @@ describe('trivial pipeline (Phase 0)', () => {
     expect(result).toMatchObject({ outcome: 'transitioned', status: 'failed', error: 'boom', commands: [] });
   });
 
+  it('retries a failed run from its failed stage without replaying completed stages', () => {
+    const failed: RunSnapshot = {
+      ...initialRun(mvpPolicy('autonomous')),
+      status: 'failed',
+      currentStage: 'code',
+    };
+    const result = advance(failed, {
+      name: 'run.retry.requested',
+      payload: { runId: RUN_ID },
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      currentStage: 'code',
+      clearError: true,
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
+    });
+  });
+
+  it('rejects retry for a run that is not failed', () => {
+    const { run } = replay(initialRun(defaultTrivialPolicy()), [created]);
+    expect(
+      advance(run, { name: 'run.retry.requested', payload: { runId: RUN_ID } }),
+    ).toMatchObject({ outcome: 'ignored', reason: expect.stringContaining('requires failed') });
+  });
+
   it('absorbs events after a terminal state', () => {
     const { run } = replay(initialRun(defaultTrivialPolicy()), [
       created,

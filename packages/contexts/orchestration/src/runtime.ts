@@ -65,11 +65,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
 
   if (!runId) return { outcome: 'recorded' };
 
-  const rows = await tx
-    .select()
-    .from(pipelineRuns)
-    .where(eq(pipelineRuns.id, runId))
-    .for('update');
+  const rows = await tx.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId)).for('update');
   const row = rows[0];
   if (!row) return { outcome: 'ignored', reason: `unknown run ${runId}` };
 
@@ -93,7 +89,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
     .set({
       status: result.status,
       currentStage: result.currentStage,
-      error: result.error ?? row.error,
+      error: result.error ?? (result.clearError ? null : row.error),
       version: row.version + 1,
       updatedAt: new Date(),
       ...(result.iterationCount !== undefined ? { iterationCount: result.iterationCount } : {}),
@@ -108,6 +104,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
       .update(tasksTable)
       .set({
         status: update.status,
+        ...(update.status === 'created' || update.status === 'running' ? { error: null } : {}),
         // Attempts are counted at dispatch, so the engine's retry budget is
         // measured in starts, not failures.
         ...(update.status === 'running'
@@ -160,6 +157,11 @@ export async function startRun(db: Db, input: StartRunInput): Promise<{ runId: s
     });
   });
   return { runId };
+}
+
+/** Retry a failed run in place, preserving completed stages, artifacts, and tasks. */
+export async function retryRun(db: Db, runId: string): Promise<ApplyOutcome> {
+  return applyEvent(db, { name: 'run.retry.requested', payload: { runId } });
 }
 
 async function loadTasks(tx: Executor, runId: string): Promise<TaskSnapshot[]> {

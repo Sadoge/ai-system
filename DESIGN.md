@@ -1,443 +1,285 @@
 ---
 name: ai-system
-description: A control room for deterministic AI agent runs — dark, dense, and instrument-legible.
+description: Deterministic orchestration, read as a score — parallel voices in strict time on a diazo blueprint ground.
 colors:
-  instrument-black: "oklch(14.1% 0.005 285.823)"
-  instrument-surface: "oklch(21% 0.006 285.885)"
-  instrument-line: "oklch(27.4% 0.006 286.033)"
-  instrument-line-strong: "oklch(37% 0.013 285.805)"
-  readout-primary: "oklch(96.7% 0.001 286.375)"
-  readout-secondary: "oklch(87.1% 0.006 286.286)"
-  readout-muted: "oklch(70.5% 0.015 286.067)"
-  readout-label: "oklch(55.2% 0.016 285.938)"
-  readout-faint: "oklch(44.2% 0.017 285.786)"
-  signal-emerald: "oklch(76.5% 0.177 163.223)"
-  signal-emerald-action: "oklch(50.8% 0.118 165.612)"
-  signal-emerald-action-hover: "oklch(59.6% 0.145 163.225)"
-  signal-emerald-field: "oklch(37.8% 0.077 168.94)"
-  signal-emerald-inline: "oklch(26.2% 0.051 172.552)"
-  fault-red: "oklch(80.8% 0.114 19.571)"
-  fault-red-bright: "oklch(70.4% 0.191 22.216)"
-  fault-red-action: "oklch(44.4% 0.177 26.899)"
-  fault-red-action-hover: "oklch(50.5% 0.213 27.518)"
-  fault-red-field: "oklch(39.6% 0.141 25.723)"
-  fault-red-inline: "oklch(25.8% 0.092 26.042)"
-  standby-sky: "oklch(82.8% 0.111 230.318)"
-  standby-sky-bright: "oklch(90.1% 0.058 230.902)"
-  standby-sky-line: "oklch(44.3% 0.11 240.79)"
-  standby-sky-field: "oklch(29.3% 0.066 243.157)"
-  hold-amber: "oklch(87.9% 0.169 91.605)"
-  hold-amber-field: "oklch(41.4% 0.112 45.904)"
-  hold-amber-inline: "oklch(27.9% 0.077 45.635)"
-  running-indigo: "oklch(78.5% 0.115 274.713)"
-  running-indigo-field: "oklch(35.9% 0.144 278.697)"
-  running-indigo-inline: "oklch(25.7% 0.09 281.288)"
+  ground: "#101a33"
+  ground-raised: "#17233f"
+  ground-band: "#1c2b4d"
+  rule: "#2f4470"
+  rule-strong: "#46608f"
+  ink: "#ece4d6"
+  ink-secondary: "#c3cddf"
+  ink-muted: "#93a2c0"
+  ink-label: "#7f90b2"
+  ink-faint: "#7286ad"
+  mark: "#e2452f"
+  mark-bright: "#f27a63"
+  cue: "#4b8fd6"
+  cue-bright: "#8dbdec"
+  hold: "#d99a2b"
+  hold-bright: "#f0bf6a"
 typography:
+  wordmark:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace"
+    fontSize: "1.25rem"
+    fontWeight: 700
+    lineHeight: 1.4
+    letterSpacing: "-0.025em"
+  headline:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    fontSize: "1.25rem"
+    fontWeight: 400
+    lineHeight: 1.375
   title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial, sans-serif"
-    fontSize: "1.125rem"
-    fontWeight: 600
-    lineHeight: 1.556
+    fontFamily: "ui-serif, Georgia, Cambria, 'Times New Roman', serif"
+    fontSize: "1rem"
+    fontWeight: 400
+    lineHeight: 1.5
+    fontStyle: "italic"
   body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
-    lineHeight: 1.429
-  label:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial, sans-serif"
-    fontSize: "0.875rem"
-    fontWeight: 600
-    lineHeight: 1.429
-    letterSpacing: "0.025em"
-  readout:
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+    lineHeight: 1.625
+  annotation:
+    fontFamily: "ui-serif, Georgia, Cambria, 'Times New Roman', serif"
     fontSize: "0.75rem"
     fontWeight: 400
-    lineHeight: 1.333
-    fontFeature: "tnum"
-  wordmark:
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
-    fontSize: "1.125rem"
-    fontWeight: 700
-    lineHeight: 1.556
+    lineHeight: 1.5
+    fontStyle: "italic"
+  readout:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace"
+    fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: 1.5
+    fontFeature: "tabular-nums"
+  micro:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace"
+    fontSize: "0.6875rem"
+    fontWeight: 400
+    lineHeight: 1.2
+    fontFeature: "tabular-nums"
 rounded:
-  default: "0.25rem"
+  none: "0px"
 spacing:
-  hairline: "0.125rem"
-  xs: "0.25rem"
-  sm: "0.5rem"
-  md: "0.75rem"
-  lg: "1rem"
-  xl: "1.5rem"
-  section: "2rem"
+  hair: "2px"
+  xs: "4px"
+  sm: "6px"
+  md: "12px"
+  lg: "16px"
+  xl: "20px"
+  system: "40px"
 components:
-  button-primary:
-    backgroundColor: "{colors.signal-emerald-action}"
-    textColor: "#ffffff"
-    rounded: "{rounded.default}"
-    padding: "0.375rem 0.75rem"
-    typography: "{typography.body}"
-  button-primary-hover:
-    backgroundColor: "{colors.signal-emerald-action-hover}"
-  button-danger:
-    backgroundColor: "{colors.fault-red-action}"
-    textColor: "#ffffff"
-    rounded: "{rounded.default}"
-    padding: "0.375rem 0.75rem"
-    typography: "{typography.body}"
-  button-danger-hover:
-    backgroundColor: "{colors.fault-red-action-hover}"
-  input-text:
-    backgroundColor: "{colors.instrument-surface}"
-    textColor: "{colors.readout-primary}"
-    rounded: "{rounded.default}"
-    padding: "0.375rem 0.75rem"
-    typography: "{typography.body}"
-  card-panel:
-    backgroundColor: "{colors.instrument-black}"
-    textColor: "{colors.readout-primary}"
-    rounded: "{rounded.default}"
-    padding: "1rem"
-  card-gate:
-    backgroundColor: "{colors.standby-sky-field}"
-    textColor: "{colors.standby-sky-bright}"
-    rounded: "{rounded.default}"
-    padding: "1rem"
-  badge-status:
-    backgroundColor: "{colors.signal-emerald-field}"
-    textColor: "{colors.signal-emerald}"
-    rounded: "{rounded.default}"
-    padding: "0.125rem 0.5rem"
+  button-mark:
+    backgroundColor: "transparent"
+    textColor: "{colors.mark-bright}"
     typography: "{typography.readout}"
-  chip-stage:
-    backgroundColor: "{colors.signal-emerald-inline}"
-    textColor: "{colors.signal-emerald}"
-    rounded: "{rounded.default}"
-    padding: "0.25rem 0.5rem"
+    rounded: "{rounded.none}"
+    padding: "6px 12px"
+  button-mark-hover:
+    backgroundColor: "{colors.mark}"
+    textColor: "{colors.ground}"
+  button-quiet:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-muted}"
     typography: "{typography.readout}"
-  row-list:
-    backgroundColor: "{colors.instrument-black}"
-    textColor: "{colors.readout-primary}"
-    padding: "0.75rem 1rem"
+    rounded: "{rounded.none}"
+    padding: "6px 12px"
+  button-quiet-hover:
+    textColor: "{colors.mark-bright}"
+  input-rule:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
     typography: "{typography.body}"
-  row-list-hover:
-    backgroundColor: "{colors.instrument-surface}"
-  nav-link:
-    textColor: "{colors.readout-muted}"
-    typography: "{typography.body}"
-  nav-link-hover:
-    textColor: "{colors.readout-primary}"
+    rounded: "{rounded.none}"
+    padding: "6px 4px"
+  rehearsal-mark:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-label}"
+    typography: "{typography.micro}"
+    rounded: "{rounded.none}"
+    padding: "2px 6px"
+  caesura:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.none}"
+    padding: "16px 16px"
+  nav-movement:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-label}"
+    typography: "{typography.readout}"
+    rounded: "{rounded.none}"
+    padding: "2px 0"
+  nav-movement-active:
+    textColor: "{colors.ink}"
 ---
 
 # Design System: ai-system
 
 ## Overview
 
-**Creative North Star: "The Control Room"**
+**Creative North Star: "The Conductor's Score"**
 
-This is a calm, dark room where one engineer watches a system they started and steps in at
-defined moments. Nothing in it competes for attention, because the thing worth attending to is
-the run: which stage it reached, what the reviewer found, whether it is waiting on a human. The
-interface is the glass in front of the instruments, not the instruments themselves. Its job is
-to disappear until a state changes, then make that change unmissable.
+FORM: Conductor's Score; candidate 3 of 7; seed `3e3865ce`. The direction contract is emitted into the built markup in `layout.tsx` so any render can be audited against the decision that produced it; this file records the same roll on disk.
 
-The material vocabulary is deliberately narrow. One near-black ground, one lifted surface, one
-hairline rule, one corner radius, and a type system with exactly two voices — a system sans for
-what humans wrote, and a monospace for what the machine produced. Density is high and
-deliberate: text is small, rows are tight, and a whole run's state fits in one screen without
-scrolling. That density is what makes the room readable at a glance, the same way a control
-panel is readable because everything is on it at once.
+A run is a score. Parallel voices proceed in strict time across a diazo blueprint ground, ruled with engraved bone hairlines, and a human reads them and decides when the music proceeds. The world is drafting-table, not dashboard: structure is carried by ruling and position rather than by boxes, and state is carried by notation — a notehead, a fermata, a barline — rather than by a filled pill. The confirmed anti-reference is the dark dashboard of status pills; nothing in this system fills a rounded chip with a state colour to say "running".
 
-Color is the only loud thing here, and it is loud exactly once per element. Every hue in this
-system means a state — completed, failed, awaiting a human, running, paused — and appears
-nowhere else. The result is that a screen with no color is a screen with nothing to worry
-about, and a single emerald or sky pixel is genuinely informative. The rejected alternative is
-the ambient product-UI look: gradient headers, tinted cards, decorative accent borders, brand
-color sprayed across surfaces that carry no state. That look would destroy the one signal this
-interface actually has.
+Density is high and unapologetic. The reading is horizontal: stage barlines cross every voice left to right, task voices are placed by dependency depth, and ties bind a dependent to what it waited for. The one place the system stops is the caesura — a full-width vermilion hold carrying the control that releases it. Colour is scarce and load-bearing: the blueprint and bone do all structural work, and the three annotation hues (vermilion, cobalt, ochre) appear only where a state demands them.
+
+The annotation voice is a separate register. Italic serif is the conductor writing on the page — labels, asides, empty-state sentences, the explanations under a chart — while monospace carries every machine-produced value and system sans carries human prose. No web fonts are loaded at all; the type comes from the reader's own machine, which suits a tool that runs beside the terminal.
 
 **Key Characteristics:**
-- Near-black ground (`instrument-black`) with a single lifted surface tone; no third layer
-- Hairline borders as the only structural device — zero shadows anywhere in the system
-- One radius (4px) on every element, without exception
-- Monospace for machine-produced values, system sans for human-written prose
-- Color reserved entirely for state; a monochrome screen is a healthy screen
-- Small type (12–14px dominant), tight rows, high information density
-- Dark-only; there is no light theme and none is planned
+- Diazo blueprint ground (`#101a33`) with engraved bone ink; near-monochrome until state speaks
+- Three-line staves, stage barlines, rehearsal marks and ties as the structural vocabulary
+- Zero border radius and zero shadows anywhere in the system
+- Three type registers: mono for machine values, system sans for prose, italic serif for annotation
+- Vermilion is reserved absolutely for "a human must decide" and "this failed"
+- No web fonts; no filled status pills; no decorative colour
 
 ## Colors
 
-A near-monochrome instrument face in cool graphite, carrying five saturated state signals that
-never appear decoratively.
+A near-monochrome blueprint: two families of structure (ground and rule) plus a five-step bone ink ramp, with three annotation hues that are permitted to appear only as state.
 
 ### Primary
-
-- **Signal Emerald** (`signal-emerald`): The product's one identity color and its affirmative
-  state. It sets the `ai-system` wordmark, artifact and rule kind labels, cost figures, and the
-  `completed` state on runs, stages, and tasks. On interactive controls it drops to
-  `signal-emerald-action` so white label text stays legible against it — the bright tone is for
-  reading, the deep tone is for pressing.
+- **Conductor's Vermilion** (`{colors.mark}`): The conductor's own pencil. It marks exactly two things — a decision only a human can make, and something that failed. It draws the current-position barline, the caesura's edges and hatching, the active movement's margin tick in the nav, the error rule beside a failed run, and the affirmative button's stroke. It is never used to decorate and never used for quantity.
+- **Vermilion Bright** (`{colors.mark-bright}`): The same pencil at text weight. Every vermilion *word* — status text, gate names, error text, the "now" annotation — uses this step, for contrast reasons recorded below.
 
 ### Secondary
-
-- **Standby Sky** (`standby-sky`): The system is waiting on a human. It marks every
-  `awaiting_*` run status and the gate name itself, and `standby-sky-field` with a
-  `standby-sky-line` border is the one place a surface is tinted rather than neutral — the
-  pending-gate card on run detail. This is the only tinted panel in the system, and it earns
-  that exception because it is the only moment the interface is blocking on the person reading
-  it.
+- **Cobalt Cue** (`{colors.cue}` / `{colors.cue-bright}`): The cue: in progress, sounding, live. The bright step carries running status text, links, artifact kinds, and the pulsing notehead on the current stage; the base step is the focus/active stroke on inputs and link underlines.
 
 ### Tertiary
-
-- **Fault Red** (`fault-red`): Something failed. Failed runs, failed stages and tasks, blocker
-  and major findings, run-level error banners, and the reject control.
-- **Hold Amber** (`hold-amber`): Paused, or flagged for attention without failure. Paused runs,
-  fix-iteration task badges, and truncated sections in the brain inspector.
-- **Running Indigo** (`running-indigo`): Work in progress. Running tasks and any run status the
-  system does not otherwise classify.
+- **Ochre Hold** (`{colors.hold}` / `{colors.hold-bright}`): Held, paused, repeated. The bright step carries paused voices and the italic *da capo* mark on a fix iteration.
 
 ### Neutral
-
-- **Instrument Black** (`instrument-black`): The page ground, and the default background of
-  every panel and row. Panels are distinguished from the page by their border, not their fill.
-- **Instrument Surface** (`instrument-surface`): The one lifted tone — input fields, hovered
-  rows, inert chips, and the track behind analytics bars.
-- **Instrument Line** (`instrument-line`): The hairline that does all structural work — panel
-  borders, list dividers, the header rule. `instrument-line-strong` is reserved for input
-  borders, which need to read as editable.
-- **Readout Primary** (`readout-primary`) through **Readout Faint** (`readout-faint`): A
-  five-step text ramp, used strictly by importance — primary for values that matter, secondary
-  and muted for supporting prose, label for section headings and field labels, faint for
-  timestamps and counters that should recede almost entirely.
+- **Diazo Ground** (`{colors.ground}`): The blueprint sheet. The page background, and also the knockout colour that lets content clear the staff ruling.
+- **Ground Raised** (`{colors.ground-raised}`): The single hover wash on list rows. The only tonal step used for interaction.
+- **Ground Band** (`{colors.ground-band}`): The unfilled track behind a dynamic (bar) in analytics.
+- **Rule** (`{colors.rule}`): The engraved hairline. Staff lines, list dividers, section rules, table row rules. It does nearly all structural work in the system.
+- **Rule Strong** (`{colors.rule-strong}`): The heavier engraving: stage barlines, the system brace, table header rules, input underlines, ties.
+- **Bone Ink** (`{colors.ink}`): Primary reading text — headings, part names, values that matter.
+- **Bone Secondary** (`{colors.ink-secondary}`): Table bodies, completed voices, system titles.
+- **Bone Muted** (`{colors.ink-muted}`): Supporting prose, chart labels, quantity bars, completed status text.
+- **Bone Label** (`{colors.ink-label}`): Italic annotation labels, rehearsal marks, stage names, the engraved select chevron.
+- **Bone Faint** (`{colors.ink-faint}`): Timestamps, attempt ratios, inert and not-yet-sounding voices.
 
 ### Named Rules
 
-**The State-Only Rule.** Every hue in this system encodes a state. If a colored pixel is not
-telling you the status of a run, stage, task, gate, or finding — or marking the one affirmative
-action on the screen — it is a bug. Color is never applied for hierarchy, emphasis, branding, or
-decoration.
+**The Conductor's Pencil Rule.** Vermilion means a human must decide, or something failed. Nothing else in the system may use it — not headings, not emphasis, not brand furniture. Cobalt means in progress; ochre means held. If a colour on the screen does not encode state, it is wrong.
 
-**The Quiet Screen Rule.** A screen with no color on it means nothing needs attention. Preserve
-that: never introduce a colored element that is always present regardless of state, because it
-raises the floor and destroys the signal.
+**The 4.23 Rule.** `{colors.mark}` measures 4.23:1 on the blueprint ground, which is under the bar for 12–14px text. It is therefore permitted only where it is *not* text — barlines, rules, borders, the caesura edge and hatch, icon strokes at 16px+. Small vermilion text always takes `{colors.mark-bright}`.
 
-**The Two Depths Rule.** State color appears at two intensities and they are not
-interchangeable. Badges that identify a whole record use the `-field` tone behind the bright
-tone (`signal-emerald-field` + `signal-emerald`). Inline chips inside a record — stage pills,
-task status — use the darker `-inline` tone. Depth encodes scope, so a stage never shouts as
-loud as the run that contains it.
+**The Bone Quantity Rule.** Quantities are drawn in bone, never in a state colour. Analytics bars, counts, costs, rates and finding tallies use `{colors.ink-muted}` or `{colors.ink-secondary}`. A bar chart is not a state, and colouring one vermilion would spend the pencil on arithmetic.
 
 ## Typography
 
-**Body Font:** system sans (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, …`)
-**Label/Mono Font:** system monospace (`ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, …`)
+**Body Font:** system sans stack (`-apple-system`, `BlinkMacSystemFont`, `Segoe UI`, Roboto, Arial)
+**Label/Mono Font:** system mono stack (`ui-monospace`, `SFMono-Regular`, Menlo, Monaco, Consolas)
+**Annotation Font:** system serif stack (`ui-serif`, Georgia, Cambria, Times New Roman) — always italic
 
-**Character:** Two voices with a strict division of labor and no third. The sans is the
-platform's own — unstyled, invisible, chosen so nothing about the typeface asks to be noticed.
-The mono is where the personality lives: it makes machine output look like machine output and
-gives the whole interface its terminal-adjacent seriousness. There is no display face and no
-web font; the system loads no typography at all.
+**Character:** Three registers with three jobs, and the reader can tell which is speaking without reading a word. Monospace is the machine reporting; sans is a person writing; italic serif is the conductor annotating the page in the margin. Nothing is loaded over the network — the whole ramp resolves against the reader's own installed faces.
 
 ### Hierarchy
-
-- **Wordmark** (mono, 700, 1.125rem): The `ai-system` mark in the header, in Signal Emerald.
-  The only bold monospace in the system.
-- **Title** (sans, 600, 1.125rem): Run titles on run detail. The largest human-written text
-  anywhere.
-- **Label** (sans, 600, 0.875rem, `0.025em`, uppercase, Readout Label): Section headings. Their
-  smallness and muted tone are the point — they organize without competing with content.
-- **Body** (sans, 400, 0.875rem): Ticket titles, finding details, knowledge content, prose.
-- **Readout** (mono, 400, 0.75rem, tabular figures): Every machine-produced value — run and
-  gate IDs, statuses, stage and pipeline names, executor kinds, costs, counts, attempt ratios,
-  timestamps.
+- **Wordmark** (mono, 700, 1.25rem, tight tracking): The programme head only — the product name in the header. The single bold in the system.
+- **Headline** (sans, 400, 1.25rem, 1.375): The run's ticket title. The largest human text on any surface; there is no larger step.
+- **Title** (italic serif, 400, 1rem): A system's title beside its rehearsal mark.
+- **Body** (sans, 400, 0.875rem, 1.625 for prose): Part names, finding titles and details, list content.
+- **Annotation** (italic serif, 400, 0.75–0.875rem, `{colors.ink-label}`): Field labels, table headers, empty states, explanatory paragraphs under a chart, "now", "after …", "beat 3".
+- **Readout** (mono, 400, 0.75rem, tabular): Machine-produced values — statuses, costs, timestamps, attempt ratios, nav movements.
+- **Micro** (mono, 400, 0.6875rem, 1.2, tabular): Engraver's small type — stage labels under noteheads, rehearsal marks, right-margin task metadata. It sits *under* the content it labels and must never compete with it.
 
 ### Named Rules
 
-**The Machine Truth Rule.** Monospace means the system produced this value. Run IDs, statuses,
-stage names, pipeline and automation names, executor kinds, costs, counts, and attempt ratios
-are always mono. Anything a human wrote — ticket titles, gate comments, finding descriptions,
-knowledge entries — is always sans. Never mix the two to create emphasis; the split carries
-meaning.
+**The Three Voices Rule.** Machine-produced values are monospace with tabular figures so costs, counts and attempt ratios align down a column. Human prose is system sans. Annotation is italic serif. A value never gets the serif; a sentence never gets the mono.
 
-**The Tabular Figures Rule.** Every monospace readout sets `font-variant-numeric: tabular-nums`
-so costs, counts, and attempt ratios align vertically down a column. A cost figure that jitters
-between rows is unreadable at a glance, which defeats the entire point of the readout voice.
+**The Unloaded Type Rule.** No web font is loaded anywhere. The ramp is built from `-apple-system`, `ui-monospace` and `ui-serif` stacks; a new surface that adds a font file breaks the system.
 
-**The Small Type Rule.** 0.75rem and 0.875rem carry this interface; 1.125rem is the ceiling.
-Density is a feature — a run's full state should fit one screen. Reach for hierarchy through
-weight, color, and the sans/mono split before reaching for size.
+**The Small Type Floor Rule.** 0.6875rem is the floor and it is reserved for labels beneath their content. Nothing a reader must act on is set at micro.
 
 ## Layout
 
-A single centered column, capped at 64rem (`max-w-5xl`) with 1.5rem gutters and 1.5rem of
-vertical padding. Everything lives in that column — there is no sidebar, no full-bleed region,
-and no secondary rail.
+One centred column, max width 72rem (`max-w-6xl`), padded 20px at phone width and 32px from the `sm` breakpoint, 28px top. There is no sidebar and no card grid: the page is a stack of *systems*, each a `<section>` with 40px of space beneath it, opened by a rehearsal mark and a title whose hairline rule runs to the right edge to carry the eye across.
 
-The page is a stack of labeled sections, each separated by 2rem, with its uppercase label
-0.75rem above its content. Within a section, content is one of three shapes: a bordered list
-whose rows are divided by hairlines (runs, artifacts), a stack of bordered cards separated by
-1rem (gates, knowledge proposals), or a wrapped row of chips separated by 0.5rem (stages, brain
-metadata).
+Vertical rhythm is engraved rather than boxed: rows are separated by 1px `{colors.rule}` dividers, not gaps and borders. Spacing runs on a 2 / 4 / 6 / 12 / 16 / 20 / 40px rhythm — 12px is the standard inline gap between marks and labels, 20px between stacked caesuras, 40px between systems.
 
-Spacing is a 0.25rem scale used sparsely: 0.25rem inside chips, 0.5rem and 0.75rem between
-related controls, 1rem inside cards and between them, 1.5rem for major breaks, 2rem between
-sections. Rows are 0.5–0.75rem tall vertically — deliberately tight.
+The signature layout is positional. In the run system, the horizontal axis is real: stage columns are laid across the full width from the run's own stage list, and task voices are placed at the horizontal position of their dependency depth, so voices at the same depth align vertically because they genuinely run in parallel. Rows are a fixed 46px per voice with a 62px stage row above. Nothing is positioned by data the API does not report — per-task duration is deliberately not drawn.
 
-Alignment does structural work in lists. Rows are flex rows where the identifying badge leads,
-the human-written title takes the remaining space and truncates, and machine readouts are
-pushed right with `margin-left: auto` so metadata forms a right-aligned column down the list.
-
-The header is a single horizontal rule of nav links above all content, wrapping when narrow.
-Responsive behavior today is only what flex wrapping provides; per PRODUCT.md, **gate approval
-must work on a phone**, so gate surfaces — the pending-gate card on run detail and the gates
-queue — are the surfaces that need real mobile design. Their approve/reject controls currently
-sit in a single unwrapped flex row with a flexing comment input, which is the specific thing to
-fix.
-
-### Named Rules
-
-**The One Column Rule.** Every surface lives in the same 64rem centered column. No screen
-introduces a sidebar or a wider container; a dense screen earns its room by tightening rows,
-not by widening the page.
+Responsive behaviour follows the product's one committed mobile surface. Gate approval must work on a phone: the caesura, its comment field and its two buttons wrap and remain full-size at every width. Every other surface is desktop-first and only guaranteed not to break. The engraved run system is desktop-only (`hidden sm:block`) and is replaced below `sm` by a compact ruled reading of the same facts in text — which doubles as the accessible equivalent at every width, since the engraved system is `aria-hidden`. Wide tables scroll horizontally inside their system rather than reflowing.
 
 ## Elevation & Depth
 
-**This system has no shadows.** Not on cards, not on modals, not on hover, not on focus. Depth
-is expressed entirely through a 1px hairline border in Instrument Line and a single lift from
-Instrument Black to Instrument Surface. A panel is a panel because it is outlined, not because
-it floats.
+There are no shadows in this system. Nothing is lifted, nothing floats, and there is no elevation ramp. Depth is entirely a matter of ruling and ink weight: a heavier rule reads as more structural than a hairline, and the five-step bone ramp puts primary text forward and timestamps back. The only surface-tone shift in the whole build is the hover wash on a list row.
 
-There are exactly two surface levels — the ground and the lifted tone — and no third is
-permitted. Nesting is expressed by borders inside borders, which is why the radius stays
-constant: nested outlines at differing radii read as misaligned.
+The one `box-shadow` in the stylesheet is not depth. `.stave-clear` paints `0 0 0 0.35rem var(--color-ground)` — a zero-offset, zero-blur ring of the ground colour that knocks a halo out of the staff ruling so type and noteheads sit cleanly on the stave instead of being struck through. It is a knockout, and it must stay zero-offset and zero-blur.
 
 ### Named Rules
 
-**The No-Shadow Rule.** `box-shadow` is prohibited system-wide, including on overlays and
-focused elements. If an element needs to separate from its surroundings, it gets a border. If
-it needs to advance, it gets the lifted surface tone.
-
-**The Two-Surface Rule.** Instrument Black and Instrument Surface are the only two backgrounds
-for neutral elements. A third neutral tone would blur the distinction between "at rest" and
-"raised", which is the only depth signal the system has.
+**The No Shadow Rule.** No offset, no blur, no glow, anywhere. If a surface needs to be distinguished, rule it or shift its ink weight. The only permitted `box-shadow` is the `.stave-clear` knockout, and only at `0 0 0`.
 
 ## Shapes
 
-One radius: 4px, on everything. Buttons, inputs, cards, badges, chips, list containers, and the
-analytics bar and its track all share it. There is no pill, no circle, no square-cornered
-element, and no larger radius for larger surfaces.
+The system is square. There is no border radius: the sole radius token in the theme is a 1px value that nothing consumes, and every button, input, mark box and caesura in the build is a hard rectangle. Corners are drafting corners.
 
-The dominant silhouette is the outlined rectangle — a hairline box with tight internal padding,
-repeated at three scales: the chip (0.125–0.25rem vertical padding), the row (0.5–0.75rem), and
-the card (1rem). Bordered lists share one outer border with hairline dividers between rows
-rather than giving each row its own box, so a list reads as one instrument rather than a stack
-of separate ones.
+Form language is line, not container. Structure comes from strokes: 1px hairlines for staves and dividers, 1px–2px barlines, a 2px stroke for the affirmative button, a 1px box for a rehearsal mark, a single bottom rule for an input, a left rule for a finding or an error. Filled shapes are rare and always meaningful — a filled notehead, a filled quantity bar, a filled button on hover.
 
-Borders are always exactly 1px and always a full outline; there are no single-sided accent
-borders, no left-edge status stripes, and no dashed or doubled rules.
-
-### Named Rules
-
-**The Single Radius Rule.** 4px on every corner in the system. A component that wants a
-different radius is a component that wants to be from a different system.
+Icons are drawn, never typed: noteheads (11×11 ellipse rotated -20°, filled / hollow / cross / rest bar) and the fermata (18×11 arc with a dot) are inline SVG on `currentColor`. The select chevron is an authored inline SVG replacing the OS control so no un-authored widget sits inside a committed form.
 
 ## Components
 
 ### Buttons
-
-- **Shape:** 4px radius, no border, 0.375rem × 0.75rem padding, 0.875rem semibold sans.
-- **Primary:** Signal Emerald Action ground with white label. Used for the single affirmative
-  action on a surface — Start, Approve, Search, Save.
-- **Danger:** Fault Red Action ground with white label. Reject and destructive actions only.
-- **Hover:** Both lighten by one step (`signal-emerald-action-hover`, `fault-red-action-hover`).
-- **Focus:** Currently browser default. Any focus treatment added must be a ring or border
-  shift, never a shadow.
-- There is no secondary, ghost, or tertiary button. Non-primary actions are plain underlined
-  links in Readout Muted.
+- **Shape:** Hard rectangle (0 radius), 6px × 12px padding, mono at 0.875rem.
+- **The Mark (primary):** The affirmative decision is the conductor's stroke — a 2px vermilion border on transparent ground with `{colors.mark-bright}` text. Its weight comes from the stroke, not a fill.
+- **Hover:** Committing fills the stroke in: background goes to `{colors.mark}`, text to the ground colour.
+- **The Other Decision (quiet):** A 1px `{colors.rule-strong}` border with `{colors.ink-muted}` text; on hover the border turns vermilion and the text goes bright. Quiet at rest, it reaches for the pencil when you approach it.
+- **Focus:** A 2px `{colors.cue-bright}` outline offset 2px, on every interactive element without exception.
 
 ### Inputs / Fields
-
-- **Style:** Instrument Surface fill, 1px Instrument Line Strong border, 4px radius,
-  0.375rem × 0.75rem padding, 0.875rem sans, Readout Primary text, Readout Label placeholder.
-- **Labels:** 0.75rem sans in Readout Label, stacked 0.25rem above the field.
-- **Focus:** Browser default today. Selects share the identical treatment — there is one field
-  style for every input type.
-
-### Cards / Containers
-
-- **Corner Style:** 4px.
-- **Background:** Instrument Black — the same as the page. The border alone defines the card.
-- **Border:** 1px Instrument Line.
-- **Shadow Strategy:** None. See Elevation & Depth.
-- **Internal Padding:** 1rem.
-- **Gate variant:** The one exception — Standby Sky Field fill with a Standby Sky Line border,
-  used exclusively for a gate that is blocking on the reader.
-
-### Badges and Chips
-
-- **Status badge:** 4px radius, 0.125rem × 0.5rem padding, 0.75rem mono, state `-field`
-  background with the bright state text. Identifies the state of a whole record.
-- **Inline chip:** 0.25rem × 0.5rem padding, 0.75rem mono, state `-inline` background with the
-  bright state text. Used for stages and task status inside a record.
-- **Metadata chip:** Instrument Surface or a bare Instrument Line outline with Readout Muted
-  mono text, for non-state facts like executor kind or brain counts.
-
-### Lists and Rows
-
-- **Bordered list:** One outer 1px Instrument Line box at 4px radius, rows separated by
-  hairline dividers of the same color. Rows are 0.5–0.75rem × 1rem.
-- **Row anatomy:** Leading status badge, flexing truncated human title, right-pushed mono
-  metadata, faint timestamp last.
-- **Hover:** Row background lifts to Instrument Surface on navigable rows only. Non-navigable
-  rows have no hover state.
-- **Empty state:** A single 0.875rem Readout Label sentence inside the list border that says
-  what would appear here and how to make it appear — "No runs yet — start one above."
+- **Style:** No box. A single bottom rule in `{colors.rule-strong}` on transparent ground, mono at 0.875rem, placeholder in `{colors.ink-faint}`.
+- **Focus:** The underline shifts to cobalt and the cobalt focus ring appears.
+- **Select:** Same underline, plus an engraved chevron drawn in `{colors.ink-label}` at the right edge with the native appearance removed.
+- **Label:** Italic serif annotation above the field, never inside it.
 
 ### Navigation
+Movements, not tabs. A single wrapped row of mono 0.75rem links with wide tracking under the programme head, separated from it by a hairline. Inactive is `{colors.ink-label}`, hover lifts to `{colors.ink-secondary}`, and the current movement goes full bone with a 2px vermilion tick in the left margin — a conductor's mark against the movement being read, not a filled tab. The deepest matching route wins, so a nested route marks only itself.
 
-- **Style:** A single horizontal row of 0.875rem sans links in Readout Muted, 1rem apart, above
-  a 1px Instrument Line rule, with the emerald mono wordmark at the left.
-- **States:** Hover lifts to Readout Primary. There is currently no active-route treatment.
-- **Mobile:** Wraps to multiple lines; no drawer or collapse.
+### System (section)
+The page's unit. A rehearsal mark (boxed mono micro letter, 1px `currentColor` border) opens it, an italic serif title follows, a hairline rule fills the remaining width, and an optional mono tabular count sits at the far right. 40px below it, the next system begins.
 
-### Progress Bar (signature)
+### Caesura (signature)
+Where the score holds for a human, and the only element permitted to interrupt the system. A full-width band with 1px vermilion rules top and bottom and a -58° repeating hatch of vermilion at 22% over the ground, 16px padding. It carries the fermata, the gate name, an optional link to the artifact under review, a comment field, and the two decision buttons. It is never used for anything but a decision that is genuinely blocking.
 
-The analytics bar is the system's one data-visualization primitive: a 0.75rem-tall Instrument
-Surface track at 4px radius with a Signal Emerald Action fill, flanked by a fixed-width mono
-label on the left and a fixed-width right-aligned mono value on the right. Its fixed side
-columns are what let a stack of bars read as a chart rather than as a list.
+### Stave / Run System (signature)
+A voice is read along a stave: three hairlines, not five — five reads as ornament at UI scale, three reads as structure — painted behind the row by a repeating gradient and masked to fade over the outer 3rem so a voice enters and leaves the stave rather than being boxed by it. Content rides above on a `.stave-clear` knockout.
+
+The run system stacks the run's own voice over one stave per task, all crossed by the same stage barlines, which is what makes it a single system rather than a set of rows. A hairline brace at the left binds the task voices. State is a notehead: filled = played, hollow = sounding, cross = dead, a bar = resting; anything waiting on a human takes a fermata instead. The current stage's notehead pulses (1.9s ease-in-out, opacity 1→0.45), and that animation is removed entirely under `prefers-reduced-motion`. Dependents are joined to what they waited for by a quadratic tie in `{colors.rule-strong}` with a non-scaling stroke. Barlines are 1px `{colors.rule-strong}`; the current position is a 2px vermilion barline.
+
+### Dynamics (quantity bars)
+A magnitude read along the stave: a mono label at fixed width, a 10px `{colors.ground-band}` track filled in `{colors.ink-muted}`, and a right-aligned tabular value. Bone only, with a 1.5% minimum fill so a nonzero value never disappears.
+
+### Tables
+Ruled, never striped and never boxed. A `{colors.rule-strong}` header rule under italic serif lowercase headers, `{colors.rule}` between rows, mono tabular numerics right-aligned, and horizontal scroll inside the system when the columns exceed the column width.
 
 ## Do's and Don'ts
 
 ### Do:
-
-- **Do** use 4px radius on every corner, with no exceptions for size or component type.
-- **Do** express separation with a 1px Instrument Line border, and elevation with the
-  Instrument Surface fill.
-- **Do** set every machine-produced value in monospace with tabular figures, and everything a
-  human wrote in the system sans.
-- **Do** reserve color for state — run, stage, task, gate, finding — plus the single
-  affirmative action on a surface.
-- **Do** match state-color depth to scope: `-field` behind badges that label a whole record,
-  `-inline` behind chips inside one.
-- **Do** push machine metadata right with `margin-left: auto` so it forms an aligned column
-  down a list.
-- **Do** write empty states that name the thing and the action that creates it.
-- **Do** give the gate card the Standby Sky tint — it is the one surface allowed to be tinted,
-  because it is the one surface that blocks the reader.
-- **Do** design gate approval to work at phone width; it is the one committed mobile surface.
+- **Do** spend vermilion only on "a human must decide" and "this failed"; cobalt on in-progress; ochre on held.
+- **Do** use `{colors.mark-bright}` for any vermilion word at 12–14px, and reserve `{colors.mark}` for rules, barlines, borders and the caesura edge (The 4.23 Rule).
+- **Do** set every machine-produced value in mono with `font-variant-numeric: tabular-nums` so columns align.
+- **Do** draw quantities in bone (The Bone Quantity Rule).
+- **Do** carry structure with hairline rules and position rather than with cards, boxes or fills.
+- **Do** open every page section with a rehearsal mark, an italic serif title and a rule that runs to the right edge.
+- **Do** give the engraved run system a text equivalent that is visible on phones and readable by assistive tech, and mark the graphic `aria-hidden`.
+- **Do** keep gate approval fully usable at phone width — it is the one committed mobile surface.
+- **Do** put a 2px cobalt focus ring, offset 2px, on every interactive element.
+- **Do** kill the live pulse under `prefers-reduced-motion`.
 
 ### Don't:
-
-- **Don't** add a `box-shadow` anywhere, including modals, hovers, and focus states.
-- **Don't** introduce a third neutral surface tone above Instrument Black and Instrument
-  Surface.
-- **Don't** use color decoratively — no gradient headers, no tinted cards outside the gate
-  card, no accent borders or left-edge status stripes, no brand color on surfaces that carry no
-  state.
-- **Don't** use monospace for emphasis on human-written text, or sans for a machine value.
-- **Don't** exceed 1.125rem for any text, or widen the 64rem column.
-- **Don't** give each row in a list its own border; one outer box with hairline dividers.
-- **Don't** add a light theme or a theme toggle — this system is dark-only by design.
-- **Don't** introduce a pill, circle, or squared corner, or a second radius value.
-- **Don't** add a secondary or ghost button style; non-primary actions are underlined links.
+- **Don't** use a filled status pill or a rounded state chip; state is a notehead, a fermata or a barline.
+- **Don't** add a border radius. The system is square everywhere.
+- **Don't** add a shadow. The only `box-shadow` permitted is the zero-offset `.stave-clear` knockout, and it is not depth.
+- **Don't** load a web font, or introduce a fourth type register beyond mono, sans and italic serif.
+- **Don't** draw five staff lines. Three.
+- **Don't** let a state colour touch a chart, a count, a total or a rate.
+- **Don't** ship an un-authored native control surface (an OS select chevron) inside a committed form.
+- **Don't** interrupt a system with anything but a caesura, and only for a decision that is genuinely blocking.
+- **Don't** plot anything the API does not report — per-task duration is not drawn because there are no per-task timings.
+- **Don't** set actionable content at the 0.6875rem micro step.

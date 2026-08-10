@@ -1,8 +1,19 @@
 import Link from 'next/link';
 import { apiGet, type RunDetail } from '@/lib/api';
 import { resolveGateAction } from '@/lib/actions';
-import { Section, SeverityBadge, StatusBadge, buttonCls, buttonDangerCls, inputCls } from '@/lib/ui';
+import {
+  Caesura,
+  Fermata,
+  SeverityMark,
+  StatusMark,
+  System,
+  buttonCls,
+  buttonDangerCls,
+  inputCls,
+  linkCls,
+} from '@/lib/ui';
 import { LiveRefresh } from './live-refresh';
+import { RunSystem } from './system';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
@@ -10,158 +21,130 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
+  const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
+  const terminal = TERMINAL.includes(run.status);
 
   return (
     <main>
-      <LiveRefresh runId={id} active={!TERMINAL.includes(run.status)} />
+      <LiveRefresh runId={id} active={!terminal} />
 
-      <div className="mb-6 flex items-center gap-4">
-        <StatusBadge status={run.status} />
-        <h1 className="flex-1 text-lg font-semibold">{run.ticket.title}</h1>
-        <span className="font-mono text-xs text-zinc-500">
+      {/* Programme head */}
+      <div className="mb-8">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-3">
+          <h1 className="basis-full text-xl leading-snug text-ink sm:min-w-0 sm:flex-1 sm:basis-auto">
+            {run.ticket.title}
+          </h1>
+          <StatusMark status={run.status} />
+        </div>
+        <p className="mt-2 font-mono text-xs text-ink-faint tnum">
           {run.policySnapshot.pipeline} · {run.policySnapshot.automationLevel}
-          {run.complexity ? ` · ${run.complexity}` : ''} · iter {run.iterationCount} · $
+          {run.complexity ? ` · ${run.complexity}` : ''} · iteration {run.iterationCount} · $
           {run.costUsd.toFixed(4)}
-        </span>
+        </p>
       </div>
+
       {run.error && (
-        <p className="mb-6 rounded border border-red-900 bg-red-950 px-4 py-2 text-sm text-red-300">
+        <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
           {run.error}
         </p>
       )}
 
+      {/* The hold. Every voice waits here until a human marks it. */}
       {pendingGates.map((gate) => (
-        <div key={gate.id} className="mb-6 rounded border border-sky-800 bg-sky-950 p-4">
-          <p className="mb-3 text-sm font-medium text-sky-200">
-            Human gate: <span className="font-mono">{gate.gate}</span>
-            {typeof gate.payload.artifactId === 'string' && (
-              <>
-                {' — '}
+        <div key={gate.id} className="mb-8">
+          <Caesura>
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <Fermata className="shrink-0 text-mark-bright" />
+              <span className="annot text-base text-ink">Held for you</span>
+              <span className="font-mono text-sm text-mark-bright">{gate.gate}</span>
+              {typeof gate.payload.artifactId === 'string' && (
                 <Link
                   href={`/runs/${run.id}/artifacts/${gate.payload.artifactId}`}
-                  className="underline"
+                  className={`${linkCls} text-sm`}
                 >
-                  view {String(gate.payload.artifactKind ?? 'artifact')}
+                  read the {String(gate.payload.artifactKind ?? 'artifact')}
                 </Link>
-              </>
-            )}
-          </p>
-          <form action={resolveGateAction} className="flex items-center gap-3">
-            <input type="hidden" name="gateId" value={gate.id} />
-            <input name="comment" className={`${inputCls} flex-1`} placeholder="Comment (required for reject)" />
-            <button type="submit" name="decision" value="approved" className={buttonCls}>
-              Approve
-            </button>
-            <button type="submit" name="decision" value="rejected" className={buttonDangerCls}>
-              Reject
-            </button>
-          </form>
+              )}
+            </div>
+            <form action={resolveGateAction} className="flex flex-wrap items-end gap-3">
+              <input type="hidden" name="gateId" value={gate.id} />
+              <label className="flex min-w-56 flex-1 flex-col gap-1">
+                <span className="annot text-xs text-ink-label">Comment — required to reject</span>
+                <input name="comment" className={inputCls} placeholder="Why" />
+              </label>
+              <button type="submit" name="decision" value="approved" className={buttonCls}>
+                Approve
+              </button>
+              <button type="submit" name="decision" value="rejected" className={buttonDangerCls}>
+                Reject
+              </button>
+            </form>
+          </Caesura>
         </div>
       ))}
 
-      <Section title="Stages">
-        <div className="flex flex-wrap gap-2">
-          {run.stages.map((s) => (
-            <span
-              key={s.id}
-              title={s.error ?? undefined}
-              className={`rounded px-2 py-1 font-mono text-xs ${
-                s.status === 'completed'
-                  ? 'bg-emerald-950 text-emerald-400'
-                  : s.status === 'failed'
-                    ? 'bg-red-950 text-red-400'
-                    : 'bg-zinc-900 text-zinc-300'
-              }`}
-            >
-              {s.stage} · {s.status}
-            </span>
-          ))}
-        </div>
-      </Section>
+      {/* One system: the run's own voice over the task voices, all crossing
+          the same stage barlines. */}
+      <System
+        mark="A"
+        title="The system"
+        aside={
+          run.tasks.length > 0
+            ? `${doneTasks}/${run.tasks.length} voices played`
+            : terminal
+              ? 'closed'
+              : 'sounding'
+        }
+      >
+        <RunSystem run={run} />
+      </System>
 
-      {run.tasks.length > 0 && (
-        <Section title={`Tasks (${run.tasks.filter((t) => t.status === 'completed').length}/${run.tasks.length})`}>
-          <ul className="space-y-2">
-            {run.tasks.map((task) => {
-              const deps = task.dependsOn
-                .map((id) => run.tasks.find((t) => t.id === id)?.title ?? id.slice(-8))
-                .join(', ');
-              return (
-                <li
-                  key={task.id}
-                  className="flex items-center gap-3 rounded border border-zinc-800 px-4 py-2 text-sm"
-                >
-                  <span
-                    className={`rounded px-2 py-0.5 font-mono text-xs ${
-                      task.status === 'completed'
-                        ? 'bg-emerald-950 text-emerald-400'
-                        : task.status === 'failed'
-                          ? 'bg-red-950 text-red-400'
-                          : task.status === 'running'
-                            ? 'bg-indigo-950 text-indigo-300'
-                            : 'bg-zinc-900 text-zinc-400'
-                    }`}
-                  >
-                    {task.status}
-                  </span>
-                  <span className="flex-1">
-                    {task.title}
-                    {deps && <span className="ml-2 text-xs text-zinc-500">after: {deps}</span>}
-                    {task.error && <span className="ml-2 text-xs text-red-400">{task.error}</span>}
-                  </span>
-                  {task.executorKind && (
-                    <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-400">
-                      {task.executorKind}
-                    </span>
-                  )}
-                  {task.origin === 'fix_iteration' && (
-                    <span className="rounded bg-amber-950 px-2 py-0.5 font-mono text-xs text-amber-300">
-                      fix
-                    </span>
-                  )}
-                  <span className="font-mono text-xs text-zinc-600">
-                    {task.attemptCount}/{task.maxAttempts}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </Section>
-      )}
-
+      {/* Editorial marks: what the reviewer wrote in the margin. */}
       {run.findings.length > 0 && (
-        <Section title="Review findings">
-          <ul className="space-y-2">
+        <System mark="B" title="Editorial marks" aside={`${run.findings.length}`}>
+          <ul className="space-y-5">
             {run.findings.map((f) => (
-              <li key={f.id} className="rounded border border-zinc-800 px-4 py-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <SeverityBadge severity={f.severity} />
-                  <span className="font-medium">{f.title}</span>
-                  <span className="ml-auto font-mono text-xs text-zinc-500">{f.status}</span>
+              <li
+                key={f.id}
+                className="flex flex-col gap-1 border-l border-rule pl-4 sm:flex-row sm:gap-4"
+              >
+                <div className="shrink-0 pt-0.5 sm:w-28">
+                  <SeverityMark severity={f.severity} />
+                  <p className="mt-1 font-mono text-micro text-ink-faint">{f.status}</p>
                 </div>
-                <p className="mt-1 text-zinc-400">{f.detail}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">{f.title}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-muted">{f.detail}</p>
+                </div>
               </li>
             ))}
           </ul>
-        </Section>
+        </System>
       )}
 
-      <Section title="Artifacts">
-        <div className="divide-y divide-zinc-800 rounded border border-zinc-800">
-          {run.artifacts.map((a) => (
-            <Link
-              key={a.id}
-              href={`/runs/${run.id}/artifacts/${a.id}`}
-              className="flex items-center gap-4 px-4 py-2 text-sm hover:bg-zinc-900"
-            >
-              <span className="font-mono text-emerald-400">{a.kind}</span>
-              <span className="ml-auto text-xs text-zinc-600">
-                {new Date(a.createdAt).toLocaleTimeString()}
-              </span>
-            </Link>
-          ))}
-        </div>
-      </Section>
+      <System mark="C" title="Parts" aside={`${run.artifacts.length}`}>
+        {run.artifacts.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">
+            No parts written yet. They appear as the run produces them.
+          </p>
+        ) : (
+          <ul className="border-t border-rule">
+            {run.artifacts.map((a) => (
+              <li key={a.id} className="border-b border-rule">
+                <Link
+                  href={`/runs/${run.id}/artifacts/${a.id}`}
+                  className="flex items-center gap-4 px-3 py-2.5 text-sm hover:bg-ground-raised"
+                >
+                  <span className="font-mono text-cue-bright">{a.kind}</span>
+                  <span className="ml-auto font-mono text-xs text-ink-faint tnum">
+                    {new Date(a.createdAt).toLocaleTimeString()}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </System>
     </main>
   );
 }

@@ -18,8 +18,16 @@ Vendored files:
 - `.claude/skills/impeccable/` — the skill (SKILL.md, reference playbooks, detector scripts)
 - `.claude/agents/impeccable-*.md` — subagents the skill delegates to
 
-The skill's scripts depend only on Node builtins and require Node >= 22, so nothing
-needs installing.
+The skill's scripts need Node >= 22 and nothing else installed. Every path exercised by
+`doctor`, `context`, the detector, and the hook imports only Node builtins. The single
+non-builtin is `@babel/parser`, soft-required inside a try/catch by
+`scripts/live-copy-edit-agent.mjs` for live-mode copy edits on `.jsx`/`.tsx`/`.ts`; when
+it is absent that one feature reports `syntax_parser_unavailable` and everything else
+continues working.
+
+(`jsdom` appears in detector comments but is never imported. Those comments describe how
+the browser detector behaves when upstream's CLI runs it under jsdom — the vendored skill
+does not pull it in.)
 
 ## Why vendored instead of installed
 

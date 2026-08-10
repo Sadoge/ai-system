@@ -1,5 +1,5 @@
 import { apiGet } from '@/lib/api';
-import { Section, inputCls, buttonCls } from '@/lib/ui';
+import { System, buttonCls, inputCls } from '@/lib/ui';
 
 interface Inspection {
   query: string;
@@ -14,6 +14,38 @@ interface Inspection {
   trimmed: { section: string; dropped: number }[];
 }
 
+function Fact({ children, warn = false }: { children: React.ReactNode; warn?: boolean }) {
+  return (
+    <span
+      className={`border-l pl-2 font-mono text-xs ${
+        warn ? 'border-hold text-hold-bright' : 'border-rule-strong text-ink-muted'
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Retrieved({
+  score,
+  title,
+  content,
+}: {
+  score: number;
+  title: string;
+  content: string;
+}) {
+  return (
+    <li className="border-b border-rule py-3">
+      <div className="flex items-baseline gap-3">
+        <span className="shrink-0 font-mono text-xs text-ink-faint tnum">{score.toFixed(3)}</span>
+        <span className="min-w-0 flex-1 text-sm text-ink">{title}</span>
+      </div>
+      <p className="mt-1 pl-12 text-sm leading-relaxed text-ink-muted">{content}</p>
+    </li>
+  );
+}
+
 export default async function BrainInspectorPage({
   searchParams,
 }: {
@@ -26,106 +58,106 @@ export default async function BrainInspectorPage({
 
   return (
     <main>
-      <Section title="Brain inspector">
-        <p className="mb-3 text-xs text-zinc-600">
+      <System mark="A" title="Read the part">
+        <p className="annot mb-5 max-w-3xl text-sm leading-relaxed text-ink-label">
           Shows exactly what the Context Assembler would put in an agent&apos;s prompt for a given
           task, and what it dropped to fit the token budget. Approved rules are always included and
           are never trimmed — only ranked material is.
         </p>
-        <form className="flex gap-3">
+        <form className="flex flex-wrap items-end gap-3">
           <input
             name="query"
             defaultValue={query ?? ''}
             placeholder="Describe a task, e.g. add a median helper to the calculator"
-            className={`${inputCls} flex-1`}
+            className={`${inputCls} min-w-64 flex-1`}
           />
           <button type="submit" className={buttonCls}>
             Inspect
           </button>
         </form>
-      </Section>
+      </System>
 
       {inspection && (
         <>
-          <Section title="Selection">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded border border-zinc-800 px-2 py-1">
-                repo index: {inspection.hasIndex ? 'yes' : 'none'}
-              </span>
-              <span className="rounded border border-zinc-800 px-2 py-1">
+          <System mark="B" title="Selection">
+            <div className="flex flex-wrap gap-x-6 gap-y-3">
+              <Fact>repo index: {inspection.hasIndex ? 'yes' : 'none'}</Fact>
+              <Fact>
                 embeddings: {inspection.embedderAvailable ? 'available' : 'unavailable'}
-              </span>
-              <span className="rounded border border-zinc-800 px-2 py-1">
-                keywords: {inspection.keywords.join(', ') || '(none)'}
-              </span>
+              </Fact>
+              <Fact>keywords: {inspection.keywords.join(', ') || '(none)'}</Fact>
               {inspection.trimmed.map((t) => (
-                <span key={t.section} className="rounded border border-amber-800 px-2 py-1 text-amber-300">
+                <Fact key={t.section} warn>
                   trimmed {t.dropped} from {t.section}
-                </span>
+                </Fact>
               ))}
             </div>
-          </Section>
+          </System>
 
-          <Section title={`Rules always included (${inspection.rules.length})`}>
-            <ul className="space-y-1 text-sm">
-              {inspection.rules.map((r) => (
-                <li key={r.id} className="rounded border border-zinc-800 px-3 py-2">
-                  <span className="font-mono text-xs text-emerald-400">{r.kind}</span>{' '}
-                  <span className="font-medium">{r.title}</span>
-                  <p className="text-zinc-400">{r.content}</p>
-                </li>
-              ))}
-              {inspection.rules.length === 0 && (
-                <li className="text-sm text-zinc-500">No approved rules for this project yet.</li>
-              )}
-            </ul>
-          </Section>
+          <System mark="C" title="Always included" aside={`${inspection.rules.length}`}>
+            {inspection.rules.length === 0 ? (
+              <p className="annot py-3 text-sm text-ink-label">
+                No approved rules for this project yet.
+              </p>
+            ) : (
+              <ul className="border-t border-rule">
+                {inspection.rules.map((r) => (
+                  <li key={r.id} className="border-b border-rule py-3">
+                    <div className="flex items-baseline gap-3">
+                      <span className="shrink-0 font-mono text-xs text-cue-bright">{r.kind}</span>
+                      <span className="min-w-0 flex-1 text-sm text-ink">{r.title}</span>
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed text-ink-muted">{r.content}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </System>
 
-          <Section title={`Structural matches (${inspection.relevantFiles.length})`}>
-            <ul className="space-y-1 font-mono text-xs">
-              {inspection.relevantFiles.map((f) => (
-                <li key={f.path} className="text-zinc-300">
-                  {f.path}
-                  {f.exports.length > 0 && (
-                    <span className="text-zinc-600"> — {f.exports.join(', ')}</span>
-                  )}
-                </li>
-              ))}
-              {inspection.relevantFiles.length === 0 && (
-                <li className="text-zinc-500">No files matched the keywords.</li>
-              )}
-            </ul>
-          </Section>
+          <System
+            mark="D"
+            title="Structural matches"
+            aside={`${inspection.relevantFiles.length}`}
+          >
+            {inspection.relevantFiles.length === 0 ? (
+              <p className="annot py-3 text-sm text-ink-label">No files matched the keywords.</p>
+            ) : (
+              <ul className="space-y-1 font-mono text-xs">
+                {inspection.relevantFiles.map((f) => (
+                  <li key={f.path} className="text-ink-secondary">
+                    {f.path}
+                    {f.exports.length > 0 && (
+                      <span className="text-ink-faint"> — {f.exports.join(', ')}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </System>
 
-          <Section title={`Semantic hits (${inspection.related.length})`}>
-            <ul className="space-y-1 text-sm">
-              {inspection.related.map((h, i) => (
-                <li key={i} className="rounded border border-zinc-800 px-3 py-2">
-                  <span className="font-mono text-xs text-zinc-500">{h.score.toFixed(3)}</span>{' '}
-                  <span className="font-medium">{h.title}</span>
-                  <p className="text-zinc-400">{h.content}</p>
-                </li>
-              ))}
-              {inspection.related.length === 0 && (
-                <li className="text-sm text-zinc-500">Nothing retrieved.</li>
-              )}
-            </ul>
-          </Section>
+          <System mark="E" title="Semantic hits" aside={`${inspection.related.length}`}>
+            {inspection.related.length === 0 ? (
+              <p className="annot py-3 text-sm text-ink-label">Nothing retrieved.</p>
+            ) : (
+              <ul className="border-t border-rule">
+                {inspection.related.map((h, i) => (
+                  <Retrieved key={i} score={h.score} title={h.title} content={h.content} />
+                ))}
+              </ul>
+            )}
+          </System>
 
-          <Section title={`Episodic memory (${inspection.episodes.length})`}>
-            <ul className="space-y-1 text-sm">
-              {inspection.episodes.map((h, i) => (
-                <li key={i} className="rounded border border-zinc-800 px-3 py-2">
-                  <span className="font-mono text-xs text-zinc-500">{h.score.toFixed(3)}</span>{' '}
-                  <span className="font-medium">{h.title}</span>
-                  <p className="text-zinc-400">{h.content}</p>
-                </li>
-              ))}
-              {inspection.episodes.length === 0 && (
-                <li className="text-sm text-zinc-500">No comparable past work yet.</li>
-              )}
-            </ul>
-          </Section>
+          <System mark="F" title="Episodic memory" aside={`${inspection.episodes.length}`}>
+            {inspection.episodes.length === 0 ? (
+              <p className="annot py-3 text-sm text-ink-label">No comparable past work yet.</p>
+            ) : (
+              <ul className="border-t border-rule">
+                {inspection.episodes.map((h, i) => (
+                  <Retrieved key={i} score={h.score} title={h.title} content={h.content} />
+                ))}
+              </ul>
+            )}
+          </System>
         </>
       )}
     </main>

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { apiGet } from '@/lib/api';
-import { Section, SeverityBadge } from '@/lib/ui';
+import { SeverityMark, System, linkCls } from '@/lib/ui';
 
 interface FindingsResponse {
   findings: {
@@ -21,49 +21,74 @@ interface FindingsResponse {
 export default async function FindingsPage() {
   const { findings, byCategory } = await apiGet<FindingsResponse>('/findings');
   const open = findings.filter((f) => f.status === 'open');
+  const maxCount = Math.max(0, ...byCategory.map((r) => r.count));
 
   return (
     <main>
-      <Section title="Findings by category">
-        {byCategory.length === 0 && <p className="text-sm text-zinc-500">No findings recorded yet.</p>}
-        <div className="flex flex-wrap gap-2">
-          {byCategory.map((row) => (
-            <span key={row.category} className="rounded border border-zinc-800 px-3 py-1 text-sm">
-              {row.category}
-              <span className="ml-2 font-mono text-xs text-zinc-500">{row.count}</span>
-            </span>
-          ))}
-        </div>
-        <p className="mt-2 text-xs text-zinc-600">
+      <System mark="A" title="Recurring marks">
+        {byCategory.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">Nothing recorded yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {byCategory.map((row) => (
+              <li key={row.category} className="flex items-center gap-4">
+                <span className="w-44 shrink-0 truncate font-mono text-xs text-ink-muted">
+                  {row.category}
+                </span>
+                <span className="h-2 flex-1 bg-ground-band">
+                  <span
+                    className="block h-2 bg-mark-deep"
+                    style={{ width: `${maxCount > 0 ? Math.max(2, (row.count / maxCount) * 100) : 0}%` }}
+                  />
+                </span>
+                <span className="w-10 shrink-0 text-right font-mono text-xs text-ink-muted tnum">
+                  {row.count}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
           A category that keeps recurring is the signal the learning loop watches for — it usually
           means a convention is missing from the Project Brain.
         </p>
-      </Section>
+      </System>
 
-      <Section title={`Findings (${open.length} open of ${findings.length})`}>
-        <ul className="space-y-2">
-          {findings.map((f) => (
-            <li key={f.id} className="rounded border border-zinc-800 px-4 py-2 text-sm">
-              <div className="flex items-center gap-2">
-                <SeverityBadge severity={f.severity} />
-                <span className="font-medium">{f.title}</span>
-                <span className="font-mono text-xs text-zinc-500">{f.category}</span>
-                <span className="ml-auto font-mono text-xs text-zinc-500">{f.status}</span>
-              </div>
-              <p className="mt-1 text-zinc-400">{f.detail}</p>
-              <p className="mt-1 text-xs text-zinc-600">
-                {f.filePath && <span className="mr-2 font-mono">{f.filePath}</span>}
-                <Link href={`/runs/${f.runId}`} className="underline">
-                  {f.ticket?.title ?? f.runId.slice(-8)}
-                </Link>
-              </p>
-            </li>
-          ))}
-          {findings.length === 0 && (
-            <li className="text-sm text-zinc-500">Nothing yet — findings appear after a review stage runs.</li>
-          )}
-        </ul>
-      </Section>
+      <System
+        mark="B"
+        title="The margin"
+        aside={`${open.length} open of ${findings.length}`}
+      >
+        {findings.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">
+            Nothing yet — marks appear after a review stage runs.
+          </p>
+        ) : (
+          <ul className="space-y-6">
+            {findings.map((f) => (
+              <li key={f.id} className="flex gap-4 border-l border-rule pl-4">
+                <div className="w-28 shrink-0 pt-0.5">
+                  <SeverityMark severity={f.severity} />
+                  <p className="mt-1 font-mono text-[0.6875rem] text-ink-faint">{f.status}</p>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">
+                    {f.title}
+                    <span className="ml-2 font-mono text-xs text-ink-faint">{f.category}</span>
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-muted">{f.detail}</p>
+                  <p className="mt-1.5 text-xs text-ink-faint">
+                    {f.filePath && <span className="mr-2 font-mono">{f.filePath}</span>}
+                    <Link href={`/runs/${f.runId}`} className={linkCls}>
+                      {f.ticket?.title ?? f.runId.slice(-8)}
+                    </Link>
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </System>
     </main>
   );
 }

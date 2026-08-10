@@ -1,5 +1,5 @@
 import { apiGet } from '@/lib/api';
-import { Section } from '@/lib/ui';
+import { System } from '@/lib/ui';
 
 interface CostPoint {
   day: string;
@@ -40,16 +40,38 @@ interface RunAnalytics {
   finishedRuns: number;
 }
 
-/** Minimal inline bar — a chart library is not worth a dependency for this. */
-function Bar({ value, max, label, right }: { value: number; max: number; label: string; right: string }) {
-  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+/**
+ * Dynamics: a magnitude read along the stave. Bars are square-ended and sit
+ * on the band, so a column of them reads as one graph rather than a list.
+ */
+function Dynamic({
+  value,
+  max,
+  label,
+  right,
+}: {
+  value: number;
+  max: number;
+  label: string;
+  right: string;
+}) {
+  const pct = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-40 shrink-0 truncate font-mono text-xs text-zinc-400">{label}</span>
-      <span className="h-3 flex-1 rounded bg-zinc-900">
-        <span className="block h-3 rounded bg-emerald-700" style={{ width: `${pct}%` }} />
+    <div className="flex items-center gap-4">
+      <span className="w-36 shrink-0 truncate font-mono text-xs text-ink-muted">{label}</span>
+      <span className="h-2.5 flex-1 bg-ground-band">
+        <span className="block h-2.5 bg-cue-deep" style={{ width: `${pct}%` }} />
       </span>
-      <span className="w-24 shrink-0 text-right font-mono text-xs text-zinc-400">{right}</span>
+      <span className="w-24 shrink-0 text-right font-mono text-xs text-ink-muted tnum">{right}</span>
+    </div>
+  );
+}
+
+function Tally({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-l border-rule-strong pl-3">
+      <p className="annot text-xs text-ink-label">{label}</p>
+      <p className="mt-0.5 font-mono text-lg text-ink tnum">{value}</p>
     </div>
   );
 }
@@ -77,100 +99,110 @@ export default async function AnalyticsPage() {
 
   return (
     <main>
-      <Section title="Last 30 days">
-        <div className="flex flex-wrap gap-3 text-sm">
-          <span className="rounded border border-zinc-800 px-3 py-2">
-            spend <span className="ml-2 font-mono text-emerald-400">${total.toFixed(4)}</span>
-          </span>
-          <span className="rounded border border-zinc-800 px-3 py-2">
-            finished runs <span className="ml-2 font-mono text-zinc-300">{runs.finishedRuns}</span>
-          </span>
-          <span className="rounded border border-zinc-800 px-3 py-2">
-            success rate{' '}
-            <span className="ml-2 font-mono text-zinc-300">
-              {runs.successRate === null ? '—' : `${Math.round(runs.successRate * 100)}%`}
-            </span>
-          </span>
+      <System mark="A" title="Last thirty days">
+        <div className="flex flex-wrap gap-8">
+          <Tally label="spend" value={`$${total.toFixed(4)}`} />
+          <Tally label="finished runs" value={String(runs.finishedRuns)} />
+          <Tally
+            label="success rate"
+            value={runs.successRate === null ? '—' : `${Math.round(runs.successRate * 100)}%`}
+          />
         </div>
-        <p className="mt-2 text-xs text-zinc-600">
+        <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
           Success rate counts only finished runs — counting in-flight ones would understate it.
         </p>
-      </Section>
+      </System>
 
-      <Section title="Daily spend">
-        <div className="space-y-1">
-          {days.map(([day, value]) => (
-            <Bar key={day} label={day} value={value} max={maxDay} right={`$${value.toFixed(4)}`} />
-          ))}
-          {days.length === 0 && <p className="text-sm text-zinc-500">No model calls recorded yet.</p>}
-        </div>
-      </Section>
-
-      <Section title="Spend by provider">
-        <div className="space-y-1">
-          {providers.map(([provider, value]) => (
-            <Bar
-              key={provider}
-              label={provider}
-              value={value}
-              max={providers[0]?.[1] ?? 0}
-              right={`$${value.toFixed(4)}`}
-            />
-          ))}
-          {providers.length === 0 && <p className="text-sm text-zinc-500">Nothing yet.</p>}
-        </div>
-        <p className="mt-2 text-xs text-zinc-600">
-          CLI-driven work appears as <span className="font-mono">cli:&lt;agent&gt;</span> — the
-          coding agent is usually the largest line, so leaving it out would make this chart lie.
-        </p>
-      </Section>
-
-      <Section title="Spend by purpose">
-        <div className="space-y-1">
-          {purposes.map((p) => (
-            <Bar
-              key={p.purpose}
-              label={p.purpose}
-              value={p.costUsd}
-              max={maxPurpose}
-              right={`$${p.costUsd.toFixed(4)}`}
-            />
-          ))}
-          {purposes.length === 0 && <p className="text-sm text-zinc-500">Nothing yet.</p>}
-        </div>
-      </Section>
-
-      <Section title="Runs by outcome">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-zinc-500">
-              <th className="py-1">status</th>
-              <th>pipeline</th>
-              <th className="text-right">runs</th>
-              <th className="text-right">avg iterations</th>
-              <th className="text-right">avg minutes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.byStatus.map((row) => (
-              <tr key={`${row.status}-${row.pipeline}`} className="border-t border-zinc-900">
-                <td className="py-1 font-mono text-xs">{row.status}</td>
-                <td className="font-mono text-xs text-zinc-400">{row.pipeline}</td>
-                <td className="text-right font-mono text-xs">{row.count}</td>
-                <td className="text-right font-mono text-xs">{row.avgIterations.toFixed(1)}</td>
-                <td className="text-right font-mono text-xs">{row.avgMinutes.toFixed(1)}</td>
-              </tr>
+      <System mark="B" title="Daily spend">
+        {days.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">No model calls recorded yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {days.map(([day, value]) => (
+              <Dynamic key={day} label={day} value={value} max={maxDay} right={`$${value.toFixed(4)}`} />
             ))}
-          </tbody>
-        </table>
-        {runs.byStatus.length === 0 && <p className="text-sm text-zinc-500">No runs in this window.</p>}
-      </Section>
+          </div>
+        )}
+      </System>
 
-      <Section title="Context effectiveness">
-        <p className="mb-3 text-xs text-zinc-500">
+      <System mark="C" title="Spend by provider">
+        {providers.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">Nothing yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {providers.map(([provider, value]) => (
+              <Dynamic
+                key={provider}
+                label={provider}
+                value={value}
+                max={providers[0]?.[1] ?? 0}
+                right={`$${value.toFixed(4)}`}
+              />
+            ))}
+          </div>
+        )}
+        <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
+          CLI-driven work appears as <span className="font-mono not-italic">cli:&lt;agent&gt;</span> —
+          the coding agent is usually the largest line, so leaving it out would make this chart lie.
+        </p>
+      </System>
+
+      <System mark="D" title="Spend by purpose">
+        {purposes.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">Nothing yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {purposes.map((p) => (
+              <Dynamic
+                key={p.purpose}
+                label={p.purpose}
+                value={p.costUsd}
+                max={maxPurpose}
+                right={`$${p.costUsd.toFixed(4)}`}
+              />
+            ))}
+          </div>
+        )}
+      </System>
+
+      <System mark="E" title="Runs by outcome">
+        {runs.byStatus.length === 0 ? (
+          <p className="annot py-4 text-sm text-ink-label">No runs in this window.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-2xl text-sm">
+              <thead>
+                <tr className="border-b border-rule-strong text-left">
+                  <th className="annot py-1.5 pr-4 font-normal text-ink-label">status</th>
+                  <th className="annot py-1.5 pr-4 font-normal text-ink-label">pipeline</th>
+                  <th className="annot py-1.5 pr-4 text-right font-normal text-ink-label">runs</th>
+                  <th className="annot py-1.5 pr-4 text-right font-normal text-ink-label">
+                    avg iterations
+                  </th>
+                  <th className="annot py-1.5 text-right font-normal text-ink-label">avg minutes</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-xs text-ink-secondary">
+                {runs.byStatus.map((row) => (
+                  <tr key={`${row.status}-${row.pipeline}`} className="border-b border-rule">
+                    <td className="py-1.5 pr-4">{row.status}</td>
+                    <td className="py-1.5 pr-4 text-ink-muted">{row.pipeline}</td>
+                    <td className="py-1.5 pr-4 text-right tnum">{row.count}</td>
+                    <td className="py-1.5 pr-4 text-right tnum">{row.avgIterations.toFixed(1)}</td>
+                    <td className="py-1.5 text-right tnum">{row.avgMinutes.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </System>
+
+      <System mark="F" title="Context effectiveness">
+        <p className="annot mb-4 max-w-3xl text-sm leading-relaxed text-ink-label">
           How runs that received each piece of Brain context actually fared, against a baseline
           first-pass rate of{' '}
-          <span className="font-mono text-zinc-300">
+          <span className="font-mono not-italic text-ink-secondary tnum">
             {(context.baselineFirstPassRate * 100).toFixed(1)}%
           </span>{' '}
           over {context.baselineRuns} settled run(s). This is correlation, not cause: material is
@@ -178,47 +210,57 @@ export default async function AnalyticsPage() {
           with fewer than {context.minSample} runs get no ranking prior.
         </p>
         {context.rows.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="annot py-4 text-sm text-ink-label">
             No context grants recorded yet — they accumulate as runs execute.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-zinc-500">
-                <th className="py-1">material</th>
-                <th>section</th>
-                <th className="text-right">runs</th>
-                <th className="text-right">first pass</th>
-                <th className="text-right">avg iterations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {context.rows.slice(0, 25).map((row) => {
-                const thin = row.settledRuns < context.minSample;
-                const better = row.firstPassRate > context.baselineFirstPassRate;
-                return (
-                  <tr key={`${row.sourceType}-${row.sourceId}`} className="border-t border-zinc-900">
-                    <td className="max-w-md truncate py-1" title={row.title}>
-                      {row.title}
-                      <span className="ml-2 font-mono text-xs text-zinc-600">{row.sourceType}</span>
-                    </td>
-                    <td className="font-mono text-xs text-zinc-400">{row.section}</td>
-                    <td className="text-right font-mono text-xs">{row.settledRuns}</td>
-                    <td
-                      className={`text-right font-mono text-xs ${
-                        thin ? 'text-zinc-600' : better ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                    >
-                      {(row.firstPassRate * 100).toFixed(0)}%{thin ? '*' : ''}
-                    </td>
-                    <td className="text-right font-mono text-xs">{row.avgIterations.toFixed(1)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-2xl text-sm">
+              <thead>
+                <tr className="border-b border-rule-strong text-left">
+                  <th className="annot py-1.5 pr-4 font-normal text-ink-label">material</th>
+                  <th className="annot py-1.5 pr-4 font-normal text-ink-label">section</th>
+                  <th className="annot py-1.5 pr-4 text-right font-normal text-ink-label">runs</th>
+                  <th className="annot py-1.5 pr-4 text-right font-normal text-ink-label">
+                    first pass
+                  </th>
+                  <th className="annot py-1.5 text-right font-normal text-ink-label">
+                    avg iterations
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-xs">
+                {context.rows.slice(0, 25).map((row) => {
+                  const thin = row.settledRuns < context.minSample;
+                  const better = row.firstPassRate > context.baselineFirstPassRate;
+                  return (
+                    <tr key={`${row.sourceType}-${row.sourceId}`} className="border-b border-rule">
+                      <td className="max-w-md truncate py-1.5 pr-4 text-ink-secondary" title={row.title}>
+                        {row.title}
+                        <span className="ml-2 font-mono text-ink-faint">{row.sourceType}</span>
+                      </td>
+                      <td className="py-1.5 pr-4 font-mono text-ink-muted">{row.section}</td>
+                      <td className="py-1.5 pr-4 text-right font-mono text-ink-secondary tnum">
+                        {row.settledRuns}
+                      </td>
+                      <td
+                        className={`py-1.5 pr-4 text-right font-mono tnum ${
+                          thin ? 'text-ink-faint' : better ? 'text-cue-bright' : 'text-hold-bright'
+                        }`}
+                      >
+                        {(row.firstPassRate * 100).toFixed(0)}%{thin ? '*' : ''}
+                      </td>
+                      <td className="py-1.5 text-right font-mono text-ink-secondary tnum">
+                        {row.avgIterations.toFixed(1)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </Section>
+      </System>
     </main>
   );
 }

@@ -1,5 +1,180 @@
 @import 'tailwindcss';
 
+/* Conductor's Score — the world's normative token layer.
+   Ground is diazo blueprint blue; rules are engraved bone; the conductor's
+   annotation is vermilion. Nothing here is decorative: staff rules carry
+   structure, annotation colour carries state. */
+@theme {
+  /* Ground: the blueprint sheet and the one raised system band. */
+  --color-ground: #101a33;
+  --color-ground-raised: #17233f;
+  --color-ground-band: #1c2b4d;
+
+  /* Engraved rules. The hairline does all structural work. */
+  --color-rule: #2f4470;
+  --color-rule-strong: #46608f;
+
+  /* Ink: the five-step readout ramp, bone on blueprint. */
+  --color-ink: #ece4d6;
+  --color-ink-secondary: #c3cddf;
+  --color-ink-muted: #93a2c0;
+  --color-ink-label: #7f90b2;
+  --color-ink-faint: #7286ad;
+
+  /* Annotation. Vermilion is the conductor's own pencil: it marks what
+     failed and what the human must decide. Cobalt is the cue. Ochre holds. */
+  --color-mark: #e2452f;
+  --color-mark-deep: #c2361f;
+  --color-mark-bright: #f27a63;
+  --color-cue: #4b8fd6;
+  --color-cue-deep: #2f6fb5;
+  --color-cue-bright: #8dbdec;
+  --color-hold: #d99a2b;
+  --color-hold-bright: #f0bf6a;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-annot: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+
+  --radius-mark: 1px;
+}
+
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  background-color: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Machine-produced values are set in mono with tabular figures so costs,
+   counts and attempt ratios align down a column. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The stave ────────────────────────────────────────────────────────
+   A voice is read along a ruled stave. Three hairlines, not five: five
+   reads as ornament at UI scale, three reads as structure. The rules sit
+   behind the row and stop short of its ends so the voice enters and exits
+   rather than being boxed. */
+.stave {
+  position: relative;
+}
+.stave::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 0;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(50% - 9px),
+    var(--color-rule) calc(50% - 9px),
+    var(--color-rule) calc(50% - 8px),
+    transparent calc(50% - 8px),
+    transparent calc(50% - 1px),
+    var(--color-rule) calc(50% - 1px),
+    var(--color-rule) 50%,
+    transparent 50%,
+    transparent calc(50% + 7px),
+    var(--color-rule) calc(50% + 7px),
+    var(--color-rule) calc(50% + 8px),
+    transparent calc(50% + 8px)
+  );
+  /* The rules fade in and out at the ends so a voice enters and leaves the
+     stave rather than being boxed by it. The stop colour is an alpha stencil,
+     never painted; it uses a palette token so no literal enters the system. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--color-ink) 3rem,
+    var(--color-ink) calc(100% - 3rem),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--color-ink) 3rem,
+    var(--color-ink) calc(100% - 3rem),
+    transparent
+  );
+  pointer-events: none;
+}
+/* Content rides above the rules on its own ground so the ruling never
+   strikes through type. */
+.stave > * {
+  position: relative;
+}
+.stave-clear {
+  background-color: var(--color-ground);
+  box-shadow: 0 0 0 0.35rem var(--color-ground);
+}
+
+/* ── The barline ──────────────────────────────────────────────────────
+   Stages are separated by barlines. The final barline is doubled; the
+   current position is a heavy vermilion barline. */
+.barline {
+  width: 1px;
+  background-color: var(--color-rule-strong);
+}
+.barline-now {
+  width: 2px;
+  background-color: var(--color-mark);
+}
+/* The final barline is a thin stroke followed by a thick one — drawn as one
+   painted pair rather than borders, because it is notation, not a card edge. */
+.barline-final {
+  width: 6px;
+  background-image: linear-gradient(
+    to right,
+    var(--color-rule-strong) 0 1px,
+    transparent 1px 3px,
+    var(--color-rule-strong) 3px 6px
+  );
+}
+
+/* ── The caesura ──────────────────────────────────────────────────────
+   Where the score holds: two slanted strokes across every voice. This is
+   the gate, and it is the only element allowed to interrupt the system. */
+.caesura {
+  position: relative;
+  border-top: 1px solid var(--color-mark);
+  border-bottom: 1px solid var(--color-mark);
+  background: repeating-linear-gradient(
+    -58deg,
+    transparent 0 11px,
+    color-mix(in oklab, var(--color-mark) 22%, transparent) 11px 13px
+  );
+}
+
+/* Rehearsal mark: the boxed letter a conductor calls out. */
+.rehearsal {
+  border: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The annotation voice — a conductor's expression mark, always italic. */
+.annot {
+  font-family: var(--font-annot);
+  font-style: italic;
+}
+
+/* Reduced motion: the running voice stops pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-live {
+    animation: none;
+  }
+}
+@keyframes stave-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.pulse-live {
+  animation: stave-pulse 1.9s ease-in-out infinite;
 }

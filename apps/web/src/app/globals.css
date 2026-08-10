@@ -38,6 +38,11 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --font-annot: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
 
+  /* The micro step. Rehearsal marks and stage labels are engraver's small
+     type: they sit under the content they label and must not compete with it. */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.2;
+
   --radius-mark: 1px;
 }
 
@@ -101,6 +106,28 @@ body {
   );
   pointer-events: none;
 }
+/* A stave segment carries the same ruling without the end fade, so segments
+   sit side by side and wrap into successive systems the way a score breaks
+   its lines at the margin. */
+.stave-seg {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(50% - 9px),
+    var(--color-rule) calc(50% - 9px),
+    var(--color-rule) calc(50% - 8px),
+    transparent calc(50% - 8px),
+    transparent calc(50% - 1px),
+    var(--color-rule) calc(50% - 1px),
+    var(--color-rule) 50%,
+    transparent 50%,
+    transparent calc(50% + 7px),
+    var(--color-rule) calc(50% + 7px),
+    var(--color-rule) calc(50% + 8px),
+    transparent calc(50% + 8px)
+  );
+}
+
 /* Content rides above the rules on its own ground so the ruling never
    strikes through type. */
 .stave > * {

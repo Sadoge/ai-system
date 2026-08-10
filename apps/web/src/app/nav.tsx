@@ -15,12 +15,28 @@ const MOVEMENTS = [
   { href: '/settings/webhooks', label: 'Webhooks' },
 ];
 
+/**
+ * The movement the reader is in. A run detail page belongs to Runs, and the
+ * deepest match wins so /knowledge/inbox marks Inbox rather than both it and
+ * Knowledge.
+ */
+function activeHref(pathname: string): string | undefined {
+  return MOVEMENTS.map((m) => m.href)
+    .filter((href) =>
+      href === '/'
+        ? pathname === '/' || pathname.startsWith('/runs')
+        : pathname === href || pathname.startsWith(`${href}/`),
+    )
+    .sort((a, b) => b.length - a.length)[0];
+}
+
 export function Movements() {
   const pathname = usePathname();
+  const current = activeHref(pathname);
   return (
     <nav className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
       {MOVEMENTS.map((m) => {
-        const active = m.href === '/' ? pathname === '/' : pathname.startsWith(m.href);
+        const active = m.href === current;
         return (
           <Link
             key={m.href}

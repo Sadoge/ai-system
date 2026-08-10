@@ -32,8 +32,10 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
       {/* Programme head */}
       <div className="mb-8">
-        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-          <h1 className="min-w-0 flex-1 text-xl leading-snug text-ink">{run.ticket.title}</h1>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-3">
+          <h1 className="basis-full text-xl leading-snug text-ink sm:min-w-0 sm:flex-1 sm:basis-auto">
+            {run.ticket.title}
+          </h1>
           <StatusMark status={run.status} />
         </div>
         <p className="mt-2 font-mono text-xs text-ink-faint tnum">
@@ -87,44 +89,45 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
       {/* The score: stages crossing barlines, left to right. */}
       <System mark="A" title="The score" aside={terminal ? 'closed' : 'sounding'}>
-        <div className="-mx-1 overflow-x-auto pb-1">
-          <div className="stave flex min-w-max items-stretch">
-            {run.stages.map((s, i) => {
-              const { tone, head } = readState(s.status);
-              const current = s.stage === run.currentStage;
-              return (
-                <div key={s.id} className="flex items-stretch">
-                  {i > 0 && <span className={current ? 'barline-now' : 'barline'} aria-hidden />}
-                  <div
-                    className="flex flex-col items-center gap-2 px-4 py-3"
-                    title={s.error ?? undefined}
+        {/* Stages wrap into successive systems the way a score breaks its
+            lines at the margin, so a long pipeline stays on screen at any
+            width instead of scrolling out of sight. */}
+        <div className="flex flex-wrap items-stretch">
+          {run.stages.map((s, i) => {
+            const { tone, head } = readState(s.status);
+            const current = s.stage === run.currentStage;
+            return (
+              <div key={s.id} className="stave-seg flex items-stretch">
+                {i > 0 && <span className={current ? 'barline-now' : 'barline'} aria-hidden />}
+                <div
+                  className="flex flex-col items-center gap-2 px-3 py-3 sm:px-4"
+                  title={s.error ?? undefined}
+                >
+                  <span
+                    className={`stave-clear ${
+                      tone === 'fault'
+                        ? 'text-mark'
+                        : tone === 'done'
+                          ? 'text-ink-secondary'
+                          : current
+                            ? 'text-cue-bright pulse-live'
+                            : 'text-ink-faint'
+                    }`}
                   >
-                    <span
-                      className={`stave-clear ${
-                        tone === 'fault'
-                          ? 'text-mark'
-                          : tone === 'done'
-                            ? 'text-ink-secondary'
-                            : current
-                              ? 'text-cue-bright pulse-live'
-                              : 'text-ink-faint'
-                      }`}
-                    >
-                      <Notehead head={head} />
-                    </span>
-                    <span
-                      className={`font-mono text-[0.6875rem] whitespace-nowrap ${
-                        current ? 'text-mark-bright' : 'text-ink-label'
-                      }`}
-                    >
-                      {s.stage}
-                    </span>
-                  </div>
+                    <Notehead head={head} />
+                  </span>
+                  <span
+                    className={`font-mono text-micro whitespace-nowrap ${
+                      current ? 'text-mark-bright' : 'text-ink-label'
+                    }`}
+                  >
+                    {s.stage}
+                  </span>
                 </div>
-              );
-            })}
-            {terminal && <span className="barline-final ml-1" aria-hidden />}
-          </div>
+              </div>
+            );
+          })}
+          {terminal && <span className="barline-final" aria-hidden />}
         </div>
       </System>
 
@@ -179,10 +182,10 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <System mark="C" title="Editorial marks" aside={`${run.findings.length}`}>
           <ul className="space-y-5">
             {run.findings.map((f) => (
-              <li key={f.id} className="flex gap-4 border-l border-rule pl-4">
-                <div className="w-28 shrink-0 pt-0.5">
+              <li key={f.id} className="flex flex-col gap-1 border-l border-rule pl-4 sm:flex-row sm:gap-4">
+                <div className="shrink-0 pt-0.5 sm:w-28">
                   <SeverityMark severity={f.severity} />
-                  <p className="mt-1 font-mono text-[0.6875rem] text-ink-faint">{f.status}</p>
+                  <p className="mt-1 font-mono text-micro text-ink-faint">{f.status}</p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-ink">{f.title}</p>

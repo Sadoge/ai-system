@@ -66,10 +66,10 @@ export default async function FindingsPage() {
         ) : (
           <ul className="space-y-6">
             {findings.map((f) => (
-              <li key={f.id} className="flex gap-4 border-l border-rule pl-4">
-                <div className="w-28 shrink-0 pt-0.5">
+              <li key={f.id} className="flex flex-col gap-1 border-l border-rule pl-4 sm:flex-row sm:gap-4">
+                <div className="shrink-0 pt-0.5 sm:w-28">
                   <SeverityMark severity={f.severity} />
-                  <p className="mt-1 font-mono text-[0.6875rem] text-ink-faint">{f.status}</p>
+                  <p className="mt-1 font-mono text-micro text-ink-faint">{f.status}</p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-ink">

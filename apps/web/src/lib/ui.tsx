@@ -137,7 +137,7 @@ export function SeverityMark({ severity }: { severity: string }) {
 /** The boxed letter a conductor calls out to restart from. */
 export function RehearsalMark({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rehearsal shrink-0 px-1.5 py-0.5 font-mono text-[0.6875rem] leading-none text-ink-label">
+    <span className="rehearsal shrink-0 px-1.5 py-0.5 font-mono text-micro leading-none text-ink-label">
       {children}
     </span>
   );

@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { agentRuns, pipelineRuns, stageExecutions, type Db } from '@ai-system/db';
-import { StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
-import { applyEvent } from '@ai-system/orchestration';
+import { PolicySnapshot, StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
+import { applyEvent, pipelineFor } from '@ai-system/orchestration';
 import { createArtifact } from './artifacts.js';
 import {
   classifyStage,
@@ -27,6 +27,14 @@ export interface StageOutcome {
 
 export type RunRow = typeof pipelineRuns.$inferSelect;
 
+type StageGuardRun = Pick<RunRow, 'currentStage' | 'status' | 'policySnapshot'>;
+
+export function shouldExecuteStage(run: StageGuardRun, stage: StageKind): boolean {
+  if (run.currentStage !== stage) return false;
+  const policy = PolicySnapshot.parse(run.policySnapshot);
+  return run.status === pipelineFor(policy).statusDuring(stage);
+}
+
 export async function executeStage(
   services: StageServices,
   input: { runId: string; stage: string },
@@ -37,8 +45,9 @@ export async function executeStage(
   const run = runRows[0];
   if (!run) throw new Error(`unknown run ${input.runId}`);
 
-  // Idempotency guard: a redelivered job for a stage the run has moved past is a no-op.
-  if (run.currentStage !== stage) return;
+  // A completed/failed/gated run retains its last currentStage. Require the
+  // matching active status too, or pg-boss redelivery restarts terminal work.
+  if (!shouldExecuteStage(run, stage)) return;
 
   const previousAttempts = await db
     .select({ attempt: stageExecutions.attempt })

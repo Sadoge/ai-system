@@ -42,6 +42,14 @@ ${spec.steps.map((s, i) => `${i + 1}. ${s.title}: ${s.detail}${s.files.length ? 
 ${findings}${rules}
 ## Constraints
 - Work only inside this directory (an isolated git worktree).
+- If dependencies must change, install them with the repository's declared package manager early enough to surface registry or lockfile failures before final validation.
 - Do not run git commands; the platform commits your changes.
 - Implement the plan; do not expand scope.`;
+}
+
+/** Follow-up sent to a resumable coding session after a timeout or cancellation. */
+export function renderCodingContinuationPrompt(spec: CodingTaskSpec): string {
+  return `Continue the existing task "${spec.taskTitle ?? spec.ticketTitle}" from the current worktree.
+
+Inspect the edits and validation results already produced in this session. Preserve completed work, start with the unresolved failure or check, and finish the original approved plan. Do not repeat repository discovery or completed implementation steps. If dependencies changed, use the repository's declared package manager and resolve them before running the final validation. Do not run git commands; the platform commits the result.`;
 }

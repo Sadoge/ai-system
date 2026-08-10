@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { agentRuns, modelCalls, repositories, type Db } from '@ai-system/db';
 import { uuidv7 } from '@ai-system/domain';
 import {
@@ -24,6 +24,24 @@ export interface ExecutorFactoryDeps {
   mock: boolean;
   /** Built lazily so a missing provider key never breaks CLI-only setups. */
   apiLoop: () => AgentExecutor;
+}
+
+interface PreviousAgentRun {
+  executorKind: string;
+  status: string;
+  failureReason: string | null;
+  sessionId: string | null;
+}
+
+export function resumableSessionFrom(latest: PreviousAgentRun | undefined): string | undefined {
+  if (
+    latest?.executorKind !== 'cli' ||
+    latest.status !== 'failed' ||
+    (latest.failureReason !== 'timeout' && latest.failureReason !== 'cancelled')
+  ) {
+    return undefined;
+  }
+  return latest.sessionId ?? undefined;
 }
 
 /**
@@ -76,6 +94,32 @@ export function resolveExecutor(
         `provider "${choice}" cannot edit a worktree — use claude_cli or codex_cli for this stage`,
       );
   }
+}
+
+/** Latest interrupted Codex conversation that can safely continue in this worktree. */
+export async function resumableCodexSession(
+  db: Db,
+  input: { runId: string; taskId?: string; executor: AgentExecutor },
+): Promise<string | undefined> {
+  if (!(input.executor instanceof CliAgentExecutor) || input.executor.cliName !== 'codex') {
+    return undefined;
+  }
+
+  const taskCondition = input.taskId
+    ? eq(agentRuns.taskId, input.taskId)
+    : isNull(agentRuns.taskId);
+  const rows = await db
+    .select({
+      executorKind: agentRuns.executorKind,
+      status: agentRuns.status,
+      failureReason: agentRuns.failureReason,
+      sessionId: agentRuns.sessionId,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.runId, input.runId), taskCondition, eq(agentRuns.agentKind, 'coding')))
+    .orderBy(desc(agentRuns.createdAt))
+    .limit(1);
+  return resumableSessionFrom(rows[0]);
 }
 
 /**

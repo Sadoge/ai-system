@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CliAgentExecutor, ScriptedAgentExecutor } from '@ai-system/agent-execution';
-import { resolveExecutor } from '../src/executors.js';
+import { resolveExecutor, resumableSessionFrom } from '../src/executors.js';
 
 const deps = {
   mock: false,
@@ -42,5 +42,29 @@ describe('stage executor assignments', () => {
         fallbacks: [],
       }),
     ).toThrow(/cannot edit a worktree/i);
+  });
+});
+
+describe('resumableSessionFrom', () => {
+  it.each(['timeout', 'cancelled'])('continues the latest %s Codex run', (failureReason) => {
+    expect(
+      resumableSessionFrom({
+        executorKind: 'cli',
+        status: 'failed',
+        failureReason,
+        sessionId: 'session-123',
+      }),
+    ).toBe('session-123');
+  });
+
+  it('never revives a stale session after a later successful run', () => {
+    expect(
+      resumableSessionFrom({
+        executorKind: 'cli',
+        status: 'succeeded',
+        failureReason: null,
+        sessionId: 'session-123',
+      }),
+    ).toBeUndefined();
   });
 });

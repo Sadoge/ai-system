@@ -24,6 +24,8 @@ export interface AgentExecutionInput {
   taskId?: string;
   worktreeDir: string;
   taskSpec: CodingTaskSpec;
+  /** Existing provider session to continue after a timeout/cancellation. */
+  resumeSessionId?: string;
   limits: { timeoutMs: number };
   /**
    * Commands the repository has declared safe to run in its sandbox
@@ -52,12 +54,20 @@ export interface AgentExecutionUsage {
 }
 
 export type AgentExecutionResult =
-  | { status: 'succeeded'; transcript: string; usage?: AgentExecutionUsage }
+  | {
+      status: 'succeeded';
+      transcript: string;
+      usage?: AgentExecutionUsage;
+      /** Provider conversation/session id, when the executor exposes one. */
+      sessionId?: string;
+    }
   | {
       status: 'failed';
       failureReason: AgentFailureReason;
       transcript: string;
       usage?: AgentExecutionUsage;
+      /** Persisted so a human retry can continue instead of starting over. */
+      sessionId?: string;
       /** Operator-facing hint, e.g. a missing binary. */
       note?: string;
     };

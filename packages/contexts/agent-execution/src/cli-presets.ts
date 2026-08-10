@@ -13,6 +13,7 @@ export interface CliParseResult {
   /** The CLI ran but reported a failure of its own (not a crash). */
   isError: boolean;
   errorMessage?: string;
+  sessionId?: string;
 }
 
 export interface AgentCliPreset {
@@ -20,6 +21,12 @@ export interface AgentCliPreset {
   binary: string;
   /** Argv after the binary. Built per invocation so the model can be injected. */
   buildArgs(input: {
+    model?: string | undefined;
+    effort?: 'low' | 'medium' | 'high' | undefined;
+  }): string[];
+  /** Build argv for continuing a provider session, when supported. */
+  buildResumeArgs?(input: {
+    sessionId: string;
     model?: string | undefined;
     effort?: 'low' | 'medium' | 'high' | undefined;
   }): string[];
@@ -33,6 +40,8 @@ export interface AgentCliPreset {
   parse(stdout: string, stderr: string): CliParseResult;
   /** Parse one complete stdout line into safe live operator feedback. */
   activity?(line: string): { kind: 'agent' | 'tool' | 'message'; message: string } | null;
+  /** Extract a resumable provider session id from one stdout line. */
+  sessionId?(line: string): string | undefined;
   /** Env vars forwarded into the sandbox, beyond PATH/HOME. Never repository credentials. */
   envAllowlist: string[];
 }
@@ -109,12 +118,31 @@ export const CODEX_PRESET: AgentCliPreset = {
   binary: 'codex',
   buildArgs: ({ model, effort }) => [
     'exec',
-    // Let the agent edit files in the worktree without prompting.
-    '--full-auto',
+    '--sandbox',
+    'workspace-write',
+    '--config',
+    'approval_policy="never"',
+    // Dependency installation is part of coding work. Credentials are still
+    // excluded from the child environment, but registry traffic is allowed.
+    '--config',
+    'sandbox_workspace_write.network_access=true',
     // JSONL exposes structured progress while the process is still running.
     '--json',
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--config', `model_reasoning_effort="${effort}"`] : []),
+  ],
+  buildResumeArgs: ({ sessionId, model, effort }) => [
+    'exec',
+    'resume',
+    '--config',
+    'approval_policy="never"',
+    '--config',
+    'sandbox_workspace_write.network_access=true',
+    '--json',
+    ...(model ? ['--model', model] : []),
+    ...(effort ? ['--config', `model_reasoning_effort="${effort}"`] : []),
+    sessionId,
+    '-',
   ],
   promptDelivery: 'stdin',
   versionArgs: ['--version'],
@@ -212,6 +240,14 @@ export const CODEX_PRESET: AgentCliPreset = {
       return null;
     } catch {
       return null;
+    }
+  },
+  sessionId(line) {
+    try {
+      const event = JSON.parse(line) as { type?: string; thread_id?: string };
+      return event.type === 'thread.started' ? event.thread_id : undefined;
+    } catch {
+      return undefined;
     }
   },
 };

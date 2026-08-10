@@ -62,6 +62,17 @@ const DistillPayload = z.object({
 });
 
 const QUEUES = ['stage.execute', 'task.execute', 'knowledge.distill', 'gate.request'] as const;
+const DEFAULT_CODING_TIMEOUT_MS = 45 * 60 * 1000;
+const DEFAULT_AGENT_JOB_LEASE_GRACE_MS = 5 * 60 * 1000;
+
+function positiveDuration(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  log.warn({ name, value: raw, fallback }, 'invalid duration environment value');
+  return fallback;
+}
 
 type ReasoningProvider = 'codex_cli' | 'claude_cli' | 'anthropic' | 'openai';
 const REASONING_PURPOSES = [
@@ -303,7 +314,7 @@ async function buildServices(db: Db): Promise<StageServices> {
     // Keep this root absolute so checkout and worktree operations agree even
     // when AI_DATA_DIR is configured as the documented relative `./data`.
     dataDir: resolve(process.env.AI_DATA_DIR ?? join(process.cwd(), 'data')),
-    codingTimeoutMs: Number(process.env.CODING_TIMEOUT_MS ?? 15 * 60 * 1000),
+    codingTimeoutMs: positiveDuration('CODING_TIMEOUT_MS', DEFAULT_CODING_TIMEOUT_MS),
     githubToken: process.env.GITHUB_TOKEN,
   };
 }
@@ -401,7 +412,12 @@ async function main(): Promise<void> {
     log[available ? 'info' : 'warn']({ cli: name, available }, 'coding agent CLI probe');
   }
 
-  const dispatcher = new OutboxDispatcher(db, boss, log);
+  const leaseGraceMs = positiveDuration(
+    'AGENT_JOB_LEASE_GRACE_MS',
+    DEFAULT_AGENT_JOB_LEASE_GRACE_MS,
+  );
+  const longRunningExpireInSeconds = Math.ceil((services.codingTimeoutMs + leaseGraceMs) / 1000);
+  const dispatcher = new OutboxDispatcher(db, boss, log, { longRunningExpireInSeconds });
   dispatcher.start();
   const webhooks = new WebhookNotifier(db, log);
   webhooks.start();

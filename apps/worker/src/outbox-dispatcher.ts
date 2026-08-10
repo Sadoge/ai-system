@@ -4,6 +4,28 @@ import { outbox, type Db } from '@ai-system/db';
 import type { Logger } from 'pino';
 
 const BATCH_SIZE = 25;
+const DEFAULT_INTERVAL_MS = 250;
+
+export interface OutboxDispatcherOptions {
+  intervalMs?: number;
+  /** Queue lease for agent-backed stage/task jobs. Must exceed the agent timeout. */
+  longRunningExpireInSeconds?: number;
+}
+
+export function jobOptionsFor(
+  jobName: string,
+  longRunningExpireInSeconds?: number,
+): PgBoss.SendOptions {
+  const longRunning = jobName === 'stage.execute' || jobName === 'task.execute';
+  return {
+    retryLimit: 3,
+    retryDelay: 2,
+    retryBackoff: true,
+    ...(longRunning && longRunningExpireInSeconds
+      ? { expireInSeconds: longRunningExpireInSeconds }
+      : {}),
+  };
+}
 
 /**
  * Publishes outbox rows (written transactionally by the engine) to pg-boss.
@@ -18,7 +40,7 @@ export class OutboxDispatcher {
     private readonly db: Db,
     private readonly boss: PgBoss,
     private readonly log: Logger,
-    private readonly intervalMs = 250,
+    private readonly options: OutboxDispatcherOptions = {},
   ) {}
 
   start(): void {
@@ -29,7 +51,8 @@ export class OutboxDispatcher {
       } catch (err) {
         this.log.error({ err }, 'outbox dispatch failed');
       }
-      if (!this.stopped) this.timer = setTimeout(tick, this.intervalMs);
+      if (!this.stopped)
+        this.timer = setTimeout(tick, this.options.intervalMs ?? DEFAULT_INTERVAL_MS);
     };
     void tick();
   }
@@ -50,11 +73,11 @@ export class OutboxDispatcher {
         .for('update', { skipLocked: true });
 
       for (const row of pending) {
-        await this.boss.send(row.jobName, row.payload as object, {
-          retryLimit: 3,
-          retryDelay: 2,
-          retryBackoff: true,
-        });
+        await this.boss.send(
+          row.jobName,
+          row.payload as object,
+          jobOptionsFor(row.jobName, this.options.longRunningExpireInSeconds),
+        );
         await tx
           .update(outbox)
           .set({ processedAt: new Date(), attempts: sql`${outbox.attempts} + 1` })

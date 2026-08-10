@@ -35,6 +35,7 @@ import {
   diffAgainst,
   ensureCheckout,
   ensureWorktree,
+  renderCodingContinuationPrompt,
   renderCodingPrompt,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
@@ -42,7 +43,7 @@ import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
 import { detectGitHost, gitHostFor } from './git-host.js';
 import { notifyTracker } from './trackers.js';
-import { recordExecutorUsage } from './executors.js';
+import { recordExecutorUsage, resumableCodexSession } from './executors.js';
 import { agentActivityReporter, reportActivity } from './activity.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
@@ -271,19 +272,32 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
   };
 
   const agentRunId = uuidv7();
+  const executor = await services.executorFor(run, repo, 'coding');
+  const resumeSessionId = await resumableCodexSession(db, {
+    runId: run.id,
+    executor,
+  });
+  const executionPrompt = resumeSessionId
+    ? renderCodingContinuationPrompt(taskSpec)
+    : renderCodingPrompt(taskSpec);
   // Persist the exact context BEFORE execution — every agent run is reproducible (docs/06 §2).
   const { artifactId: bundleId } = await createArtifact(db, {
     runId: run.id,
     kind: 'task_spec',
-    content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
+    content: {
+      taskSpec,
+      prompt: executionPrompt,
+      iteration: run.iterationCount,
+      ...(resumeSessionId ? { resumeSessionId } : {}),
+    },
   });
-  const executor = await services.executorFor(run, repo, 'coding');
   await db.insert(agentRuns).values({
     id: agentRunId,
     runId: run.id,
     agentKind: 'coding',
     executorKind: executor.executorKind,
     status: 'running',
+    sessionId: resumeSessionId,
     contextBundleArtifactId: bundleId,
     startedAt: new Date(),
   });
@@ -294,6 +308,7 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     agentRunId,
     worktreeDir,
     taskSpec,
+    ...(resumeSessionId ? { resumeSessionId } : {}),
     limits: { timeoutMs: services.codingTimeoutMs },
     allowedCommands: allowedCommandsFor(repo),
     onActivity: agentActivityReporter(db, {
@@ -315,14 +330,22 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
   const { artifactId: transcriptId } = await createArtifact(db, {
     runId: run.id,
     kind: 'agent_transcript',
-    content: { transcript: result.transcript.slice(-100_000) },
+    content: {
+      transcript: result.transcript.slice(-100_000),
+      ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+    },
     createdByAgentRunId: agentRunId,
   });
 
   if (result.status === 'failed') {
     await db
       .update(agentRuns)
-      .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
+      .set({
+        status: 'failed',
+        failureReason: result.failureReason,
+        sessionId: result.sessionId ?? resumeSessionId,
+        finishedAt: new Date(),
+      })
       .where(eq(agentRuns.id, agentRunId));
     throw new Error(
       `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
@@ -340,7 +363,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
 
   await db
     .update(agentRuns)
-    .set({ status: 'succeeded', finishedAt: new Date() })
+    .set({
+      status: 'succeeded',
+      sessionId: result.sessionId ?? resumeSessionId,
+      finishedAt: new Date(),
+    })
     .where(eq(agentRuns.id, agentRunId));
   return { artifactIds: [bundleId, transcriptId, diffId] };
 }

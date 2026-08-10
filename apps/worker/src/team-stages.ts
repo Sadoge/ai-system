@@ -12,6 +12,7 @@ import {
   ensureCheckout,
   ensureWorktree,
   git,
+  renderCodingContinuationPrompt,
   renderCodingPrompt,
   renderConflictPrompt,
   startMerge,
@@ -19,7 +20,7 @@ import {
 } from '@ai-system/agent-execution';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
-import { recordExecutorUsage } from './executors.js';
+import { recordExecutorUsage, resumableCodexSession } from './executors.js';
 import { agentActivityReporter, reportActivity } from './activity.js';
 import {
   agentCtx,
@@ -182,10 +183,24 @@ export async function executeTask(
       rules: brain.rules.map((r) => ({ title: r.title, content: r.content })),
     };
 
+    const resumeSessionId = await resumableCodexSession(db, {
+      runId: run.id,
+      taskId: task.id,
+      executor,
+    });
+    const executionPrompt = resumeSessionId
+      ? renderCodingContinuationPrompt(taskSpec)
+      : renderCodingPrompt(taskSpec);
+
     const { artifactId: bundleId } = await createArtifact(db, {
       runId: run.id,
       kind: 'task_spec',
-      content: { taskId: task.id, taskSpec, prompt: renderCodingPrompt(taskSpec) },
+      content: {
+        taskId: task.id,
+        taskSpec,
+        prompt: executionPrompt,
+        ...(resumeSessionId ? { resumeSessionId } : {}),
+      },
     });
     await db.insert(agentRuns).values({
       id: agentRunId,
@@ -194,6 +209,7 @@ export async function executeTask(
       agentKind: 'coding',
       executorKind: executor.executorKind,
       status: 'running',
+      sessionId: resumeSessionId,
       contextBundleArtifactId: bundleId,
       startedAt: new Date(),
     });
@@ -209,6 +225,7 @@ export async function executeTask(
       taskId: task.id,
       worktreeDir,
       taskSpec,
+      ...(resumeSessionId ? { resumeSessionId } : {}),
       limits: { timeoutMs: services.codingTimeoutMs },
       allowedCommands: allowedCommandsFor(repo),
       onActivity: agentActivityReporter(db, {
@@ -231,14 +248,23 @@ export async function executeTask(
     await createArtifact(db, {
       runId: run.id,
       kind: 'agent_transcript',
-      content: { taskId: task.id, transcript: result.transcript.slice(-100_000) },
+      content: {
+        taskId: task.id,
+        transcript: result.transcript.slice(-100_000),
+        ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+      },
       createdByAgentRunId: agentRunId,
     });
 
     if (result.status === 'failed') {
       await db
         .update(agentRuns)
-        .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
+        .set({
+          status: 'failed',
+          failureReason: result.failureReason,
+          sessionId: result.sessionId ?? resumeSessionId,
+          finishedAt: new Date(),
+        })
         .where(eq(agentRuns.id, agentRunId));
       await failTask(
         services,
@@ -252,7 +278,11 @@ export async function executeTask(
     await commitAll(worktreeDir, `ai-system: ${task.title}`);
     await db
       .update(agentRuns)
-      .set({ status: 'succeeded', finishedAt: new Date() })
+      .set({
+        status: 'succeeded',
+        sessionId: result.sessionId ?? resumeSessionId,
+        finishedAt: new Date(),
+      })
       .where(eq(agentRuns.id, agentRunId));
     await db.update(tasksTable).set({ error: null }).where(eq(tasksTable.id, task.id));
     await applyEvent(db, { name: 'task.completed', payload: { runId: run.id, taskId: task.id } });

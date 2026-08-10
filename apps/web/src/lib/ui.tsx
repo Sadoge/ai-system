@@ -42,9 +42,15 @@ export function readState(status: string): StateRead {
   }
 }
 
+/**
+ * Text tones. Small type takes the bright vermilion, not `--color-mark`:
+ * #e2452f on the blueprint ground is 4.23:1, which is under the bar at
+ * 12–14px. `--color-mark` stays for rules, barlines and the caesura edge,
+ * where it is never text.
+ */
 const TONE_TEXT: Record<Tone, string> = {
-  await: 'text-mark',
-  fault: 'text-mark',
+  await: 'text-mark-bright',
+  fault: 'text-mark-bright',
   live: 'text-cue-bright',
   done: 'text-ink-muted',
   hold: 'text-hold-bright',
@@ -95,27 +101,22 @@ export function Fermata({ className = '' }: { className?: string }) {
 }
 
 /**
- * The state of a whole record, read at a glance: notehead plus the name the
- * platform uses. Awaiting-human is the only state drawn filled, because it
- * is the only one asking for something.
+ * The state of a whole record: a mark plus the name the platform uses, set
+ * on the ground. Waiting-on-a-human takes the fermata instead of a notehead
+ * and the conductor's vermilion; nothing here is a filled chip, because a
+ * status pill is the arrangement this world refuses.
  */
 export function StatusMark({ status, className = '' }: { status: string; className?: string }) {
   const { tone, head } = readState(status);
-  if (tone === 'await') {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 bg-mark px-2 py-0.5 font-mono text-xs text-ground ${className}`}
-      >
-        <Fermata className="shrink-0" />
-        {status}
-      </span>
-    );
-  }
   return (
     <span
       className={`inline-flex items-center gap-1.5 font-mono text-xs ${TONE_TEXT[tone]} ${className}`}
     >
-      <Notehead head={head} className="shrink-0" />
+      {tone === 'await' ? (
+        <Fermata className="shrink-0" />
+      ) : (
+        <Notehead head={head} className="shrink-0" />
+      )}
       {status}
     </span>
   );
@@ -182,14 +183,24 @@ export function Stave({ children, className = '' }: { children: React.ReactNode;
   return <div className={`stave flex items-center gap-3 py-2.5 ${className}`}>{children}</div>;
 }
 
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
+
 export const inputCls =
-  'border-b border-rule-strong bg-transparent px-1 py-1.5 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-cue focus:outline-none';
+  `border-b border-rule-strong bg-transparent px-1 py-1.5 font-mono text-sm text-ink placeholder:text-ink-faint focus-visible:border-cue ${FOCUS}`;
 
-/** The mark you make: the affirmative action, drawn as the conductor's stroke. */
+/** Native selects, with the OS chevron replaced by an engraved one. */
+export const selectCls = `${inputCls} select-chevron cursor-pointer pr-6`;
+
+/**
+ * The mark you make. The affirmative action is the conductor's vermilion
+ * stroke on the ground — its weight comes from the stroke, not a fill, and
+ * committing to it fills the stroke in.
+ */
 export const buttonCls =
-  'border border-cue-deep bg-cue-deep px-3 py-1.5 font-mono text-sm text-ink hover:bg-cue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
+  `border-2 border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
 
+/** The other decision. Quieter at rest; it reaches for the pencil on hover. */
 export const buttonDangerCls =
-  'border border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark hover:bg-mark hover:text-ground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mark-bright';
+  `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-mark hover:text-mark-bright ${FOCUS}`;
 
 export const linkCls = 'text-cue-bright underline decoration-rule-strong underline-offset-2 hover:decoration-cue';

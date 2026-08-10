@@ -41,8 +41,9 @@ interface RunAnalytics {
 }
 
 /**
- * Dynamics: a magnitude read along the stave. Bars are square-ended and sit
- * on the band, so a column of them reads as one graph rather than a list.
+ * Dynamics: a magnitude read along the stave. Quantity is drawn in bone,
+ * never in a state colour — vermilion, cobalt and ochre mean something on
+ * this surface, and a bar chart is not a state.
  */
 function Dynamic({
   value,
@@ -60,18 +61,26 @@ function Dynamic({
     <div className="flex items-center gap-4">
       <span className="w-36 shrink-0 truncate font-mono text-xs text-ink-muted">{label}</span>
       <span className="h-2.5 flex-1 bg-ground-band">
-        <span className="block h-2.5 bg-cue-deep" style={{ width: `${pct}%` }} />
+        <span className="block h-2.5 bg-ink-muted" style={{ width: `${pct}%` }} />
       </span>
       <span className="w-24 shrink-0 text-right font-mono text-xs text-ink-muted tnum">{right}</span>
     </div>
   );
 }
 
-function Tally({ label, value }: { label: string; value: string }) {
+/** A ruled readout: the window's facts read along one line, barline-separated. */
+function Readout({ items }: { items: { label: string; value: string }[] }) {
   return (
-    <div className="border-l border-rule-strong pl-3">
-      <p className="annot text-xs text-ink-label">{label}</p>
-      <p className="mt-0.5 font-mono text-lg text-ink tnum">{value}</p>
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-y border-rule py-3">
+      {items.map((item, i) => (
+        <div key={item.label} className="flex items-center gap-5">
+          {i > 0 && <span className="barline h-7" aria-hidden />}
+          <p className="flex items-baseline gap-2">
+            <span className="annot text-xs text-ink-label">{item.label}</span>
+            <span className="font-mono text-sm text-ink tnum">{item.value}</span>
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -100,14 +109,17 @@ export default async function AnalyticsPage() {
   return (
     <main>
       <System mark="A" title="Last thirty days">
-        <div className="flex flex-wrap gap-8">
-          <Tally label="spend" value={`$${total.toFixed(4)}`} />
-          <Tally label="finished runs" value={String(runs.finishedRuns)} />
-          <Tally
-            label="success rate"
-            value={runs.successRate === null ? '—' : `${Math.round(runs.successRate * 100)}%`}
-          />
-        </div>
+        <Readout
+          items={[
+            { label: 'spend', value: `$${total.toFixed(4)}` },
+            { label: 'finished runs', value: String(runs.finishedRuns) },
+            {
+              label: 'success rate',
+              value:
+                runs.successRate === null ? '—' : `${Math.round(runs.successRate * 100)}%`,
+            },
+          ]}
+        />
         <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
           Success rate counts only finished runs — counting in-flight ones would understate it.
         </p>
@@ -243,12 +255,17 @@ export default async function AnalyticsPage() {
                       <td className="py-1.5 pr-4 text-right font-mono text-ink-secondary tnum">
                         {row.settledRuns}
                       </td>
+                      {/* Above or below baseline is marked with a notation
+                          sign, not a state colour. */}
                       <td
                         className={`py-1.5 pr-4 text-right font-mono tnum ${
-                          thin ? 'text-ink-faint' : better ? 'text-cue-bright' : 'text-hold-bright'
+                          thin ? 'text-ink-faint' : 'text-ink-secondary'
                         }`}
                       >
                         {(row.firstPassRate * 100).toFixed(0)}%{thin ? '*' : ''}
+                        <span className="ml-1 text-ink-faint" title={better ? 'above baseline' : 'below baseline'}>
+                          {thin ? '' : better ? '▲' : '▼'}
+                        </span>
                       </td>
                       <td className="py-1.5 text-right font-mono text-ink-secondary tnum">
                         {row.avgIterations.toFixed(1)}

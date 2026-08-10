@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { apiGet, type RunSummary } from '@/lib/api';
 import { startRunAction } from '@/lib/actions';
-import { Stave, StatusMark, System, buttonCls, inputCls } from '@/lib/ui';
+import { Stave, StatusMark, System, buttonCls, inputCls, selectCls } from '@/lib/ui';
 
 function Field({
   label,
@@ -37,14 +37,14 @@ export default async function RunsPage() {
             <input name="jiraKey" className={`${inputCls} w-32`} placeholder="PROJ-123" />
           </Field>
           <Field label="Pipeline">
-            <select name="pipeline" className={inputCls} defaultValue="mvp">
+            <select name="pipeline" className={selectCls} defaultValue="mvp">
               <option value="mvp">mvp</option>
               <option value="team">team</option>
               <option value="trivial">trivial</option>
             </select>
           </Field>
           <Field label="Automation">
-            <select name="automation" className={inputCls} defaultValue="plan_gated">
+            <select name="automation" className={selectCls} defaultValue="plan_gated">
               <option value="plan_gated">plan_gated</option>
               <option value="autonomous">autonomous</option>
             </select>

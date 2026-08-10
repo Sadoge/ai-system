@@ -4,18 +4,16 @@ import { resolveGateAction } from '@/lib/actions';
 import {
   Caesura,
   Fermata,
-  Notehead,
   SeverityMark,
-  Stave,
   StatusMark,
   System,
   buttonCls,
   buttonDangerCls,
   inputCls,
   linkCls,
-  readState,
 } from '@/lib/ui';
 import { LiveRefresh } from './live-refresh';
+import { RunSystem } from './system';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
@@ -56,7 +54,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <div key={gate.id} className="mb-8">
           <Caesura>
             <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <Fermata className="shrink-0 text-mark" />
+              <Fermata className="shrink-0 text-mark-bright" />
               <span className="annot text-base text-ink">Held for you</span>
               <span className="font-mono text-sm text-mark-bright">{gate.gate}</span>
               {typeof gate.payload.artifactId === 'string' && (
@@ -71,9 +69,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             <form action={resolveGateAction} className="flex flex-wrap items-end gap-3">
               <input type="hidden" name="gateId" value={gate.id} />
               <label className="flex min-w-56 flex-1 flex-col gap-1">
-                <span className="annot text-xs text-ink-label">
-                  Comment — required to reject
-                </span>
+                <span className="annot text-xs text-ink-label">Comment — required to reject</span>
                 <input name="comment" className={inputCls} placeholder="Why" />
               </label>
               <button type="submit" name="decision" value="approved" className={buttonCls}>
@@ -87,102 +83,31 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </div>
       ))}
 
-      {/* The score: stages crossing barlines, left to right. */}
-      <System mark="A" title="The score" aside={terminal ? 'closed' : 'sounding'}>
-        {/* Stages wrap into successive systems the way a score breaks its
-            lines at the margin, so a long pipeline stays on screen at any
-            width instead of scrolling out of sight. */}
-        <div className="flex flex-wrap items-stretch">
-          {run.stages.map((s, i) => {
-            const { tone, head } = readState(s.status);
-            const current = s.stage === run.currentStage;
-            return (
-              <div key={s.id} className="stave-seg flex items-stretch">
-                {i > 0 && <span className={current ? 'barline-now' : 'barline'} aria-hidden />}
-                <div
-                  className="flex flex-col items-center gap-2 px-3 py-3 sm:px-4"
-                  title={s.error ?? undefined}
-                >
-                  <span
-                    className={`stave-clear ${
-                      tone === 'fault'
-                        ? 'text-mark'
-                        : tone === 'done'
-                          ? 'text-ink-secondary'
-                          : current
-                            ? 'text-cue-bright pulse-live'
-                            : 'text-ink-faint'
-                    }`}
-                  >
-                    <Notehead head={head} />
-                  </span>
-                  <span
-                    className={`font-mono text-micro whitespace-nowrap ${
-                      current ? 'text-mark-bright' : 'text-ink-label'
-                    }`}
-                  >
-                    {s.stage}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          {terminal && <span className="barline-final" aria-hidden />}
-        </div>
+      {/* One system: the run's own voice over the task voices, all crossing
+          the same stage barlines. */}
+      <System
+        mark="A"
+        title="The system"
+        aside={
+          run.tasks.length > 0
+            ? `${doneTasks}/${run.tasks.length} voices played`
+            : terminal
+              ? 'closed'
+              : 'sounding'
+        }
+      >
+        <RunSystem run={run} />
       </System>
-
-      {/* Parallel voices: the team pipeline's concurrent agents. */}
-      {run.tasks.length > 0 && (
-        <System mark="B" title="Voices" aside={`${doneTasks}/${run.tasks.length} played`}>
-          <ul className="border-t border-rule">
-            {run.tasks.map((task) => {
-              const deps = task.dependsOn
-                .map((d) => run.tasks.find((t) => t.id === d)?.title ?? d.slice(-8))
-                .join(', ');
-              return (
-                <li key={task.id} className="border-b border-rule">
-                  <Stave className="px-3">
-                    <span className="stave-clear shrink-0">
-                      <StatusMark status={task.status} />
-                    </span>
-                    <span className="stave-clear min-w-0 flex-1 text-sm text-ink">
-                      {task.title}
-                      {deps && (
-                        <span className="annot ml-2 text-xs text-ink-label">after {deps}</span>
-                      )}
-                      {task.error && (
-                        <span className="ml-2 font-mono text-xs text-mark-bright">
-                          {task.error}
-                        </span>
-                      )}
-                    </span>
-                    {task.origin === 'fix_iteration' && (
-                      <span className="stave-clear annot shrink-0 text-xs text-hold-bright">
-                        da capo
-                      </span>
-                    )}
-                    {task.executorKind && (
-                      <span className="stave-clear hidden shrink-0 font-mono text-xs text-ink-faint sm:inline">
-                        {task.executorKind}
-                      </span>
-                    )}
-                    <span className="stave-clear shrink-0 font-mono text-xs text-ink-faint tnum">
-                      {task.attemptCount}/{task.maxAttempts}
-                    </span>
-                  </Stave>
-                </li>
-              );
-            })}
-          </ul>
-        </System>
-      )}
 
       {/* Editorial marks: what the reviewer wrote in the margin. */}
       {run.findings.length > 0 && (
-        <System mark="C" title="Editorial marks" aside={`${run.findings.length}`}>
+        <System mark="B" title="Editorial marks" aside={`${run.findings.length}`}>
           <ul className="space-y-5">
             {run.findings.map((f) => (
-              <li key={f.id} className="flex flex-col gap-1 border-l border-rule pl-4 sm:flex-row sm:gap-4">
+              <li
+                key={f.id}
+                className="flex flex-col gap-1 border-l border-rule pl-4 sm:flex-row sm:gap-4"
+              >
                 <div className="shrink-0 pt-0.5 sm:w-28">
                   <SeverityMark severity={f.severity} />
                   <p className="mt-1 font-mono text-micro text-ink-faint">{f.status}</p>
@@ -197,7 +122,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </System>
       )}
 
-      <System mark="D" title="Parts" aside={`${run.artifacts.length}`}>
+      <System mark="C" title="Parts" aside={`${run.artifacts.length}`}>
         {run.artifacts.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">
             No parts written yet. They appear as the run produces them.

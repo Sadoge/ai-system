@@ -37,7 +37,7 @@ export default async function FindingsPage() {
                 </span>
                 <span className="h-2 flex-1 bg-ground-band">
                   <span
-                    className="block h-2 bg-mark-deep"
+                    className="block h-2 bg-ink-muted"
                     style={{ width: `${maxCount > 0 ? Math.max(2, (row.count / maxCount) * 100) : 0}%` }}
                   />
                 </span>

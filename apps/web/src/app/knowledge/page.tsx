@@ -1,6 +1,6 @@
 import { apiGet, type KnowledgeRow } from '@/lib/api';
 import { addKnowledgeAction } from '@/lib/actions';
-import { System, buttonCls, inputCls } from '@/lib/ui';
+import { System, buttonCls, inputCls, selectCls } from '@/lib/ui';
 
 const KINDS = [
   'architecture_rule',
@@ -21,7 +21,7 @@ export default async function KnowledgePage() {
         <form action={addKnowledgeAction} className="flex flex-wrap items-end gap-x-6 gap-y-4">
           <label className="flex flex-col gap-1">
             <span className="annot text-xs text-ink-label">Kind</span>
-            <select name="kind" className={inputCls}>
+            <select name="kind" className={selectCls}>
               {KINDS.map((k) => (
                 <option key={k} value={k}>
                   {k}

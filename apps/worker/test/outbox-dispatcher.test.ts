@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jobOptionsFor } from '../src/outbox-dispatcher.js';
+import { agentJobLeaseSeconds, jobOptionsFor } from '../src/outbox-dispatcher.js';
 
 describe('jobOptionsFor', () => {
   it.each(['stage.execute', 'task.execute'])('extends the lease for %s', (jobName) => {
@@ -13,5 +13,11 @@ describe('jobOptionsFor', () => {
 
   it('does not give short control jobs an agent-sized lease', () => {
     expect(jobOptionsFor('gate.request', 3_000)).not.toHaveProperty('expireInSeconds');
+  });
+});
+
+describe('agentJobLeaseSeconds', () => {
+  it('covers every fallback timeout plus shutdown grace', () => {
+    expect(agentJobLeaseSeconds(45 * 60_000, 3, 5 * 60_000)).toBe(140 * 60);
   });
 });

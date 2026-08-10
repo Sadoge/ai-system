@@ -12,6 +12,14 @@ export interface OutboxDispatcherOptions {
   longRunningExpireInSeconds?: number;
 }
 
+export function agentJobLeaseSeconds(
+  timeoutMs: number,
+  maxAttempts: number,
+  graceMs: number,
+): number {
+  return Math.ceil((timeoutMs * Math.max(1, maxAttempts) + graceMs) / 1000);
+}
+
 export function jobOptionsFor(
   jobName: string,
   longRunningExpireInSeconds?: number,

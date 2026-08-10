@@ -802,7 +802,11 @@ export class ApiService {
       provider: string;
       model: string;
       params: Record<string, unknown>;
-      fallbacks: { provider: string; model: string }[];
+      fallbacks: {
+        provider: string;
+        model: string;
+        params?: { reasoningEffort?: 'low' | 'medium' | 'high' | undefined } | undefined;
+      }[];
       projectId?: string | undefined;
     },
   ) {
@@ -810,10 +814,12 @@ export class ApiService {
     if (input.projectId) await this.pickProject(principal, input.projectId);
     if (
       ['coding', 'integration'].includes(input.purpose) &&
-      !['claude_cli', 'codex_cli', 'scripted', 'api_loop'].includes(input.provider)
+      [input.provider, ...input.fallbacks.map((fallback) => fallback.provider)].some(
+        (provider) => !['claude_cli', 'codex_cli', 'scripted', 'api_loop'].includes(provider),
+      )
     ) {
       throw new BadRequestException(
-        `${input.purpose} edits a worktree; choose claude_cli or codex_cli for subscription use`,
+        `${input.purpose} edits a worktree; every primary and fallback provider must be worktree-capable`,
       );
     }
     const id = uuidv7();

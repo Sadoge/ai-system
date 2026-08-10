@@ -142,7 +142,7 @@ Findings are the unit of iteration accounting: a finding that survives two fix a
 | Failure | Deterministic response |
 |---|---|
 | Agent run `invalid_output` | Retry same agent with validation errors appended (max 2), then fail the stage |
-| Agent run `model_error` / `rate_limited` | Gateway retries → fallback models (see [07](07-model-management.md)); if all exhausted, stage fails |
+| Editing agent `timeout` / `model_error` / `rate_limited` / `sandbox_error` | Continue through the configured model targets, then the alternate authenticated Codex/Claude CLI in the same worktree; if all are exhausted, the stage fails |
 | Task fails after `max_attempts` | Stage `executing` fails → run `failed` with full diagnostics (never silent partial merge) |
 | Worker dies mid-job | pg-boss redelivers; handlers are idempotent on `(id, attempt)`; a fresh worktree is cut for redelivered coding tasks |
 | Budget exhausted | Run → `paused` + gate request; human tops up or cancels |

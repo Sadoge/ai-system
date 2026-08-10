@@ -133,7 +133,11 @@ export interface ModelProfileRow {
   provider: string;
   model: string;
   params: Record<string, unknown>;
-  fallbacks: { provider: string; model: string }[];
+  fallbacks: {
+    provider: string;
+    model: string;
+    params?: { reasoningEffort?: 'low' | 'medium' | 'high' };
+  }[];
   projectId: string | null;
   organizationId: string | null;
 }

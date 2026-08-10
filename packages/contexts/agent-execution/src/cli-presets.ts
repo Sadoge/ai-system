@@ -19,7 +19,10 @@ export interface AgentCliPreset {
   name: AgentCliName;
   binary: string;
   /** Argv after the binary. Built per invocation so the model can be injected. */
-  buildArgs(input: { model?: string | undefined }): string[];
+  buildArgs(input: {
+    model?: string | undefined;
+    effort?: 'low' | 'medium' | 'high' | undefined;
+  }): string[];
   /**
    * Prompts are long and contain arbitrary text, so `stdin` is the default:
    * it avoids shell quoting entirely and cannot hit ARG_MAX.
@@ -40,7 +43,7 @@ export interface AgentCliPreset {
 export const CLAUDE_CODE_PRESET: AgentCliPreset = {
   name: 'claude_code',
   binary: 'claude',
-  buildArgs: ({ model }) => [
+  buildArgs: ({ model, effort }) => [
     '-p',
     '--output-format',
     'json',
@@ -48,10 +51,12 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
     '--permission-mode',
     'acceptEdits',
     ...(model ? ['--model', model] : []),
+    ...(effort ? ['--effort', effort] : []),
   ],
   promptDelivery: 'stdin',
   versionArgs: ['--version'],
-  envAllowlist: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'LANG', 'TERM'],
+  // OAuth is subscription-backed; API keys are deliberately not forwarded.
+  envAllowlist: ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'LANG', 'TERM'],
   parse(stdout, stderr) {
     try {
       const data = JSON.parse(stdout.trim()) as {
@@ -68,7 +73,9 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
         ...(data.is_error === true ? { errorMessage: data.result ?? 'CLI reported an error' } : {}),
         usage: {
           ...(data.total_cost_usd !== undefined ? { costUsd: data.total_cost_usd } : {}),
-          ...(data.usage?.input_tokens !== undefined ? { inputTokens: data.usage.input_tokens } : {}),
+          ...(data.usage?.input_tokens !== undefined
+            ? { inputTokens: data.usage.input_tokens }
+            : {}),
           ...(data.usage?.output_tokens !== undefined
             ? { outputTokens: data.usage.output_tokens }
             : {}),
@@ -98,15 +105,17 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
 export const CODEX_PRESET: AgentCliPreset = {
   name: 'codex',
   binary: 'codex',
-  buildArgs: ({ model }) => [
+  buildArgs: ({ model, effort }) => [
     'exec',
     // Let the agent edit files in the worktree without prompting.
     '--full-auto',
     ...(model ? ['--model', model] : []),
+    ...(effort ? ['--config', `model_reasoning_effort="${effort}"`] : []),
   ],
   promptDelivery: 'stdin',
   versionArgs: ['--version'],
-  envAllowlist: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'LANG', 'TERM'],
+  // Saved Codex login is read through HOME/CODEX_HOME; API keys stay outside.
+  envAllowlist: ['CODEX_HOME', 'LANG', 'TERM'],
   parse(stdout, stderr) {
     const lines = stdout.split('\n').filter((l) => l.trim().startsWith('{'));
     for (const line of lines.reverse()) {

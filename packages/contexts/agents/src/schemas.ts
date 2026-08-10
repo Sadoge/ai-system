@@ -96,6 +96,20 @@ export const ReviewReport = z.object({
 });
 export type ReviewReport = z.infer<typeof ReviewReport>;
 
+export const TestAnalysis = z.object({
+  summary: z.string(),
+  findings: z.array(
+    z.object({
+      severity: FindingSeverity,
+      category: z.string(),
+      title: z.string(),
+      detail: z.string(),
+      filePath: z.string().nullable().default(null),
+    }),
+  ),
+});
+export type TestAnalysis = z.infer<typeof TestAnalysis>;
+
 // ── Agent inputs ──────────────────────────────────────────────────────
 
 export interface ClassifyInput {
@@ -157,6 +171,15 @@ export interface ReviewInput {
   specialty?: ReviewSpecialty | undefined;
 }
 
+export interface TestInput {
+  ticket: TicketSnapshot;
+  command: string | null;
+  passed: boolean;
+  output: string;
+  diff: string;
+  iterationCount: number;
+}
+
 export interface AgentContext {
   runId: string;
   budgetUsd: number | null;
@@ -169,6 +192,7 @@ export interface Agents {
   plan(input: PlanInput, ctx: AgentContext): Promise<ImplementationPlan>;
   decompose(input: DecomposeInput, ctx: AgentContext): Promise<TaskPlan>;
   review(input: ReviewInput, ctx: AgentContext): Promise<ReviewReport>;
+  test(input: TestInput, ctx: AgentContext): Promise<TestAnalysis>;
   document(input: DocumentInput, ctx: AgentContext): Promise<DocumentationOutput>;
   distill(input: DistillInput, ctx: AgentContext): Promise<KnowledgeProposals>;
 }

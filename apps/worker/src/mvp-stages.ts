@@ -274,7 +274,7 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     kind: 'task_spec',
     content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
   });
-  const executor = services.executorFor(repo);
+  const executor = await services.executorFor(run, repo, 'coding');
   await db.insert(agentRuns).values({
     id: agentRunId,
     runId: run.id,
@@ -413,6 +413,7 @@ export function specializedReviewersFor(repo: RepoRow | null): ReviewSpecialty[]
 
 export async function testStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
   const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
   const repo = await requireRepo(db, run);
   const { worktreeDir } = repoPaths(services, repo.id, run.id);
   const settings = (repo.settings ?? {}) as { testCommand?: string };
@@ -436,6 +437,59 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
     }
   }
 
+  // The command result is deterministic; the assigned testing agent explains
+  // failures and turns them into actionable fix inputs. No command means no
+  // model call, because there is no evidence for an agent to interpret.
+  let analysis = {
+    summary: 'No test command configured.',
+    findings: [] as Array<{
+      severity: 'blocker' | 'major' | 'minor' | 'info';
+      category: string;
+      title: string;
+      detail: string;
+      filePath: string | null;
+    }>,
+  };
+  if (settings.testCommand) {
+    const diffArtifact = await latestArtifact(db, run.id, 'diff');
+    const diff = (diffArtifact?.content as { diff?: string } | undefined)?.diff ?? '';
+    const agents = await services.agents(run);
+    analysis = await agents.test(
+      {
+        ticket,
+        command: settings.testCommand,
+        passed: testsPassed,
+        output,
+        diff,
+        iterationCount: run.iterationCount,
+      },
+      agentCtx(run),
+    );
+  }
+
+  if (!testsPassed && !analysis.findings.some((f) => ['blocker', 'major'].includes(f.severity))) {
+    analysis.findings.push({
+      severity: 'major',
+      category: 'testing',
+      title: 'Repository test command failed',
+      detail: analysis.summary || output.slice(-2_000),
+      filePath: null,
+    });
+  }
+  for (const finding of analysis.findings) {
+    await db.insert(reviewFindings).values({
+      id: uuidv7(),
+      runId: run.id,
+      severity: finding.severity,
+      category: finding.category.startsWith('testing')
+        ? finding.category
+        : `testing:${finding.category}`,
+      title: finding.title,
+      detail: finding.detail,
+      filePath: finding.filePath,
+    });
+  }
+
   const blocking = (await openBlockingFindings(db, run.id)).filter((f) =>
     ['blocker', 'major'].includes(f.severity),
   );
@@ -445,6 +499,7 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
     content: {
       testsPassed,
       output,
+      analysis,
       blockingFindings: blocking.map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
       iteration: run.iterationCount,
     },

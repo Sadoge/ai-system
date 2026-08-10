@@ -246,6 +246,7 @@ repoCmd
     'coding agent: claude_code | codex | api_loop | scripted (default: claude_code)',
   )
   .option('--executor-model <model>', 'model passed to the coding agent CLI')
+  .option('--executor-effort <level>', 'coding reasoning effort: low | medium | high')
   .option('--reviewers <list>', 'comma-separated specialized review passes: security,performance,migration')
   .action(
     withDb(
@@ -259,9 +260,16 @@ repoCmd
           testCommand?: string;
           executor?: string;
           executorModel?: string;
+          executorEffort?: 'low' | 'medium' | 'high';
           reviewers?: string;
         },
       ) => {
+        if (
+          opts.executorEffort &&
+          !['low', 'medium', 'high'].includes(opts.executorEffort)
+        ) {
+          throw new Error('executor effort must be low, medium, or high');
+        }
         const project = await pickProject(db, opts.project);
         const repositoryId = uuidv7();
         await db.insert(repositories).values({
@@ -275,6 +283,7 @@ repoCmd
             ...(opts.testCommand ? { testCommand: opts.testCommand } : {}),
             ...(opts.executor ? { executor: opts.executor } : {}),
             ...(opts.executorModel ? { executorModel: opts.executorModel } : {}),
+            ...(opts.executorEffort ? { executorEffort: opts.executorEffort } : {}),
             ...(opts.reviewers
               ? { reviewers: opts.reviewers.split(',').map((r) => r.trim()).filter(Boolean) }
               : {}),

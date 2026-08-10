@@ -9,6 +9,7 @@ import {
   KnowledgeProposals,
   ResearchReport,
   ReviewReport,
+  TestAnalysis,
   TaskPlan,
   type AgentContext,
   type Agents,
@@ -32,7 +33,11 @@ export interface AgentProfiles {
   classifier: ResolvedProfile;
   research: ResolvedProfile;
   planning: ResolvedProfile;
+  decomposition: ResolvedProfile;
   review: ResolvedProfile;
+  testing: ResolvedProfile;
+  documentation: ResolvedProfile;
+  distillation: ResolvedProfile;
 }
 
 function renderBrain(brain: BrainContext): string {
@@ -99,17 +104,24 @@ export function createLlmAgents(gateway: ModelGateway, profiles: AgentProfiles):
     },
 
     async decompose(input, ctx) {
-      const fixMode =
-        (input.findings && input.findings.length > 0) || input.feedback !== undefined;
+      const fixMode = (input.findings && input.findings.length > 0) || input.feedback !== undefined;
       const work = fixMode
-        ? `This is a FIX iteration. Turn the following into the smallest set of independent fix tasks — do not restate the original plan.\n${(input.findings ?? [])
-            .map((f) => `- [${f.severity}] ${f.title}${f.filePath ? ` (${f.filePath})` : ''}: ${f.detail}`)
+        ? `This is a FIX iteration. Turn the following into the smallest set of independent fix tasks — do not restate the original plan.\n${(
+            input.findings ?? []
+          )
+            .map(
+              (f) =>
+                `- [${f.severity}] ${f.title}${f.filePath ? ` (${f.filePath})` : ''}: ${f.detail}`,
+            )
             .join('\n')}${input.feedback ? `\nHuman feedback: ${input.feedback}` : ''}`
         : `Plan to decompose:\n${input.plan.summary}\n${input.plan.steps
-            .map((s, i) => `${i + 1}. ${s.title}: ${s.detail}${s.files.length ? ` (files: ${s.files.join(', ')})` : ''}`)
+            .map(
+              (s, i) =>
+                `${i + 1}. ${s.title}: ${s.detail}${s.files.length ? ` (files: ${s.files.join(', ')})` : ''}`,
+            )
             .join('\n')}`;
 
-      return runJsonAgent(gateway, profiles.planning, {
+      return runJsonAgent(gateway, profiles.decomposition, {
         system: `You split an implementation plan into tasks that separate coding agents can execute independently, each in its own git worktree.
 
 Rules:
@@ -124,14 +136,16 @@ Rules:
     },
 
     async distill(input, ctx) {
-      return runJsonAgent(gateway, profiles.planning, {
+      return runJsonAgent(gateway, profiles.distillation, {
         system: `You extract durable, reusable project knowledge from one completed piece of work.
 
 Propose ONLY what would have helped if it had been known before this run started. Good proposals are conventions, architecture rules, pitfalls, and patterns specific to THIS project. Bad proposals are restatements of the ticket, generic engineering advice, or anything already covered by an existing rule.
 
 Every proposal must cite concrete evidence from the material below (a finding title, a plan step, a diff detail). Propose nothing rather than something weak — an empty list is a valid, common answer.`,
         user: `Ticket: ${input.ticket.title}\n${input.ticket.description}\n\nPlan: ${input.plan?.summary ?? '(none)'}\n\nIterations needed: ${input.iterationCount}\n\nReview findings:\n${
-          input.findings.map((f) => `- [${f.severity}/${f.category}] ${f.title}: ${f.detail}`).join('\n') || '(none)'
+          input.findings
+            .map((f) => `- [${f.severity}/${f.category}] ${f.title}: ${f.detail}`)
+            .join('\n') || '(none)'
         }\n\nExisting approved rules (do NOT restate these):\n${
           input.existingRules.map((r) => `- ${r.title}: ${r.content}`).join('\n') || '(none)'
         }\n\nPreviously rejected proposals (do NOT propose these again):\n${
@@ -143,7 +157,7 @@ Every proposal must cite concrete evidence from the material below (a finding ti
     },
 
     async document(input, ctx) {
-      return runJsonAgent(gateway, profiles.planning, {
+      return runJsonAgent(gateway, profiles.documentation, {
         system:
           'You write the human-facing summary of a completed change: what changed and why, in the words a reviewer or release note needs. No speculation beyond the diff.',
         user: `Ticket: ${input.ticket.title}\n\nPlan: ${input.plan.summary}\n\nDiff:\n${input.diff.slice(0, 50_000) || '(empty diff)'}`,
@@ -161,6 +175,15 @@ Every proposal must cite concrete evidence from the material below (a finding ti
         user: `Ticket: ${input.ticket.title}\n\nPlan:\n${input.plan.summary}\n${input.plan.steps.map((s, i) => `${i + 1}. ${s.title}`).join('\n')}\n\nIteration: ${input.iterationCount}\n\nDiff:\n${input.diff || '(empty diff)'}\n\n${renderBrain(input.brain)}`,
         schema: ReviewReport,
         meta: meta('review', ctx),
+      });
+    },
+
+    async test(input, ctx) {
+      return runJsonAgent(gateway, profiles.testing, {
+        system: `You analyze deterministic repository test output. Identify concrete, actionable failures caused by the change. Do not claim tests passed when the command failed. Do not invent file paths. Use blocker/major only for failures that prevent merging; minor/info for non-blocking diagnostics.`,
+        user: `Ticket: ${input.ticket.title}\n\nTest command: ${input.command ?? '(none configured)'}\nCommand passed: ${input.passed}\nIteration: ${input.iterationCount}\n\nTest output:\n${input.output.slice(-30_000)}\n\nDiff:\n${input.diff.slice(0, 30_000) || '(empty diff)'}`,
+        schema: TestAnalysis,
+        meta: meta('testing', ctx),
       });
     },
   };

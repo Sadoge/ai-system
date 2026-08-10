@@ -141,6 +141,7 @@ export class ApiService {
       testCommand?: string | undefined;
       executor?: string | undefined;
       executorModel?: string | undefined;
+      executorEffort?: 'low' | 'medium' | 'high' | undefined;
       reviewers?: string[] | undefined;
       projectId?: string | undefined;
     },
@@ -159,6 +160,7 @@ export class ApiService {
         ...(input.testCommand ? { testCommand: input.testCommand } : {}),
         ...(input.executor ? { executor: input.executor } : {}),
         ...(input.executorModel ? { executorModel: input.executorModel } : {}),
+        ...(input.executorEffort ? { executorEffort: input.executorEffort } : {}),
         ...(input.reviewers?.length ? { reviewers: input.reviewers } : {}),
       },
     });
@@ -701,9 +703,12 @@ export class ApiService {
       .select()
       .from(modelProfiles)
       .where(
-        or(
-          eq(modelProfiles.organizationId, principal.organizationId),
-          isNull(modelProfiles.organizationId),
+        and(
+          eq(modelProfiles.active, true),
+          or(
+            eq(modelProfiles.organizationId, principal.organizationId),
+            isNull(modelProfiles.organizationId),
+          ),
         ),
       )
       .orderBy(desc(modelProfiles.createdAt))
@@ -723,16 +728,39 @@ export class ApiService {
   ) {
     assertCan(principal.role, 'settings:write');
     if (input.projectId) await this.pickProject(principal, input.projectId);
+    if (
+      ['coding', 'integration'].includes(input.purpose) &&
+      !['claude_cli', 'codex_cli', 'scripted', 'api_loop'].includes(input.provider)
+    ) {
+      throw new BadRequestException(
+        `${input.purpose} edits a worktree; choose claude_cli or codex_cli for subscription use`,
+      );
+    }
     const id = uuidv7();
-    await this.db.insert(modelProfiles).values({
-      id,
-      organizationId: principal.organizationId,
-      projectId: input.projectId ?? null,
-      purpose: input.purpose,
-      provider: input.provider,
-      model: input.model,
-      params: input.params,
-      fallbacks: input.fallbacks,
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(modelProfiles)
+        .set({ active: false })
+        .where(
+          and(
+            eq(modelProfiles.organizationId, principal.organizationId),
+            eq(modelProfiles.purpose, input.purpose),
+            input.projectId
+              ? eq(modelProfiles.projectId, input.projectId)
+              : isNull(modelProfiles.projectId),
+            eq(modelProfiles.active, true),
+          ),
+        );
+      await tx.insert(modelProfiles).values({
+        id,
+        organizationId: principal.organizationId,
+        projectId: input.projectId ?? null,
+        purpose: input.purpose,
+        provider: input.provider,
+        model: input.model,
+        params: input.params,
+        fallbacks: input.fallbacks,
+      });
     });
     await recordAudit(this.db, {
       principal,

@@ -19,6 +19,8 @@ export interface CliExecutorOptions {
   args?: string[] | undefined;
   /** Model passed through to the CLI, when it supports one. */
   model?: string | undefined;
+  /** Reasoning budget passed through to the CLI using its native flag/config. */
+  effort?: 'low' | 'medium' | 'high' | undefined;
 }
 
 /**
@@ -63,7 +65,9 @@ export class CliAgentExecutor implements AgentExecutor {
     const promptFile = join(input.worktreeDir, '.ai-system-prompt.md');
     await writeFile(promptFile, prompt, 'utf8');
 
-    const args = this.options.args ?? this.preset.buildArgs({ model: this.options.model });
+    const args =
+      this.options.args ??
+      this.preset.buildArgs({ model: this.options.model, effort: this.options.effort });
     const env: Record<string, string> = {
       PATH: process.env.PATH ?? '',
       HOME: process.env.HOME ?? '',
@@ -117,7 +121,10 @@ export class CliAgentExecutor implements AgentExecutor {
       child.on('close', (code) => {
         clearTimeout(timer);
         const parsed = this.preset.parse(stdout, stderr);
-        const transcript = [parsed.text, stderr].filter(Boolean).join('\n').slice(-TRANSCRIPT_LIMIT);
+        const transcript = [parsed.text, stderr]
+          .filter(Boolean)
+          .join('\n')
+          .slice(-TRANSCRIPT_LIMIT);
 
         if (code !== 0) {
           resolve({

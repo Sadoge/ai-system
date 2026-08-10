@@ -7,9 +7,9 @@ Every agent — intake, research, planning, decomposition, coding, integration, 
 ```ts
 interface AgentDefinition<I, O> {
   kind: AgentKind;
-  inputSchema: ZodSchema<I>;        // what the agent receives
-  outputSchema: ZodSchema<O>;       // what it must return — validated before anything persists
-  contextPolicy: ContextPolicy;     // what the Context Assembler gathers (see §3)
+  inputSchema: ZodSchema<I>; // what the agent receives
+  outputSchema: ZodSchema<O>; // what it must return — validated before anything persists
+  contextPolicy: ContextPolicy; // what the Context Assembler gathers (see §3)
   promptTemplate: PromptTemplateRef; // versioned, editable in the UI
 }
 
@@ -22,17 +22,17 @@ interface AgentExecutor {
 interface AgentExecutionInput {
   agentRunId: string;
   definition: AgentDefinition<unknown, unknown>;
-  contextBundle: ContextBundle;     // persisted as an artifact BEFORE execution
+  contextBundle: ContextBundle; // persisted as an artifact BEFORE execution
   modelProfile: ResolvedModelProfile;
-  sandbox?: SandboxHandle;          // present only for agents that touch files
+  sandbox?: SandboxHandle; // present only for agents that touch files
   limits: { timeoutMs: number; maxCostUsd: number; maxToolCalls?: number };
 }
 
 interface AgentExecutionResult {
   status: 'succeeded' | 'failed';
   failureReason?: 'invalid_output' | 'sandbox_error' | 'model_error' | 'timeout' | 'budget_denied';
-  output?: unknown;                 // schema-validated by the harness, not trusted from the executor
-  artifacts: ArtifactDraft[];       // transcript, diff, reports
+  output?: unknown; // schema-validated by the harness, not trusted from the executor
+  artifacts: ArtifactDraft[]; // transcript, diff, reports
   telemetry: { durationMs: number; inputTokens: number; outputTokens: number; costUsd: number };
 }
 ```
@@ -75,22 +75,22 @@ stateDiagram-v2
 
 ```ts
 interface ContextBundle {
-  taskSpec: TaskSpec;                    // or stage input for non-coding agents
+  taskSpec: TaskSpec; // or stage input for non-coding agents
   ticket: TicketSnapshot;
-  plan?: PlanExcerpt;                    // only sections relevant to this task
+  plan?: PlanExcerpt; // only sections relevant to this task
   repoContext: {
-    fileMap: FileMapExcerpt;             // directory shape around the touched area
-    files: FileContent[];                // explicitly selected relevant files
-    symbols: SymbolRef[];                // signatures of neighboring code, not bodies
+    fileMap: FileMapExcerpt; // directory shape around the touched area
+    files: FileContent[]; // explicitly selected relevant files
+    symbols: SymbolRef[]; // signatures of neighboring code, not bodies
   };
   knowledge: {
-    rules: KnowledgeItem[];              // approved architecture rules + conventions in scope
-    decisions: KnowledgeItem[];          // relevant ADRs
+    rules: KnowledgeItem[]; // approved architecture rules + conventions in scope
+    decisions: KnowledgeItem[]; // relevant ADRs
     pitfalls: KnowledgeItem[];
-    patterns: KnowledgeItem[];           // reusable implementation patterns
+    patterns: KnowledgeItem[]; // reusable implementation patterns
   };
-  priorAttempts?: AttemptSummary[];      // for fix iterations: what was tried, what failed
-  constraints: TaskConstraints;          // file scope, forbidden paths, test commands
+  priorAttempts?: AttemptSummary[]; // for fix iterations: what was tried, what failed
+  constraints: TaskConstraints; // file scope, forbidden paths, test commands
 }
 ```
 
@@ -103,32 +103,33 @@ Selection is layered (detail in [08-project-brain.md](08-project-brain.md)):
 
 ## 4. Sandboxing
 
-| Aspect | MVP (worktrees) | Cloud (containers) |
-|---|---|---|
-| Isolation unit | git worktree per task, branch `ai/<ticket>/<run>/task-<n>` | container per task with the worktree mounted |
-| File scope | CLI tool permissions restricted to the worktree path | filesystem namespace = worktree only |
-| Network | agent has no direct network; model traffic via gateway; `cli` executor's provider access is the one exception, scoped by env | egress allowlist (provider endpoints only) |
-| Credentials | none in sandbox — git push/fetch done by Project & Repository on the host | same, via sidecar |
-| Command execution | allowlisted commands (build, test, lint) declared per repository | same, enforced by container profile |
-| Cleanup | worktree pruned on release, always | container destroyed |
+| Aspect            | MVP (worktrees)                                                                                                              | Cloud (containers)                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Isolation unit    | git worktree per task, branch `ai/<ticket>/<run>/task-<n>`                                                                   | container per task with the worktree mounted |
+| File scope        | CLI tool permissions restricted to the worktree path                                                                         | filesystem namespace = worktree only         |
+| Network           | agent has no direct network; model traffic via gateway; `cli` executor's provider access is the one exception, scoped by env | egress allowlist (provider endpoints only)   |
+| Credentials       | none in sandbox — git push/fetch done by Project & Repository on the host                                                    | same, via sidecar                            |
+| Command execution | allowlisted commands (build, test, lint) declared per repository                                                             | same, enforced by container profile          |
+| Cleanup           | worktree pruned on release, always                                                                                           | container destroyed                          |
 
-Integration is deterministic git, not an LLM merge: the integration stage octopus-merges task branches into the run branch in dependency order; only on conflict does the integration *agent* get involved, in a scratch worktree, and its resolution goes through review like any other change.
+Integration is deterministic git, not an LLM merge: the integration stage octopus-merges task branches into the run branch in dependency order; only on conflict does the integration _agent_ get involved, in a scratch worktree, and its resolution goes through review like any other change.
 
-## 4b. Coding agents: which CLI runs the work
+## 4b. File-touching agents: which CLI runs the work
 
-The coding agent is **pluggable per repository**, because different projects
-(and different teams) standardize on different tools. Three executors ship:
+Coding and merge-conflict resolution are **pluggable per purpose and project**, because stages can
+benefit from different agents and cost/effort settings. Three executors ship:
 
-| Executor | What it is | When to use it |
-|---|---|---|
-| `claude_code` | Claude Code CLI, non-interactive (`-p --output-format json --permission-mode acceptEdits`), prompt over stdin | default; strongest coding agent available today |
-| `codex` | OpenAI Codex CLI (`codex exec --full-auto`), prompt over stdin | teams standardized on Codex |
-| `api_loop` | the platform's own tool loop through the Model Gateway | no CLI dependency; full control over tools and limits |
-| `scripted` | deterministic stand-in | tests and offline demos |
+| Executor      | What it is                                                                                                    | When to use it                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `claude_code` | Claude Code CLI, non-interactive (`-p --output-format json --permission-mode acceptEdits`), prompt over stdin | default; strongest coding agent available today       |
+| `codex`       | OpenAI Codex CLI (`codex exec --full-auto`), prompt over stdin                                                | teams standardized on Codex                           |
+| `api_loop`    | the platform's own tool loop through the Model Gateway                                                        | no CLI dependency; full control over tools and limits |
+| `scripted`    | deterministic stand-in                                                                                        | tests and offline demos                               |
 
-Selection is `repositories.settings.executor` → `CODING_EXECUTOR` env →
-`claude_code`. `executorBinary` and `executorArgs` override the preset
-entirely, so a CLI flag change never requires a platform release.
+Selection is project model profile → organization model profile → legacy
+`repositories.settings.executor` → `CODING_EXECUTOR` env → `claude_code`. A `claude_cli` profile
+maps to `claude_code`; `codex_cli` maps to `codex`. Profile `model` and `reasoningEffort` are passed
+to the CLI. `executorBinary` and `executorArgs` remain escape hatches for a pinned or custom CLI.
 
 **Invocation rules, common to every CLI preset:**
 
@@ -157,19 +158,19 @@ Task-DAG fan-out is the only parallelism. The engine marks tasks `ready` when de
 
 ## 6. Agent roster (initial)
 
-| Agent | Executor (MVP) | Input → Output | Notes |
-|---|---|---|---|
-| Intake | api_loop-style single call | ticket snapshot → normalized requirements + open questions | flags unanswerable tickets for humans |
-| Complexity classifier | single call | requirements + repo stats → complexity + rationale | part of intake stage |
-| Research | cli or single call | requirements → research report (relevant code, related features, risks) | read-only sandbox |
-| Planning | single call | requirements + research + rules → implementation plan | plan is the gate artifact |
-| Decomposition | single call | plan → task DAG with specs + file scopes | validated: acyclic, scoped |
-| Coding | **cli** | task spec + bundle → diff on task branch | the workhorse |
-| Integration | deterministic + cli on conflict | task branches → run branch | git first, agent second |
-| Review | cli (read-only) | run diff + plan + rules → findings | explains, never rewrites |
-| Specialized review | cli (read-only) | run diff → findings in one dimension | opt-in per repository: `security`, `performance`, `migration`; each pass is blind to the other dimensions, and attribution rides in the finding category |
-| Testing | deterministic + single call | run branch → test report (+ suggested fixes on failure) | tests run as plain commands; the LLM only interprets |
-| Documentation | cli | diff + plan → docs/changelog updates | own task branch, reviewed like code |
+| Agent                 | Executor (MVP)                  | Input → Output                                                          | Notes                                                                                                                                                    |
+| --------------------- | ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Intake                | api_loop-style single call      | ticket snapshot → normalized requirements + open questions              | flags unanswerable tickets for humans                                                                                                                    |
+| Complexity classifier | single call                     | requirements + repo stats → complexity + rationale                      | part of intake stage                                                                                                                                     |
+| Research              | cli or single call              | requirements → research report (relevant code, related features, risks) | read-only sandbox                                                                                                                                        |
+| Planning              | single call                     | requirements + research + rules → implementation plan                   | plan is the gate artifact                                                                                                                                |
+| Decomposition         | single call                     | plan → task DAG with specs + file scopes                                | validated: acyclic, scoped                                                                                                                               |
+| Coding                | **cli**                         | task spec + bundle → diff on task branch                                | the workhorse                                                                                                                                            |
+| Integration           | deterministic + cli on conflict | task branches → run branch                                              | git first, agent second                                                                                                                                  |
+| Review                | cli (read-only)                 | run diff + plan + rules → findings                                      | explains, never rewrites                                                                                                                                 |
+| Specialized review    | cli (read-only)                 | run diff → findings in one dimension                                    | opt-in per repository: `security`, `performance`, `migration`; each pass is blind to the other dimensions, and attribution rides in the finding category |
+| Testing               | deterministic + single call     | run branch → test report (+ suggested fixes on failure)                 | tests run as plain commands; the LLM only interprets                                                                                                     |
+| Documentation         | cli                             | diff + plan → docs/changelog updates                                    | own task branch, reviewed like code                                                                                                                      |
 
 Adding an agent type = a definition (schemas, context policy, prompt template) + executor support + stage or task registration. The engine does not change.
 

@@ -11,9 +11,7 @@ export async function startRunAction(formData: FormData): Promise<void> {
   const jiraKey = String(formData.get('jiraKey') ?? '').trim();
 
   await apiPost('/runs', {
-    ...(jiraKey
-      ? { jiraKey }
-      : { ticket: { source: 'manual', title, description } }),
+    ...(jiraKey ? { jiraKey } : { ticket: { source: 'manual', title, description } }),
     pipeline,
     automation,
   });
@@ -53,10 +51,14 @@ export async function decideKnowledgeAction(formData: FormData): Promise<void> {
 }
 
 export async function addModelProfileAction(formData: FormData): Promise<void> {
+  const effort = String(formData.get('reasoningEffort') ?? '').trim();
+  const projectId = String(formData.get('projectId') ?? '').trim();
   await apiPost('/model-profiles', {
     purpose: String(formData.get('purpose')),
     provider: String(formData.get('provider')),
-    model: String(formData.get('model')),
+    model: String(formData.get('model') ?? '').trim() || 'default',
+    params: effort ? { reasoningEffort: effort } : {},
+    ...(projectId ? { projectId } : {}),
   });
   revalidatePath('/settings/models');
 }

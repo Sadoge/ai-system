@@ -56,7 +56,9 @@ EOF`);
     // The full rendered prompt reached the CLI over stdin.
     expect(readFileSync(join(worktree, 'prompt-received.txt'), 'utf8')).toContain('Add a greeting');
     // ...and is persisted next to the work for a human to inspect.
-    expect(readFileSync(join(worktree, '.ai-system-prompt.md'), 'utf8')).toContain('create greeting.txt');
+    expect(readFileSync(join(worktree, '.ai-system-prompt.md'), 'utf8')).toContain(
+      'create greeting.txt',
+    );
   });
 
   it('treats an agent-reported error as a model failure, not a sandbox failure', async () => {
@@ -117,7 +119,7 @@ echo '{"result":"I could not complete this","is_error":true,"total_cost_usd":0.0
 
 describe('presets', () => {
   it('claude_code builds non-interactive JSON args and forwards a model', () => {
-    expect(CLAUDE_CODE_PRESET.buildArgs({ model: 'claude-sonnet-5' })).toEqual([
+    expect(CLAUDE_CODE_PRESET.buildArgs({ model: 'claude-sonnet-5', effort: 'low' })).toEqual([
       '-p',
       '--output-format',
       'json',
@@ -125,12 +127,20 @@ describe('presets', () => {
       'acceptEdits',
       '--model',
       'claude-sonnet-5',
+      '--effort',
+      'low',
     ]);
     expect(CLAUDE_CODE_PRESET.buildArgs({ model: undefined })).not.toContain('--model');
   });
 
   it('codex parses JSONL output and falls back to raw text', () => {
-    const jsonl = CODEX_PRESET.parse('{"type":"item"}\n{"type":"result","text":"done","usage":{"input_tokens":5}}', '');
+    expect(CODEX_PRESET.buildArgs({ model: 'codex-model', effort: 'high' })).toContain(
+      'model_reasoning_effort="high"',
+    );
+    const jsonl = CODEX_PRESET.parse(
+      '{"type":"item"}\n{"type":"result","text":"done","usage":{"input_tokens":5}}',
+      '',
+    );
     expect(jsonl).toMatchObject({ text: 'done', usage: { inputTokens: 5 } });
     const plain = CODEX_PRESET.parse('just some output', '');
     expect(plain).toMatchObject({ text: 'just some output', isError: false });
@@ -140,6 +150,9 @@ describe('presets', () => {
     for (const preset of [CLAUDE_CODE_PRESET, CODEX_PRESET]) {
       expect(preset.envAllowlist).not.toContain('GITHUB_TOKEN');
       expect(preset.envAllowlist).not.toContain('DATABASE_URL');
+      expect(preset.envAllowlist).not.toContain('ANTHROPIC_API_KEY');
+      expect(preset.envAllowlist).not.toContain('OPENAI_API_KEY');
+      expect(preset.envAllowlist).not.toContain('CODEX_API_KEY');
     }
   });
 });

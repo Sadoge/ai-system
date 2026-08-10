@@ -11,3 +11,39 @@ next-env.d.ts
 coverage/
 .DS_Store
 data/
+
+# Machine-local Claude Code overrides (impeccable installs its hook here)
+.claude/settings.local.json
+
+# Impeccable state. Generated project config is tracked — DESIGN.md's sidecar
+# (.impeccable/design.json) and .impeccable/live/config.json — but runtime
+# recovery state stays local: it holds absolute paths and boot timestamps that
+# are wrong on every other machine. Patterns are **/-anchored because this is a
+# monorepo and the scripts write a copy under the resolved workspace too
+# (e.g. apps/web/.impeccable/).
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/config.local.json
+**/.impeccable/history/
+**/.impeccable/provider-smoke/
+**/.impeccable/live/app-root.json
+**/.impeccable/live/roots.json
+**/.impeccable/live/server.json
+**/.impeccable/live/codex-worker.json
+**/.impeccable/live/codex-worker.log
+**/.impeccable/live/sessions/
+**/.impeccable/live/previews/
+**/.impeccable/live/annotations/
+**/.impeccable/live/artifacts/
+**/.impeccable/live/accept-receipts/
+**/.impeccable/live/locks/
+**/.impeccable/live/cache/
+**/.impeccable/live/benchmarks/
+**/.impeccable/live/manual-edit-apply-transaction.json
+**/.impeccable/live/manual-edit-events.jsonl
+**/.impeccable/live/manual-edit-evidence/
+**/.impeccable/live/pending-manual-edits.json
+**/.impeccable/live/deferred-svelte-component-accepts.json
+# Per-run critique snapshots are local; ignore.md carries deferrals worth sharing.
+**/.impeccable/critique/*
+!**/.impeccable/critique/ignore.md

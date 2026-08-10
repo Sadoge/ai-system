@@ -11,3 +11,7 @@ next-env.d.ts
 coverage/
 .DS_Store
 data/
+
+# Machine-local Claude Code overrides (impeccable installs its hook here)
+.claude/settings.local.json
+.impeccable/

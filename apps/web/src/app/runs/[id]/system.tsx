@@ -224,21 +224,27 @@ export function RunSystem({ run }: { run: RunDetail }) {
           the way a score breaks its lines at the margin. Also the accessible
           text equivalent of the engraved system at every width. */}
       <div className="sm:sr-only">
-        <div className="flex flex-wrap items-stretch">
+        {/* Each segment is its own fixed box so the ruling lands identically
+            on every wrapped system and a barline can never outrun its own
+            stave into the system below. */}
+        <div className="flex flex-wrap items-start">
           {stages.map((s, i) => {
             const { tone, head } = readState(s.status);
             const current = s.stage === run.currentStage;
             return (
-              <div key={s.id} className="stave-seg flex items-stretch">
+              <div key={s.id} className="stave-seg flex h-14 items-stretch">
                 {i > 0 && (
                   <span className={current ? 'barline-now' : 'barline'} aria-hidden />
                 )}
-                <div className="flex flex-col items-center gap-2 px-3 py-3">
+                <div className="flex w-[4.75rem] flex-col items-center justify-center gap-1.5">
                   <span className={`stave-clear ${toneClass(tone, current)}`} aria-hidden>
                     <Notehead head={head} />
                   </span>
+                  {/* The label needs the same ground knockout the notehead
+                      has, or the stave rules strike through it — and a struck
+                      part name reads as cancelled. */}
                   <span
-                    className={`whitespace-nowrap font-mono text-micro ${
+                    className={`stave-clear whitespace-nowrap font-mono text-micro ${
                       current ? 'text-mark-bright' : 'text-ink-label'
                     }`}
                   >

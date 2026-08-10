@@ -64,7 +64,7 @@ export default async function RunsPage() {
           <ul className="border-t border-rule">
             {runs.map((run) => (
               <li key={run.id} className="border-b border-rule">
-                <Link href={`/runs/${run.id}`} className="block hover:bg-ground-raised">
+                <Link href={`/runs/${run.id}`} className="score-row block">
                   <Stave className="px-3">
                     <span className="stave-clear shrink-0">
                       <StatusMark status={run.status} />

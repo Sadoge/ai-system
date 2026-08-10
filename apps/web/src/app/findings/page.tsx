@@ -31,13 +31,13 @@ export default async function FindingsPage() {
         ) : (
           <ul className="space-y-2">
             {byCategory.map((row) => (
-              <li key={row.category} className="flex items-center gap-4">
+              <li key={row.category} className="category-row flex items-center gap-4">
                 <span className="w-44 shrink-0 truncate font-mono text-xs text-ink-muted">
                   {row.category}
                 </span>
                 <span className="h-2 flex-1 bg-ground-band">
                   <span
-                    className="block h-2 bg-ink-muted"
+                    className="category-fill block h-2"
                     style={{ width: `${maxCount > 0 ? Math.max(2, (row.count / maxCount) * 100) : 0}%` }}
                   />
                 </span>

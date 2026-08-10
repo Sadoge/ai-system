@@ -166,7 +166,11 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
   return (
     <div>
       {active && run.currentStage && (
-        <div className="mb-5 border-y border-cue py-3" aria-live="polite" aria-atomic="true">
+        <div
+          className="live-callout mb-5 border-y border-cue px-3 py-3"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span
               className="pulse-live h-2.5 w-2.5 shrink-0 -rotate-[20deg] bg-cue-bright"
@@ -210,7 +214,12 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
             return false;
           });
           return (
-            <li key={stage} className="border-b border-rule py-3">
+            <li
+              key={stage}
+              className={`stage-progress-row border-b border-rule px-3 py-3 ${
+                isCurrent ? 'stage-progress-current' : ''
+              }`}
+            >
               <div className="grid gap-x-4 gap-y-1 sm:grid-cols-[2rem_8rem_1fr_auto] sm:items-baseline">
                 <span className="font-mono text-micro text-ink-faint tnum">
                   {String(index + 1).padStart(2, '0')}
@@ -250,7 +259,10 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
                       true,
                     );
                     return (
-                      <li key={task.id} className="border-b border-rule py-2 last:border-b-0">
+                      <li
+                        key={task.id}
+                        className="agent-progress-row border-b border-rule px-2 py-2 last:border-b-0"
+                      >
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                           <StatusMark status={task.status} />
                           <span className="min-w-0 flex-1 text-sm text-ink-secondary">
@@ -281,7 +293,10 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
                       (event) => event.payload.agentRunId === agent.id,
                     );
                     return (
-                      <li key={agent.id} className="border-b border-rule py-2 last:border-b-0">
+                      <li
+                        key={agent.id}
+                        className="agent-progress-row border-b border-rule px-2 py-2 last:border-b-0"
+                      >
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                           <StatusMark status={agent.status} />
                           <span className="text-sm text-ink-secondary">

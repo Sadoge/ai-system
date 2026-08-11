@@ -63,7 +63,7 @@ export function DiffPresentation({
 
   if (parsed.state === 'unparseable') {
     return (
-      <div className="diff-state">
+      <div className="diff-state diff-state-unparseable">
         <p className="annot text-sm text-ink-label">
           This artifact could not be parsed as a unified diff. The stored content is shown below.
         </p>

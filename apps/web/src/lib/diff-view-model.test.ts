@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { capHunks, groupHunkLines, sliceFileHunks, visibleHunks } from './diff-view-model';
+import {
+  capHunks,
+  groupHunkLines,
+  sliceFileHunks,
+  splitDiffHunks,
+  visibleHunks,
+} from './diff-view-model';
 import type { DiffHunk, DiffLine } from './unified-diff';
 
 const context = (line: number): DiffLine => ({
@@ -73,5 +79,21 @@ describe('bounded hunk rendering', () => {
     expect(result.hunks.map((hunk) => hunk.lines.length)).toEqual([3, 2]);
     expect(result.hunks[1]!.lines[0]!.content).toBe('line 10');
     expect(second.lines).toHaveLength(3);
+  });
+});
+
+describe('splitDiffHunks', () => {
+  it('caps lines across hunks and reports the complete remainder', () => {
+    const hunks = [
+      { header: '@@ first @@', lines: [context(1), context(2), context(3)] },
+      { header: '@@ second @@', lines: [context(10), context(11), context(12)] },
+    ] as DiffHunk[];
+
+    const split = splitDiffHunks(hunks, 4);
+
+    expect(split.visible.map((hunk) => hunk.lines.length)).toEqual([3, 1]);
+    expect(split.remaining.map((hunk) => hunk.lines.length)).toEqual([2]);
+    expect(split.remainingLineCount).toBe(2);
+    expect(hunks.map((hunk) => hunk.lines.length)).toEqual([3, 3]);
   });
 });

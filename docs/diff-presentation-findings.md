@@ -82,5 +82,7 @@ borders keep addition/deletion meaning from depending on color.
 
 ## Test setup
 
-`apps/web` owns these pure logic tests and runs them with its existing `vitest` dependency and
-`test` script. No test dependency or workspace import changes are required.
+`apps/web` (`@ai-system/web`) owns these pure logic tests. Its existing `test` script runs
+`vitest run --passWithNoTests`, and `vitest` is already declared in `devDependencies`, so no
+dependency or workspace import changes are required. DOM test dependencies and a package-local
+Vitest config are intentionally unnecessary for the current pure/Node coverage.

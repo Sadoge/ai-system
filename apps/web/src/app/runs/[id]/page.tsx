@@ -17,7 +17,6 @@ import { RunSystem } from './system';
 import { RunCodeChanges } from './run-code-changes';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
-
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);

@@ -1,14 +1,7 @@
 import Link from 'next/link';
-import { apiGet } from '@/lib/api';
+import { apiGet, type ArtifactDetail } from '@/lib/api';
 import { System, linkCls } from '@/lib/ui';
-
-interface ArtifactDetail {
-  id: string;
-  kind: string;
-  content: unknown;
-  contentHash: string;
-  createdAt: string;
-}
+import { ArtifactView } from './artifact-view';
 
 export default async function ArtifactPage({
   params,
@@ -27,9 +20,7 @@ export default async function ArtifactPage({
       </p>
 
       <System mark="A" title={artifact.kind}>
-        <pre className="overflow-x-auto border-l border-rule-strong bg-ground-raised p-4 font-mono text-xs leading-relaxed text-ink-secondary">
-          {JSON.stringify(artifact.content, null, 2)}
-        </pre>
+        <ArtifactView artifact={artifact} runId={id} />
         <p className="mt-3 font-mono text-xs text-ink-faint">
           sha256 {artifact.contentHash}
           <span className="ml-3 text-ink-faint tnum">

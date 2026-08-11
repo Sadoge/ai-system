@@ -1,12 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { capHunks, groupHunkLines } from '@/lib/diff-view-model';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
-import { parseUnifiedDiff, type DiffFile, type DiffHunk, type DiffLine } from '@/lib/unified-diff';
+import { parseUnifiedDiff } from '@/lib/unified-diff';
 import { System, linkCls } from '@/lib/ui';
-import { DiffViewer, RevealLines } from './diff-viewer';
+import { DiffViewer } from './diff-viewer';
 
 interface CodeChangesProps {
   runId: string;
@@ -15,78 +13,6 @@ interface CodeChangesProps {
   error?: string | null;
   loading?: boolean;
   showArtifactLink?: boolean;
-}
-
-function DiffRow({ line }: { line: DiffLine }) {
-  const prefix = line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '-' : ' ';
-  const status = line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : '';
-  return (
-    <div className={`diff-line diff-line-${line.kind}`}>
-      <span className="diff-line-number" aria-hidden="true">
-        {line.oldLine ?? ''}
-      </span>
-      <span className="diff-line-number" aria-hidden="true">
-        {line.newLine ?? ''}
-      </span>
-      <span className="diff-line-status">{status}</span>
-      <span className="diff-prefix" aria-hidden="true">
-        {prefix}
-      </span>
-      <code>{line.content || ' '}</code>
-    </div>
-  );
-}
-
-function DiffHunks({ hunks }: { hunks: readonly DiffHunk[] }) {
-  return hunks.map((hunk, hunkIndex) => (
-    <div key={`${hunk.header}-${hunkIndex}`}>
-      <p className="diff-hunk">{hunk.header}</p>
-      {groupHunkLines(hunk).map((group, groupIndex) =>
-        group.kind === 'collapsed' ? (
-          <RevealLines key={groupIndex} count={group.lines.length}>
-            {group.lines.map((line, lineIndex) => (
-              <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-            ))}
-          </RevealLines>
-        ) : (
-          group.lines.map((line, lineIndex) => (
-            <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-          ))
-        ),
-      )}
-    </div>
-  ));
-}
-
-function FilePatch({ file }: { file: DiffFile }) {
-  const [showAll, setShowAll] = useState(false);
-  const capped = capHunks(file.hunks);
-  const hunks = showAll ? file.hunks : capped.hunks;
-
-  return (
-    <div className="diff-code" role="region" aria-label={`${file.path} patch`}>
-      {file.metadata.length > 0 && (
-        <div className="diff-file-metadata">
-          {file.metadata.map((line, index) => (
-            <p key={`${line}-${index}`}>{line}</p>
-          ))}
-        </div>
-      )}
-      <DiffHunks hunks={hunks} />
-      {!showAll && capped.remaining > 0 && (
-        <button
-          type="button"
-          className="diff-reveal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright"
-          onClick={() => setShowAll(true)}
-        >
-          Show remaining {capped.remaining} lines
-        </button>
-      )}
-      {file.status === 'binary' && file.metadata.length === 0 && (
-        <p className="diff-file-metadata">Binary file changed.</p>
-      )}
-    </div>
-  );
 }
 
 export function DiffPresentation({
@@ -153,14 +79,6 @@ export function DiffPresentation({
     );
   }
 
-  const files = parsed.files.map(({ id, path, status, additions, deletions }) => ({
-    id,
-    path,
-    status,
-    additions,
-    deletions,
-  }));
-
   return (
     <>
       <div className="diff-summary">
@@ -208,11 +126,7 @@ export function DiffPresentation({
         )}
       </div>
 
-      <DiffViewer files={files}>
-        {parsed.files.map((file) => (
-          <FilePatch key={file.id} file={file} />
-        ))}
-      </DiffViewer>
+      <DiffViewer key={artifactId} files={parsed.files} />
     </>
   );
 }

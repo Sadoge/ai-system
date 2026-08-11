@@ -37,6 +37,28 @@ export interface ParsedDiff {
   state: 'empty' | 'parsed' | 'unparseable';
 }
 
+interface PendingHunk extends DiffHunk {
+  nextOldLine: number;
+  nextNewLine: number;
+}
+
+interface PendingFile {
+  fallbackOldPath: string | null;
+  fallbackNewPath: string | null;
+  markerOldPath: string | null;
+  markerNewPath: string | null;
+  sawOldMarker: boolean;
+  sawNewMarker: boolean;
+  renameFrom: string | null;
+  renameTo: string | null;
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  metadata: string[];
+  hunks: PendingHunk[];
+  activeHunk: PendingHunk | null;
+}
+
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 function decodeGitPath(value: string): string {
@@ -58,7 +80,6 @@ function decodeGitPath(value: string): string {
       bytes.push(0x5c);
       continue;
     }
-
     const simpleEscapes: Record<string, number> = {
       '\\': 0x5c,
       '"': 0x22,
@@ -149,176 +170,180 @@ function pathsFromGitHeader(line: string): [string | null, string | null] {
   return [cleanPath(value.slice(0, separator)), cleanPath(value.slice(separator + 1))];
 }
 
-function fileId(path: string, index: number): string {
-  return `diff-file-${index}-${path.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+function newPendingFile(header?: string): PendingFile {
+  const [fallbackOldPath, fallbackNewPath] = header ? pathsFromGitHeader(header) : [null, null];
+  return {
+    fallbackOldPath,
+    fallbackNewPath,
+    markerOldPath: null,
+    markerNewPath: null,
+    sawOldMarker: false,
+    sawNewMarker: false,
+    renameFrom: null,
+    renameTo: null,
+    status: 'modified',
+    additions: 0,
+    deletions: 0,
+    metadata: [],
+    hunks: [],
+    activeHunk: null,
+  };
+}
+
+function appendHunkLine(file: PendingFile, line: string): boolean {
+  const hunk = file.activeHunk;
+  if (!hunk) return false;
+
+  if (line === '\\ No newline at end of file') {
+    hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+    return true;
+  }
+  const complete =
+    hunk.nextOldLine >= hunk.oldStart + hunk.oldCount &&
+    hunk.nextNewLine >= hunk.newStart + hunk.newCount;
+  if (complete) {
+    file.activeHunk = null;
+    return false;
+  }
+  if (line.startsWith('+')) {
+    hunk.lines.push({
+      kind: 'addition',
+      content: line.slice(1),
+      oldLine: null,
+      newLine: hunk.nextNewLine++,
+    });
+    file.additions++;
+  } else if (line.startsWith('-')) {
+    hunk.lines.push({
+      kind: 'deletion',
+      content: line.slice(1),
+      oldLine: hunk.nextOldLine++,
+      newLine: null,
+    });
+    file.deletions++;
+  } else if (line.startsWith(' ') || line === '') {
+    hunk.lines.push({
+      kind: 'context',
+      content: line === '' ? '' : line.slice(1),
+      oldLine: hunk.nextOldLine++,
+      newLine: hunk.nextNewLine++,
+    });
+  } else {
+    hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+  }
+  return true;
 }
 
 /** Parse the git-style unified patch emitted by the worker. Malformed sections
  * are retained as metadata where possible instead of taking down the run page. */
 export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   const files: DiffFile[] = [];
-  let current: DiffFile | null = null;
-  let hunk: DiffHunk | null = null;
-  let oldLine = 0;
-  let newLine = 0;
+  if (!patch?.trim()) return { files, additions: 0, deletions: 0, state: 'empty' };
 
-  const startFile = (oldPath: string | null, newPath: string | null): DiffFile => {
+  const idCounts = new Map<string, number>();
+  let current: PendingFile | null = null;
+
+  const finishFile = () => {
+    if (!current) return;
+    const oldPath =
+      current.renameFrom ??
+      (current.sawOldMarker ? current.markerOldPath : current.fallbackOldPath);
+    const newPath =
+      current.renameTo ?? (current.sawNewMarker ? current.markerNewPath : current.fallbackNewPath);
     const path = newPath ?? oldPath ?? `unknown-${files.length + 1}`;
-    const file: DiffFile = {
-      id: fileId(path, files.length),
+    const baseId = `${oldPath ?? '/dev/null'}\u0000${newPath ?? '/dev/null'}`;
+    const occurrence = (idCounts.get(baseId) ?? 0) + 1;
+    idCounts.set(baseId, occurrence);
+    const status =
+      current.status === 'binary'
+        ? 'binary'
+        : current.status === 'renamed'
+          ? 'renamed'
+          : current.sawOldMarker && oldPath === null
+            ? 'added'
+            : current.sawNewMarker && newPath === null
+              ? 'deleted'
+              : current.status;
+    files.push({
+      id: `diff-file-${files.length}-${path.replace(/[^a-zA-Z0-9_-]+/g, '-')}-${occurrence}`,
       oldPath,
       newPath,
       path,
-      status: oldPath === null ? 'added' : newPath === null ? 'deleted' : 'modified',
-      additions: 0,
-      deletions: 0,
-      metadata: [],
-      hunks: [],
-    };
-    files.push(file);
-    return file;
+      status,
+      additions: current.additions,
+      deletions: current.deletions,
+      metadata: current.metadata,
+      hunks: current.hunks.map(({ nextOldLine: _old, nextNewLine: _new, ...hunk }) => hunk),
+    });
+    current = null;
   };
 
-  if (!patch?.trim()) return { files, additions: 0, deletions: 0, state: 'empty' };
-
-  const hunkComplete = () =>
-    hunk !== null &&
-    oldLine >= hunk.oldStart + hunk.oldCount &&
-    newLine >= hunk.newStart + hunk.newCount;
-
-  const lines = patch.replace(/\r\n?/g, '\n').split('\n');
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
-
+  for (const line of patch.replace(/\r\n?/g, '\n').split('\n')) {
     if (line.startsWith('diff --git ')) {
-      const [oldPath, newPath] = pathsFromGitHeader(line);
-      current = startFile(oldPath, newPath);
-      hunk = null;
+      finishFile();
+      current = newPendingFile(line);
       continue;
     }
-
-    const header = HUNK_HEADER.exec(line);
-    if (current && header) {
-      oldLine = Number(header[1]);
-      newLine = Number(header[3]);
-      hunk = {
-        header: line,
-        oldStart: oldLine,
-        oldCount: Number(header[2] ?? 1),
-        newStart: newLine,
-        newCount: Number(header[4] ?? 1),
-        lines: [],
-      };
-      current.hunks.push(hunk);
-      continue;
-    }
-
-    // A no-newline marker belongs to the preceding hunk even when that hunk's
-    // declared line counts have just been satisfied.
-    if (current && hunk && line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
-      continue;
-    }
-    if (hunkComplete()) hunk = null;
-
-    // Hunk bodies must win over file-header detection: a deleted SQL comment
-    // such as "-- note" is encoded as "--- note" in a patch.
-    if (current && hunk && line.startsWith('+')) {
-      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
-      current.additions++;
-      newLine++;
-      continue;
-    }
-    if (current && hunk && line.startsWith('-')) {
-      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
-      current.deletions++;
-      oldLine++;
-      continue;
-    }
-    if (current && hunk && (line.startsWith(' ') || line === '')) {
-      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
-      oldLine++;
-      newLine++;
-      continue;
-    }
-
-    if (!current && line.startsWith('--- ') && lines[index + 1]?.startsWith('+++ ')) {
-      current = startFile(cleanPath(line.slice(4)), cleanPath(lines[index + 1]!.slice(4)));
+    if (!current && (line.startsWith('--- ') || HUNK_HEADER.test(line))) {
+      current = newPendingFile();
     }
     if (!current) continue;
 
-    // A hunk body takes precedence over file markers. For example, deleting a
-    // source line beginning with "-- " produces a patch line beginning "--- ".
-    // Once both declared counts are consumed, resume parsing file metadata.
-    if (hunk && line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+    const hunkHeader = HUNK_HEADER.exec(line);
+    if (hunkHeader) {
+      const oldStart = Number(hunkHeader[1]);
+      const newStart = Number(hunkHeader[3]);
+      const hunk: PendingHunk = {
+        header: line,
+        oldStart,
+        oldCount: Number(hunkHeader[2] ?? 1),
+        newStart,
+        newCount: Number(hunkHeader[4] ?? 1),
+        lines: [],
+        nextOldLine: oldStart,
+        nextNewLine: newStart,
+      };
+      current.hunks.push(hunk);
+      current.activeHunk = hunk;
       continue;
     }
-    if (
-      hunk &&
-      oldLine >= hunk.oldStart + hunk.oldCount &&
-      newLine >= hunk.newStart + hunk.newCount
-    ) {
-      hunk = null;
-    }
-    if (hunk) {
-      if (line.startsWith('+')) {
-        hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
-        current.additions++;
-        newLine++;
-      } else if (line.startsWith('-')) {
-        hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
-        current.deletions++;
-        oldLine++;
-      } else if (line.startsWith(' ') || line === '') {
-        hunk.lines.push({
-          kind: 'context',
-          content: line === '' ? '' : line.slice(1),
-          oldLine,
-          newLine,
-        });
-        oldLine++;
-        newLine++;
-      } else {
-        hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
-      }
-      continue;
-    }
+
+    // Hunk content must win over file-header lookalikes such as a deleted SQL
+    // comment (`--- comment` in patch form).
+    if (appendHunkLine(current, line)) continue;
 
     if (line.startsWith('--- ')) {
-      current.oldPath = cleanPath(line.slice(4));
-      continue;
-    }
-    if (line.startsWith('+++ ')) {
-      current.newPath = cleanPath(line.slice(4));
-      current.path = current.newPath ?? current.oldPath ?? current.path;
-      current.status =
-        current.oldPath === null ? 'added' : current.newPath === null ? 'deleted' : current.status;
-      continue;
-    }
-    if (line.startsWith('rename from ')) {
-      current.oldPath = decodeGitPath(line.slice('rename from '.length));
+      current.markerOldPath = cleanPath(line.slice(4));
+      current.sawOldMarker = true;
+    } else if (line.startsWith('+++ ')) {
+      current.markerNewPath = cleanPath(line.slice(4));
+      current.sawNewMarker = true;
+    } else if (line.startsWith('rename from ')) {
+      current.renameFrom = decodeGitPath(line.slice('rename from '.length));
       current.status = 'renamed';
       current.metadata.push(line);
-      continue;
-    }
-    if (line.startsWith('rename to ')) {
-      current.newPath = decodeGitPath(line.slice('rename to '.length));
-      current.path = current.newPath;
+    } else if (line.startsWith('rename to ')) {
+      current.renameTo = decodeGitPath(line.slice('rename to '.length));
       current.status = 'renamed';
       current.metadata.push(line);
-      continue;
-    }
-    if (line === 'GIT binary patch' || line.startsWith('Binary files ')) {
+    } else if (line.startsWith('new file mode ')) {
+      current.status = 'added';
+      current.metadata.push(line);
+    } else if (line.startsWith('deleted file mode ')) {
+      current.status = 'deleted';
+      current.metadata.push(line);
+    } else if (
+      line === 'GIT binary patch' ||
+      /^(?:Binary files|Files) .+ and .+ differ$/.test(line)
+    ) {
       current.status = 'binary';
       current.metadata.push(line);
-      hunk = null;
-      continue;
+    } else if (line) {
+      current.metadata.push(line);
     }
-
-    if (line) current.metadata.push(line);
   }
 
+  finishFile();
   return {
     files,
     additions: files.reduce((sum, file) => sum + file.additions, 0),

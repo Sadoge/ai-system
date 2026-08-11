@@ -12,19 +12,26 @@ export interface CappedHunks {
 
 /** Return a non-mutating prefix of a file's hunks for bounded initial render. */
 export function capHunks(hunks: readonly DiffHunk[], limit = LARGE_FILE_LINE_LIMIT): CappedHunks {
-  const safeLimit = Math.max(0, Math.floor(limit));
-  const total = hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
-  let available = safeLimit;
-  const visible: DiffHunk[] = [];
+  return visibleHunks({ hunks }, limit);
+}
 
-  for (const hunk of hunks) {
+export function visibleHunks(
+  file: { hunks: readonly DiffHunk[] },
+  limit = LARGE_FILE_LINE_LIMIT,
+): CappedHunks {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const total = file.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  let available = safeLimit;
+  const hunks: DiffHunk[] = [];
+
+  for (const hunk of file.hunks) {
     if (available <= 0) break;
     const lines = hunk.lines.slice(0, available);
-    if (lines.length > 0) visible.push({ ...hunk, lines });
+    if (lines.length > 0) hunks.push({ ...hunk, lines });
     available -= lines.length;
   }
 
-  return { hunks: visible, remaining: Math.max(0, total - safeLimit) };
+  return { hunks, remaining: Math.max(0, total - safeLimit) };
 }
 
 /** Collapse only long, unchanged runs. Changed lines and their nearby context

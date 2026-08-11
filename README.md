@@ -161,6 +161,11 @@ node apps/cli/dist/main.js repo register /path/to/repo \
 node apps/cli/dist/main.js run start ticket.md --pipeline mvp
 node apps/cli/dist/main.js gate list                      # approve the plan, then the final PR
 
+# For a local repository, packaging publishes ai/run-<run-suffix> directly
+# into /path/to/repo. Inspect it there after the package stage succeeds:
+git branch --list 'ai/run-*'
+git switch ai/run-<run-suffix>
+
 # Deterministic offline pipeline test instead of real reasoning:
 # MOCK_MODELS=true pnpm --filter @ai-system/worker start
 

@@ -3,15 +3,17 @@ import {
   createBitbucketPullRequest,
   createMergeRequest,
   createPullRequest,
+  isLocalGitRemote,
   parseBitbucketRemote,
   parseGitHubRemote,
   parseGitLabRemote,
   pushBranch,
   pushBranchBitbucket,
   pushBranchGitLab,
+  pushBranchLocal,
 } from '@ai-system/integrations';
 
-export type GitHostName = 'github' | 'gitlab' | 'bitbucket';
+export type GitHostName = 'github' | 'gitlab' | 'bitbucket' | 'local';
 
 /**
  * The git-host port. The package stage only knows how to say "push this branch,
@@ -21,7 +23,7 @@ export type GitHostName = 'github' | 'gitlab' | 'bitbucket';
 export interface GitHostPort {
   name: GitHostName;
   push(checkoutDir: string, branch: string): Promise<void>;
-  openChangeRequest(input: {
+  openChangeRequest?(input: {
     title: string;
     body: string;
     sourceBranch: string;
@@ -37,6 +39,7 @@ export function detectGitHost(
   if (parseGitHubRemote(remoteUrl)) return 'github';
   if (parseGitLabRemote(remoteUrl, env.GITLAB_HOST)) return 'gitlab';
   if (parseBitbucketRemote(remoteUrl)) return 'bitbucket';
+  if (isLocalGitRemote(remoteUrl)) return 'local';
   return null;
 }
 
@@ -99,6 +102,13 @@ export function gitHostFor(
           sourceBranch: input.sourceBranch,
           targetBranch: input.targetBranch,
         }),
+    };
+  }
+
+  if (isLocalGitRemote(remoteUrl)) {
+    return {
+      name: 'local',
+      push: (checkoutDir, branch) => pushBranchLocal(checkoutDir, branch, remoteUrl),
     };
   }
 

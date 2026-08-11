@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Exit quietly when output is piped into a pager that closes early (e.g. `| head`).
 process.stdout.on('error', (err: NodeJS.ErrnoException) => {
@@ -60,6 +61,7 @@ import {
   fetchAzureDevOpsTicket,
   fetchJiraTicket,
   fetchLinearTicket,
+  isLocalGitRemote,
   jiraConfigFromEnv,
   linearConfigFromEnv,
 } from '@ai-system/integrations';
@@ -272,13 +274,17 @@ repoCmd
           throw new Error('executor effort must be low, medium, or high');
         }
         const project = await pickProject(db, opts.project);
+        const normalizedRemoteUrl =
+          isLocalGitRemote(remoteUrl) && !remoteUrl.startsWith('file://')
+            ? resolve(remoteUrl)
+            : remoteUrl;
         const repositoryId = uuidv7();
         await db.insert(repositories).values({
           id: repositoryId,
           organizationId: project.organizationId,
           projectId: project.id,
           name: opts.name ?? remoteUrl.split('/').pop() ?? remoteUrl,
-          remoteUrl,
+          remoteUrl: normalizedRemoteUrl,
           defaultBranch: opts.defaultBranch,
           settings: {
             ...(opts.testCommand ? { testCommand: opts.testCommand } : {}),

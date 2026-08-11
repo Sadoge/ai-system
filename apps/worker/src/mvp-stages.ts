@@ -530,15 +530,32 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     `- Iterations used: ${run.iterationCount}`,
   ].join('\n');
 
-  // Git-host port: the stage speaks "push branch, open change request"; GitHub,
-  // GitLab, and Bitbucket are interchangeable behind that sentence.
+  // Repository publication is mandatory. Hosted forges also open a change
+  // request; a local repository receives the branch directly.
   let prUrl: string | null = null;
   let prError: string | null = null;
   const host = gitHostFor(repo.remoteUrl, { githubToken: services.githubToken });
-  if (host) {
+  if (!host) {
+    const detected = detectGitHost(repo.remoteUrl);
+    if (detected) {
+      throw new Error(
+        `Cannot publish ${branch}: ${detected} credentials are not configured for the worker.`,
+      );
+    }
+    throw new Error(`Cannot publish ${branch}: the repository remote is not supported.`);
+  }
+
+  const { checkoutDir } = repoPaths(services, repo.id, run.id);
+  try {
+    await host.push(checkoutDir, branch);
+  } catch {
+    throw new Error(
+      `Failed to publish ${branch} to the ${host.name} repository; verify the remote and write permissions.`,
+    );
+  }
+
+  if (host.openChangeRequest) {
     try {
-      const { checkoutDir } = repoPaths(services, repo.id, run.id);
-      await host.push(checkoutDir, branch);
       const cr = await host.openChangeRequest({
         title: ticket.title,
         body,
@@ -549,13 +566,12 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
-  } else {
-    // A recognized forge without credentials is a configuration mistake, not a
-    // silent no-op: say so in the artifact so the gate reviewer sees why the
-    // package has a branch but no link.
-    const detected = detectGitHost(repo.remoteUrl);
-    if (detected) prError = `${detected} remote detected but no credentials are configured`;
   }
+
+  const publicationNote =
+    host.name === 'local'
+      ? `Published to the registered local repository. Run git switch ${branch} there to inspect it.`
+      : `Published to ${host.name}.`;
 
   const trackerResult = prUrl ? await notifyTracker(ticket, prUrl) : null;
 
@@ -571,6 +587,8 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
       prUrl,
       prError,
       gitHost: host?.name ?? null,
+      branchPublished: true,
+      publicationNote,
       tracker: trackerResult,
     },
   });

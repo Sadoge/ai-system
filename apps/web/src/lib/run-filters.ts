@@ -3,39 +3,22 @@ type RunStatusBucket = Exclude<RunStatusFilter, 'all'>;
 
 export const RUN_STATUS_FILTERS = ['all', 'running', 'failed', 'completed'] as const;
 
-const STATUS_BUCKETS: Readonly<Record<string, RunStatusBucket | null>> = {
-  created: 'running',
-  classifying: 'running',
-  awaiting_split: 'running',
-  researching: 'running',
-  planning: 'running',
-  awaiting_plan_approval: 'running',
-  decomposing: 'running',
-  executing: 'running',
-  integrating: 'running',
-  awaiting_pre_merge: 'running',
-  reviewing: 'running',
-  testing: 'running',
-  awaiting_iteration_gate: 'running',
-  documenting: 'running',
-  packaging: 'running',
-  awaiting_final_approval: 'running',
-  paused: 'running',
-  completed: 'completed',
-  failed: 'failed',
-  // Cancelled is rendered as inert elsewhere in the UI, not as a failure.
-  cancelled: null,
-};
-
 export function statusBucket(status: string): RunStatusBucket | null {
-  return STATUS_BUCKETS[status] ?? null;
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  // Cancelled is rendered as inert elsewhere in the UI, not as a failure.
+  if (status === 'cancelled') return null;
+
+  // The domain has only three terminal statuses. Treat new statuses as
+  // non-terminal so a future pipeline stage remains visible under Running.
+  return 'running';
 }
 
 interface FilterableRun {
   status: string;
   ticket: {
-    title: string | null | undefined;
-    externalKey: string | null | undefined;
+    title?: string | null;
+    externalKey?: string | null;
   };
 }
 

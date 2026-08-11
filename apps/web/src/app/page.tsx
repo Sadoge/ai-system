@@ -3,6 +3,7 @@ import { apiGet, type RunSummary } from '@/lib/api';
 import { startRunAction } from '@/lib/actions';
 import { System, buttonCls, inputCls, selectCls } from '@/lib/ui';
 import { RunsFilters } from './runs-filters';
+import { RunsList } from './runs-list';
 
 function Field({
   label,
@@ -62,7 +63,7 @@ export default async function RunsPage() {
             Nothing has been called yet. Start one above and it appears here as a voice.
           </p>
         ) : (
-          <Suspense fallback={null}>
+          <Suspense fallback={<RunsList runs={runs} />}>
             <RunsFilters runs={runs} />
           </Suspense>
         )}

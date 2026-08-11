@@ -39,7 +39,7 @@ export interface RunSummary {
   currentStage: string | null;
   complexity: string | null;
   iterationCount: number;
-  ticket: { title: string; source: string; externalKey: string | undefined };
+  ticket: { title: string; source: string; externalKey?: string };
   policySnapshot: { pipeline: string; automationLevel: string };
   createdAt: string;
   updatedAt: string;
@@ -64,7 +64,13 @@ export interface RunDetail extends RunSummary {
     detail: string;
     status: string;
   }[];
-  gates: { id: string; gate: string; status: string; payload: Record<string, unknown>; createdAt: string }[];
+  gates: {
+    id: string;
+    gate: string;
+    status: string;
+    payload: Record<string, unknown>;
+    createdAt: string;
+  }[];
   costUsd: number;
   tasks: {
     id: string;

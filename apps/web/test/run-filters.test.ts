@@ -5,8 +5,8 @@ interface RunFixture {
   id: string;
   status: string;
   ticket: {
-    title: string | null | undefined;
-    externalKey: string | null | undefined;
+    title?: string | null;
+    externalKey?: string | null;
   };
 }
 
@@ -51,7 +51,7 @@ describe('filterRuns search', () => {
       {
         id: 'undefined-fields',
         status: 'created',
-        ticket: { title: undefined, externalKey: undefined },
+        ticket: {},
       },
     ];
 
@@ -89,6 +89,7 @@ describe('filterRuns status buckets', () => {
       '1',
       '2',
       '3',
+      '7',
     ]);
   });
 
@@ -102,10 +103,13 @@ describe('filterRuns status buckets', () => {
     ]);
   });
 
-  it('keeps cancelled and unknown statuses in All but leaves them unmapped', () => {
+  it('keeps cancelled in All but leaves it out of the named buckets', () => {
     expect(statusBucket('cancelled')).toBeNull();
-    expect(statusBucket('future_status')).toBeNull();
     expect(filterRuns(runs, { query: '', status: 'all' })).toEqual(runs);
+  });
+
+  it('defaults an unknown future status to running', () => {
+    expect(statusBucket('future_status')).toBe('running');
   });
 
   it('combines query and status conditions', () => {

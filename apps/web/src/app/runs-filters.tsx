@@ -25,13 +25,19 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
   const [status, setStatus] = useState<RunStatusFilter>(() =>
     parseStatusParam(searchParams.get('status')),
   );
+  const searchParamsValue = searchParams.toString();
   const urlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const replaceFilterUrl = useCallback(
     (nextQuery: string, nextStatus: RunStatusFilter) => {
-      const params = new URLSearchParams();
-      if (nextQuery.trim()) params.set('q', nextQuery.trim());
+      const params = new URLSearchParams(window.location.search);
+      const normalizedQuery = nextQuery.trim();
+
+      if (normalizedQuery) params.set('q', normalizedQuery);
+      else params.delete('q');
+
       if (nextStatus !== 'all') params.set('status', nextStatus);
+      else params.delete('status');
 
       const queryString = params.toString();
       const nextUrl = `${pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
@@ -65,6 +71,19 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
     },
     [],
   );
+
+  useEffect(() => {
+    if (urlTimerRef.current) {
+      clearTimeout(urlTimerRef.current);
+      urlTimerRef.current = null;
+    }
+
+    const nextParams = new URLSearchParams(searchParamsValue);
+    const nextQuery = nextParams.get('q') ?? '';
+    const nextStatus = parseStatusParam(nextParams.get('status'));
+    setQuery((current) => (current === nextQuery ? current : nextQuery));
+    setStatus((current) => (current === nextStatus ? current : nextStatus));
+  }, [searchParamsValue]);
 
   const visible = useMemo(() => filterRuns(runs, { query, status }), [query, runs, status]);
   const hasFilters = query.trim().length > 0 || status !== 'all';
@@ -112,7 +131,7 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
           ))}
         </div>
 
-        {hasFilters && (
+        {hasFilters && visible.length > 0 && (
           <button type="button" className="runs-clear-button" onClick={clearFilters}>
             Clear filters
           </button>

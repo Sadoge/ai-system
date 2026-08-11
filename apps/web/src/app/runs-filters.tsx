@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunSummary } from '@/lib/api';
@@ -10,7 +9,7 @@ import {
   parseStatusParam,
   type RunStatusFilter,
 } from '@/lib/run-filters';
-import { Stave, StatusMark } from '@/lib/ui';
+import { RunsList } from './runs-list';
 
 const STATUS_LABELS: Record<RunStatusFilter, string> = {
   all: 'All',
@@ -26,51 +25,59 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
   const [status, setStatus] = useState<RunStatusFilter>(() =>
     parseStatusParam(searchParams.get('status')),
   );
-  const statusRef = useRef(status);
-  const urlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const serializedSearchParams = searchParams.toString();
+  const urlSyncReadyRef = useRef(false);
 
   const replaceFilterUrl = useCallback(
     (nextQuery: string, nextStatus: RunStatusFilter) => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(window.location.search);
       if (nextQuery.trim()) params.set('q', nextQuery.trim());
+      else params.delete('q');
       if (nextStatus !== 'all') params.set('status', nextStatus);
-      window.history.replaceState(null, '', `${pathname}${params.size ? `?${params}` : ''}`);
+      else params.delete('status');
+
+      const queryString = params.toString();
+      const nextUrl = `${pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) window.history.replaceState(null, '', nextUrl);
     },
     [pathname],
   );
 
   useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
+    const timer = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
-    if (urlTimerRef.current) clearTimeout(urlTimerRef.current);
-    urlTimerRef.current = setTimeout(() => {
-      replaceFilterUrl(query, statusRef.current);
-      urlTimerRef.current = null;
-    }, 250);
+    if (!urlSyncReadyRef.current) {
+      urlSyncReadyRef.current = true;
+      return;
+    }
+    replaceFilterUrl(debouncedQuery, status);
+  }, [debouncedQuery, replaceFilterUrl, status]);
 
-    return () => {
-      if (urlTimerRef.current) clearTimeout(urlTimerRef.current);
-    };
-  }, [query, replaceFilterUrl]);
+  useEffect(() => {
+    const currentParams = new URLSearchParams(serializedSearchParams);
+    const urlQuery = currentParams.get('q') ?? '';
+    const urlStatus = parseStatusParam(currentParams.get('status'));
+    setQuery(urlQuery);
+    setDebouncedQuery(urlQuery);
+    setStatus(urlStatus);
+  }, [serializedSearchParams]);
 
   const visible = useMemo(() => filterRuns(runs, { query, status }), [query, runs, status]);
   const hasFilters = query.trim().length > 0 || status !== 'all';
 
   function selectStatus(nextStatus: RunStatusFilter) {
-    statusRef.current = nextStatus;
     setStatus(nextStatus);
-    replaceFilterUrl(query, nextStatus);
+    replaceFilterUrl(debouncedQuery, nextStatus);
   }
 
   function clearFilters() {
-    if (urlTimerRef.current) {
-      clearTimeout(urlTimerRef.current);
-      urlTimerRef.current = null;
-    }
-    statusRef.current = 'all';
     setQuery('');
+    setDebouncedQuery('');
     setStatus('all');
     replaceFilterUrl('', 'all');
   }
@@ -118,30 +125,7 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
           </button>
         </div>
       ) : (
-        <ul className="border-t border-rule">
-          {visible.map((run) => (
-            <li key={run.id} className="border-b border-rule">
-              <Link href={`/runs/${run.id}`} className="block hover:bg-ground-raised">
-                <Stave className="px-3">
-                  <span className="stave-clear shrink-0">
-                    <StatusMark status={run.status} />
-                  </span>
-                  <span className="stave-clear min-w-0 flex-1 truncate text-sm text-ink">
-                    {run.ticket.title}
-                  </span>
-                  <span className="stave-clear shrink-0 font-mono text-xs text-ink-muted tnum">
-                    {run.policySnapshot.pipeline}
-                    {run.complexity ? ` · ${run.complexity}` : ''}
-                    {run.currentStage ? ` · ${run.currentStage}` : ''}
-                  </span>
-                  <span className="stave-clear hidden shrink-0 font-mono text-xs text-ink-faint tnum sm:inline">
-                    {new Date(run.createdAt).toLocaleDateString()}
-                  </span>
-                </Stave>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <RunsList runs={visible} />
       )}
     </>
   );

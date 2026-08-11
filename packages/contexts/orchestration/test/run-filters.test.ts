@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterRuns, parseStatusParam, statusBucket } from '../src/lib/run-filters';
+import { filterRuns, parseStatusParam, statusBucket } from '../src/run-filters.js';
 
 interface RunFixture {
   id: string;

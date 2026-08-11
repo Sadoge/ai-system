@@ -287,10 +287,20 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     );
   }
 
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Coding agent succeeded; finalizing its Git changes' },
+  );
   await commitAll(
     worktreeDir,
     `ai-system: ${ticket.title} (iteration ${run.iterationCount})`,
     repo.defaultBranch,
+  );
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Generating the review diff' },
   );
   const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
   const { artifactId: diffId } = await createArtifact(db, {

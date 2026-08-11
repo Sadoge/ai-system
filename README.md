@@ -147,7 +147,7 @@ node apps/cli/dist/main.js seed
 codex login                                                # ChatGPT subscription
 # or: claude auth login                                    # Claude subscription
 
-node apps/worker/dist/main.js &                            # or: pnpm --filter @ai-system/worker dev
+pnpm --filter @ai-system/worker start &                   # builds first; or use: pnpm --filter @ai-system/worker dev
 
 echo '# My first ticket' > ticket.md
 node apps/cli/dist/main.js run start ticket.md            # trivial pipeline
@@ -162,7 +162,7 @@ node apps/cli/dist/main.js run start ticket.md --pipeline mvp
 node apps/cli/dist/main.js gate list                      # approve the plan, then the final PR
 
 # Deterministic offline pipeline test instead of real reasoning:
-# MOCK_MODELS=true node apps/worker/dist/main.js
+# MOCK_MODELS=true pnpm --filter @ai-system/worker start
 
 # Or drive everything from the API + web UI:
 node apps/api/dist/main.js &                              # control plane on :3001

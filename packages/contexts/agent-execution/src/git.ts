@@ -169,7 +169,21 @@ export async function commitAll(
 }
 
 export async function diffAgainst(worktreeDir: string, baseRef: string): Promise<string> {
-  return git(worktreeDir, 'diff', `${baseRef}...HEAD`);
+  // A diff artifact describes the source change, never platform/runtime
+  // caches. Keep this final guard even though commitAll also sanitizes the
+  // branch: it bounds output if an older attempt committed a large cache and
+  // lets the recovery attempt reach the cleanup commit instead of overflowing
+  // Node's child-process buffer first.
+  return git(
+    worktreeDir,
+    'diff',
+    `${baseRef}...HEAD`,
+    '--',
+    '.',
+    ...PLATFORM_WORKTREE_FILES.map(
+      (pattern) => `:(exclude)${pattern.replace(/\/$/, '')}`,
+    ),
+  );
 }
 
 export async function removeWorktree(checkoutDir: string, worktreeDir: string): Promise<void> {

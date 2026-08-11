@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RunDetail } from '@/lib/api';
 import { StatusMark } from '@/lib/ui';
+import { stageFailureDetail } from './execution-monitor-copy';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -101,7 +102,9 @@ function eventLabel(event: RunEvent, run: RunDetail): string | null {
     case 'run.stage.completed':
       return stage ? `${stage} stage completed` : 'Stage completed';
     case 'run.stage.failed':
-      return stage ? `${stage} stage failed` : 'Stage failed';
+      return stage
+        ? `${stage} stage failed${typeof payload.reason === 'string' ? ` — ${stageFailureDetail(payload.reason)}` : ''}`
+        : 'Stage failed';
     case 'task.created':
       return task ? `Queued task: ${task.title}` : 'Task queued';
     case 'task.started':
@@ -213,6 +216,13 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
             if (agent.agentKind === 'echo') return stage === 'echo_agent';
             return false;
           });
+          const succeededAgent = agents.some((agent) => agent.status === 'succeeded');
+          const failedMessage =
+            attempt?.status === 'failed'
+              ? `${succeededAgent ? 'Agent succeeded, but stage finalization failed' : 'Stage failed'}${
+                  attempt.error ? `: ${stageFailureDetail(attempt.error)}` : ''
+                }`
+              : null;
           return (
             <li
               key={stage}
@@ -226,8 +236,17 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
                 </span>
                 <span className="font-mono text-sm text-ink">{stage}</span>
                 <div className="min-w-0">
-                  <p className={isCurrent ? 'text-sm text-cue-bright' : 'text-sm text-ink-muted'}>
-                    {stageActivity?.payload.message ??
+                  <p
+                    className={
+                      failedMessage
+                        ? 'text-sm text-mark-bright'
+                        : isCurrent
+                          ? 'text-sm text-cue-bright'
+                          : 'text-sm text-ink-muted'
+                    }
+                  >
+                    {failedMessage ??
+                      stageActivity?.payload.message ??
                       DEFAULT_ACTIVITY[stage] ??
                       'Waiting to start'}
                   </p>

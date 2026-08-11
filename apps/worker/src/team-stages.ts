@@ -208,6 +208,11 @@ export async function executeTask(
       return;
     }
 
+    await reportActivity(
+      db,
+      { runId: run.id, stage: 'code', taskId: task.id, agentRunId: execution.agentRunId },
+      { kind: 'stage', message: 'Coding agent succeeded; finalizing its Git changes' },
+    );
     await commitAll(worktreeDir, `ai-system: ${task.title}`, runBranch(run));
     await db.update(tasksTable).set({ error: null }).where(eq(tasksTable.id, task.id));
     await applyEvent(db, { name: 'task.completed', payload: { runId: run.id, taskId: task.id } });

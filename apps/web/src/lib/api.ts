@@ -64,13 +64,7 @@ export interface RunDetail extends RunSummary {
     detail: string;
     status: string;
   }[];
-  gates: {
-    id: string;
-    gate: string;
-    status: string;
-    payload: Record<string, unknown>;
-    createdAt: string;
-  }[];
+  gates: { id: string; gate: string; status: string; payload: Record<string, unknown>; createdAt: string }[];
   costUsd: number;
   tasks: {
     id: string;

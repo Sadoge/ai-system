@@ -38,16 +38,57 @@ export interface ParsedDiff {
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+function decodeQuotedPath(value: string): string {
+  return value.replace(/\\([0-7]{1,3}|[\\"tnr])/g, (_match, escape: string) => {
+    if (/^[0-7]+$/.test(escape)) return String.fromCharCode(Number.parseInt(escape, 8));
+    return { '\\': '\\', '"': '"', t: '\t', n: '\n', r: '\r' }[escape] ?? escape;
+  });
+}
+
 function cleanPath(value: string): string | null {
-  const token = value.split('\t', 1)[0]!.trim().replace(/^"|"$/g, '');
+  const trimmed = value.trimStart();
+  let token = trimmed.split('\t', 1)[0]!.trim();
+  if (token.startsWith('"')) {
+    let escaped = false;
+    for (let index = 1; index < token.length; index++) {
+      if (!escaped && token[index] === '"') {
+        token = decodeQuotedPath(token.slice(1, index));
+        break;
+      }
+      escaped = !escaped && token[index] === '\\';
+    }
+  }
   if (token === '/dev/null') return null;
   return token.replace(/^[ab]\//, '');
 }
 
+function tokenizeGitHeader(value: string): string[] {
+  const tokens: string[] = [];
+  let token = '';
+  let quoted = false;
+  let escaped = false;
+  for (const character of value) {
+    if (!quoted && character === ' ') {
+      if (token) tokens.push(token);
+      token = '';
+      continue;
+    }
+    token += character;
+    if (character === '"' && !escaped) quoted = !quoted;
+    escaped = quoted && character === '\\' && !escaped;
+  }
+  if (token) tokens.push(token);
+  return tokens;
+}
+
 function pathsFromGitHeader(line: string): [string | null, string | null] {
-  const match = /^diff --git (?:"a\/(.*)"|a\/(.*)) (?:"b\/(.*)"|b\/(.*))$/.exec(line);
-  if (!match) return [null, null];
-  return [match[1] ?? match[2] ?? null, match[3] ?? match[4] ?? null];
+  const value = line.slice('diff --git '.length);
+  const tokens = tokenizeGitHeader(value);
+  if (tokens.length === 2) return [cleanPath(tokens[0]!), cleanPath(tokens[1]!)];
+
+  const separator = value.lastIndexOf(' b/');
+  if (separator < 0) return [null, null];
+  return [cleanPath(value.slice(0, separator)), cleanPath(value.slice(separator + 1))];
 }
 
 function fileId(path: string, index: number): string {
@@ -62,6 +103,8 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
   let hunk: DiffHunk | null = null;
   let oldLine = 0;
   let newLine = 0;
+  let oldLinesRead = 0;
+  let newLinesRead = 0;
 
   const startFile = (oldPath: string | null, newPath: string | null): DiffFile => {
     const path = newPath ?? oldPath ?? `unknown-${files.length + 1}`;
@@ -91,16 +134,28 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
 
+    if (
+      hunk &&
+      line.startsWith('\\')
+    ) {
+      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      continue;
+    }
+
+    if (hunk && oldLinesRead >= hunk.oldCount && newLinesRead >= hunk.newCount) {
+      hunk = null;
+    }
+
     if (!current && line.startsWith('--- ') && lines[index + 1]?.startsWith('+++ ')) {
       current = startFile(cleanPath(line.slice(4)), cleanPath(lines[index + 1]!.slice(4)));
     }
     if (!current) continue;
 
-    if (line.startsWith('--- ')) {
+    if (!hunk && line.startsWith('--- ')) {
       current.oldPath = cleanPath(line.slice(4));
       continue;
     }
-    if (line.startsWith('+++ ')) {
+    if (!hunk && line.startsWith('+++ ')) {
       current.newPath = cleanPath(line.slice(4));
       current.path = current.newPath ?? current.oldPath ?? current.path;
       current.status =
@@ -131,6 +186,8 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     if (header) {
       oldLine = Number(header[1]);
       newLine = Number(header[3]);
+      oldLinesRead = 0;
+      newLinesRead = 0;
       hunk = {
         header: line,
         oldStart: oldLine,
@@ -152,16 +209,24 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
       current.additions++;
       newLine++;
+      newLinesRead++;
     } else if (line.startsWith('-')) {
       hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
       current.deletions++;
       oldLine++;
+      oldLinesRead++;
     } else if (line.startsWith(' ')) {
       hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
       oldLine++;
       newLine++;
-    } else if (line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      oldLinesRead++;
+      newLinesRead++;
+    } else if (line === '') {
+      hunk.lines.push({ kind: 'context', content: '', oldLine, newLine });
+      oldLine++;
+      newLine++;
+      oldLinesRead++;
+      newLinesRead++;
     }
   }
 

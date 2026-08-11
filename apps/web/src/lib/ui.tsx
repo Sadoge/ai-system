@@ -58,13 +58,7 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 /** A notehead. Filled = played, hollow = sounding, cross = dead, rest = silent. */
-export function Notehead({
-  head,
-  className = '',
-}: {
-  head: StateRead['head'];
-  className?: string;
-}) {
+export function Notehead({ head, className = '' }: { head: StateRead['head']; className?: string }) {
   const common = { width: 11, height: 11, viewBox: '0 0 11 11', 'aria-hidden': true } as const;
   if (head === 'rest') {
     return (
@@ -133,7 +127,7 @@ export function SeverityMark({ severity }: { severity: string }) {
   const heavy = severity === 'blocker' || severity === 'major';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-mono text-xs ${heavy ? 'text-mark-bright' : 'text-ink-faint'}`}
+      className={`inline-flex items-center gap-1.5 font-mono text-xs ${heavy ? 'text-mark' : 'text-ink-faint'}`}
     >
       <Notehead head={heavy ? 'cross' : 'filled'} className="shrink-0" />
       {severity}
@@ -209,20 +203,14 @@ export function Caesura({ children }: { children: React.ReactNode }) {
 }
 
 /** A voice laid on ruled staves. Content clears the rules so type stays crisp. */
-export function Stave({
-  children,
-  className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+export function Stave({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`stave flex items-center gap-3 py-2.5 ${className}`}>{children}</div>;
 }
 
-const FOCUS =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
 
-export const inputCls = `border-b border-rule-strong bg-transparent px-1 py-1.5 font-mono text-sm text-ink placeholder:text-ink-faint focus-visible:border-cue ${FOCUS}`;
+export const inputCls =
+  `border-b border-rule-strong bg-transparent px-1 py-1.5 font-mono text-sm text-ink placeholder:text-ink-faint focus-visible:border-cue ${FOCUS}`;
 
 /** Native selects, with the OS chevron replaced by an engraved one. */
 export const selectCls = `${inputCls} select-chevron cursor-pointer pr-6`;
@@ -232,10 +220,12 @@ export const selectCls = `${inputCls} select-chevron cursor-pointer pr-6`;
  * stroke on the ground — its weight comes from the stroke, not a fill, and
  * committing to it fills the stroke in.
  */
-export const buttonCls = `border-2 border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
+export const buttonCls =
+  `border-2 border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
 
 /** The other decision. Quieter at rest; it reaches for the pencil on hover. */
-export const buttonDangerCls = `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-mark hover:text-mark-bright ${FOCUS}`;
+export const buttonDangerCls =
+  `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-mark hover:text-mark-bright ${FOCUS}`;
 
 export const linkCls =
   'text-cue-bright underline decoration-rule-strong underline-offset-2 hover:decoration-cue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';

@@ -14,6 +14,7 @@ export function ArtifactView({ artifact, runId }: { artifact: ArtifactDetail; ru
         artifactId={artifact.id}
         content={content}
         error={content ? undefined : 'The diff artifact content is unavailable or malformed.'}
+        showArtifactLink={false}
       />
     );
   }

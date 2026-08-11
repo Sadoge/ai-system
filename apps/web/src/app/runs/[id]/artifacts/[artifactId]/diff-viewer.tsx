@@ -7,7 +7,6 @@ import {
   changeBarSegments,
   fileAccessibleLabel,
   initialExpandedFiles,
-  panelId,
   summaryAccessibleLabel,
 } from '@/lib/diff-view';
 import { Caesura, Hairpin, RehearsalMark, Stave, System, buttonCls } from '@/lib/ui';
@@ -57,6 +56,10 @@ interface ParsedDiffShape {
   fileCount: number;
   additions: number;
   deletions: number;
+}
+
+function panelId(fileId: string): string {
+  return `${fileId}-panel`;
 }
 
 function filePath(file: DiffFileShape): string {
@@ -131,13 +134,13 @@ function segmentWidth(value: number): string {
 export function DiffViewer({ patch, baseBranch, workingBranch, label }: DiffViewerProps) {
   const parsed = useMemo(() => parseUnifiedDiff(patch) as unknown as ParsedDiffShape, [patch]);
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => initialExpandedFiles(parsed.files) as Set<string>,
+    () => initialExpandedFiles(parsed.files as never) as Set<string>,
   );
   const [fullyRevealed, setFullyRevealed] = useState<Set<string>>(() => new Set());
   const panelRefs = useRef(new Map<string, HTMLElement>());
 
   useEffect(() => {
-    setExpanded(initialExpandedFiles(parsed.files) as Set<string>);
+    setExpanded(initialExpandedFiles(parsed.files as never) as Set<string>);
     setFullyRevealed(new Set());
   }, [patch, parsed.files]);
 

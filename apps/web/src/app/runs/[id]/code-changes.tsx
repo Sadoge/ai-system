@@ -1,186 +1,174 @@
 import Link from 'next/link';
-import { changeBarSegments } from '@/lib/diff-view-model';
-import { parseUnifiedDiff } from '@/lib/unified-diff';
+import { groupHunkLines } from '@/lib/diff-view-model';
+import type { DiffArtifactContent } from '@/lib/diff-artifact';
+import { parseUnifiedDiff, type DiffLine } from '@/lib/unified-diff';
 import { System, linkCls } from '@/lib/ui';
+import { DiffViewer, RevealLines } from './diff-viewer';
 
-/**
- * The artifact reference exposed by GET /runs/:id. The run response does not
- * currently include task, stage, or iteration attribution for artifacts.
- */
-export interface DiffArtifactRef {
-  id: string;
-  kind: string;
-  contentHash: string;
-  createdAt: string;
-}
-
-export interface CodeChangesProps {
+interface CodeChangesProps {
   runId: string;
-  diffArtifacts: DiffArtifactRef[];
-  patches: Record<string, string>;
+  artifactId?: string;
+  content: DiffArtifactContent | null;
   error?: string | null;
-  baseBranch?: string | null;
-  workingBranch?: string | null;
 }
 
-const FILE_LIMIT = 20;
-
-interface FileSummary {
-  oldPath: string;
-  newPath: string;
-  path: string;
-  status: string;
-  additions: number;
-  deletions: number;
+function DiffRow({ line }: { line: DiffLine }) {
+  const prefix = line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ' ';
+  const status =
+    line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : line.kind;
+  return (
+    <div className={`diff-line diff-line-${line.kind}`}>
+      <span
+        className="diff-line-number"
+        aria-label={line.oldLine ? `old line ${line.oldLine}` : ''}
+      >
+        {line.oldLine ?? ''}
+      </span>
+      <span
+        className="diff-line-number"
+        aria-label={line.newLine ? `new line ${line.newLine}` : ''}
+      >
+        {line.newLine ?? ''}
+      </span>
+      <span className="diff-line-status">{status}</span>
+      <code>
+        <span className="diff-prefix" aria-hidden>
+          {prefix}
+        </span>
+        {line.content || ' '}
+      </code>
+    </div>
+  );
 }
 
-interface DiffSummary {
-  files: FileSummary[];
-  additions: number;
-  deletions: number;
-}
+export function DiffPresentation({ runId, artifactId, content, error }: CodeChangesProps) {
+  if (error) {
+    return (
+      <div className="diff-state diff-state-error" role="alert">
+        <p className="annot text-sm text-mark-bright">The code changes could not be loaded.</p>
+        <p className="mt-1 text-sm text-ink-muted">{error}</p>
+      </div>
+    );
+  }
 
-interface ChangeBarSegment {
-  kind: string;
-  percentage: number;
-}
+  if (!artifactId || !content) {
+    return (
+      <p className="diff-state annot text-sm text-ink-label">
+        No code-change artifact has been written for this run yet.
+      </p>
+    );
+  }
 
-const statusLabel = (status: string) => status.replaceAll('_', ' ');
+  const parsed = parseUnifiedDiff(content.diff);
+  if (parsed.files.length === 0) {
+    return (
+      <div className="diff-state">
+        <p className="annot text-sm text-ink-label">This artifact contains no file changes.</p>
+        <Link
+          href={`/runs/${runId}/artifacts/${artifactId}`}
+          className={`${linkCls} mt-2 inline-block text-sm`}
+        >
+          Open artifact details
+        </Link>
+      </div>
+    );
+  }
 
-export function CodeChanges({
-  runId,
-  diffArtifacts,
-  patches,
-  error = null,
-  baseBranch = null,
-  workingBranch = null,
-}: CodeChangesProps) {
-  const artifacts = diffArtifacts ?? [];
-  const patchByArtifact = patches ?? {};
-  const primaryArtifact = artifacts.at(-1);
-  const primaryPatch = primaryArtifact ? patchByArtifact[primaryArtifact.id] : undefined;
-  const parsed =
-    primaryPatch === undefined ? null : (parseUnifiedDiff(primaryPatch) as unknown as DiffSummary);
-  const files = parsed?.files ?? [];
-  const visibleFiles = files.slice(0, FILE_LIMIT);
-  const hiddenFileCount = Math.max(0, files.length - visibleFiles.length);
-  const additions = parsed?.additions ?? 0;
-  const deletions = parsed?.deletions ?? 0;
-  const segments = changeBarSegments(additions, deletions) as unknown as ChangeBarSegment[];
-  const primaryHref = primaryArtifact
-    ? `/runs/${runId}/artifacts/${primaryArtifact.id}`
-    : undefined;
+  const files = parsed.files.map(({ id, path, status, additions, deletions }) => ({
+    id,
+    path,
+    status,
+    additions,
+    deletions,
+  }));
 
   return (
-    <System mark="C" title="Code changes">
-      {error ? (
-        <p
-          role="alert"
-          className="diff-error border-l border-mark py-1 pl-4 text-sm text-mark-bright"
-        >
-          Code changes could not be loaded.
+    <>
+      <div className="diff-summary">
+        <p className="font-mono text-sm text-ink-secondary tnum">
+          {parsed.files.length} {parsed.files.length === 1 ? 'file' : 'files'} changed
+          <span className="ml-3">+{parsed.additions}</span>
+          <span className="ml-2">−{parsed.deletions}</span>
         </p>
-      ) : artifacts.length === 0 ? (
-        <p className="diff-empty annot py-4 text-sm text-ink-label">
-          No code changes have been produced for this run yet.
-        </p>
-      ) : (
-        <div className="diff-summary">
-          {baseBranch && workingBranch && (
-            <p className="mb-3 font-mono text-xs text-ink-faint">
-              {baseBranch} <span aria-hidden>→</span> <span className="sr-only">to</span>{' '}
-              {workingBranch}
-            </p>
-          )}
-
-          {parsed && primaryHref && (
-            <>
-              <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 font-mono text-xs text-ink-secondary tnum">
-                <span>{files.length} files changed</span>
-                <span>+{additions} additions</span>
-                <span>−{deletions} deletions</span>
-              </div>
-
-              <div
-                className="diff-change-bar mt-3 flex h-2 w-full overflow-hidden bg-ground-band"
-                role="img"
-                aria-label={`${additions} additions and ${deletions} deletions`}
-              >
-                {segments.map((segment) => (
-                  <span
-                    key={segment.kind}
-                    className={`diff-change-bar-${segment.kind}`}
-                    style={{ width: `${segment.percentage}%` }}
-                  />
-                ))}
-              </div>
-
-              <ul className="diff-file-list mt-4 border-t border-rule">
-                {visibleFiles.map((file) => (
-                  <li key={`${file.oldPath}:${file.newPath}`} className="border-b border-rule">
-                    <Link
-                      href={primaryHref}
-                      className="diff-file-row grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 px-3 py-2.5 hover:bg-ground-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright"
-                    >
-                      <span
-                        className="diff-path truncate font-mono text-xs text-ink"
-                        title={file.path}
-                      >
-                        {file.path}
-                      </span>
-                      <span className="diff-file-status text-xs text-ink-label">
-                        {statusLabel(file.status)}
-                      </span>
-                      <span className="whitespace-nowrap font-mono text-xs text-ink-secondary tnum">
-                        +{file.additions} / −{file.deletions}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-                {hiddenFileCount > 0 && (
-                  <li className="border-b border-rule px-3 py-2.5 font-mono text-xs text-ink-muted">
-                    <Link href={primaryHref} className={linkCls}>
-                      +{hiddenFileCount} more files
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            </>
-          )}
-
-          {artifacts.length > 1 && (
-            <div className="mt-5">
-              <p className="annot text-xs text-ink-label">Produced diff artifacts</p>
-              <ul className="mt-1 border-t border-rule">
-                {artifacts.map((artifact, index) => (
-                  <li key={artifact.id} className="border-b border-rule">
-                    <Link
-                      href={`/runs/${runId}/artifacts/${artifact.id}`}
-                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-ground-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright"
-                    >
-                      <span className="font-mono text-xs text-cue-bright">
-                        Diff {index + 1}
-                        {artifact.id === primaryArtifact?.id ? ' · latest' : ''}
-                      </span>
-                      <span className="ml-auto font-mono text-xs text-ink-faint tnum">
-                        {new Date(artifact.createdAt).toLocaleString()}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+        <dl className="diff-metadata">
+          {content.baseBranch && (
+            <div>
+              <dt>base</dt>
+              <dd>{content.baseBranch}</dd>
             </div>
           )}
-
-          {primaryHref && (
-            <p className="mt-5">
-              <Link href={primaryHref} className={`${linkCls} font-mono text-sm`}>
-                View full diff artifact <span aria-hidden>→</span>
-              </Link>
-            </p>
+          {content.branch && (
+            <div>
+              <dt>working</dt>
+              <dd>{content.branch}</dd>
+            </div>
           )}
-        </div>
-      )}
+          {content.task && (
+            <div>
+              <dt>task</dt>
+              <dd>{content.task}</dd>
+            </div>
+          )}
+          {content.stage && (
+            <div>
+              <dt>stage</dt>
+              <dd>{content.stage}</dd>
+            </div>
+          )}
+          {content.iteration !== undefined && (
+            <div>
+              <dt>iteration</dt>
+              <dd>{content.iteration}</dd>
+            </div>
+          )}
+        </dl>
+        <Link href={`/runs/${runId}/artifacts/${artifactId}`} className={`${linkCls} text-sm`}>
+          Open artifact details
+        </Link>
+      </div>
+
+      <DiffViewer files={files}>
+        {parsed.files.map((file) => (
+          <div key={file.id} className="diff-code" role="region" aria-label={`${file.path} patch`}>
+            {file.metadata.length > 0 && (
+              <div className="diff-file-metadata">
+                {file.metadata.map((line, index) => (
+                  <p key={`${line}-${index}`}>{line}</p>
+                ))}
+              </div>
+            )}
+            {file.hunks.map((hunk, hunkIndex) => (
+              <div key={`${hunk.header}-${hunkIndex}`}>
+                <p className="diff-hunk">{hunk.header}</p>
+                {groupHunkLines(hunk).map((group, groupIndex) =>
+                  group.kind === 'collapsed' ? (
+                    <RevealLines key={groupIndex} count={group.lines.length}>
+                      {group.lines.map((line, lineIndex) => (
+                        <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+                      ))}
+                    </RevealLines>
+                  ) : (
+                    group.lines.map((line, lineIndex) => (
+                      <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+                    ))
+                  ),
+                )}
+              </div>
+            ))}
+            {file.status === 'binary' && file.metadata.length === 0 && (
+              <p className="diff-file-metadata">Binary file changed.</p>
+            )}
+          </div>
+        ))}
+      </DiffViewer>
+    </>
+  );
+}
+
+export function CodeChanges(props: CodeChangesProps) {
+  return (
+    <System mark="Δ" title="Code changes">
+      <DiffPresentation {...props} />
     </System>
   );
 }

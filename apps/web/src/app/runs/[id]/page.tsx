@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { apiGet, type RunDetail } from '@/lib/api';
+import { apiGet, type ArtifactDetail, type RunDetail } from '@/lib/api';
 import { resolveGateAction } from '@/lib/actions';
+import { readDiffArtifactContent, type DiffArtifactContent } from '@/lib/diff-artifact';
 import {
   Caesura,
   Fermata,
@@ -14,12 +15,39 @@ import {
 } from '@/lib/ui';
 import { LiveRefresh } from './live-refresh';
 import { RunSystem } from './system';
+import { CodeChanges } from './code-changes';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
+
+async function fetchDiffArtifact(
+  runId: string,
+  artifactId: string,
+): Promise<{ data: DiffArtifactContent | null; error?: string }> {
+  try {
+    const artifact = await apiGet<ArtifactDetail>(`/runs/${runId}/artifacts/${artifactId}`);
+    if (artifact.kind !== 'diff') {
+      return { data: null, error: 'The selected artifact is not a diff.' };
+    }
+    const data = readDiffArtifactContent(artifact.content);
+    if (!data) {
+      return { data: null, error: 'The diff artifact content is unavailable or malformed.' };
+    }
+    return { data };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : 'The diff artifact request failed.',
+    };
+  }
+}
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
+  const diffArtifact = (run.artifacts ?? []).filter((artifact) => artifact.kind === 'diff').at(-1);
+  const diffResult = diffArtifact
+    ? await fetchDiffArtifact(run.id, diffArtifact.id)
+    : { data: null as DiffArtifactContent | null };
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
@@ -42,6 +70,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           {run.costUsd.toFixed(4)}
         </p>
       </div>
+
+      <CodeChanges
+        runId={run.id}
+        artifactId={diffArtifact?.id}
+        content={diffResult.data}
+        error={diffResult.error}
+      />
 
       {run.error && (
         <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">

@@ -79,3 +79,8 @@ The viewer uses only the existing ground, rule, ink, mark, and cue tokens. It
 adds no competing diff palette or typography system. The line grid narrows
 below 640px, controls use the shared cobalt focus treatment, and forced-colors
 borders keep addition/deletion meaning from depending on color.
+
+## Test setup
+
+`apps/web` owns these pure logic tests and runs them with its existing `vitest` dependency and
+`test` script. No test dependency or workspace import changes are required.

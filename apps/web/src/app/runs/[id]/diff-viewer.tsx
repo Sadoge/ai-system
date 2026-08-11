@@ -1,10 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { groupHunkLines, visibleHunks } from '@/lib/diff-view-model';
+import { groupHunkLines, LARGE_FILE_LINE_LIMIT, sliceFileHunks } from '@/lib/diff-view-model';
 import type { DiffFile, DiffLine } from '@/lib/unified-diff';
 
-const LARGE_FILE_LINE_LIMIT = 400;
 const focus =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
 
@@ -14,48 +13,42 @@ function DiffRow({ line }: { line: DiffLine }) {
 
   return (
     <div className={`diff-line diff-line-${line.kind}`}>
-      <span className="diff-line-number" aria-hidden="true">
+      <span className="diff-line-number" aria-hidden>
         {line.oldLine ?? ''}
       </span>
-      <span className="diff-line-number" aria-hidden="true">
+      <span className="diff-line-number" aria-hidden>
         {line.newLine ?? ''}
       </span>
-      <span className="diff-line-status">{status}</span>
-      <span className="diff-prefix" aria-hidden="true">
+      <span className="diff-line-status" aria-hidden={!status}>
+        {status}
+      </span>
+      <span className="diff-prefix" aria-hidden>
         {prefix}
       </span>
-      <code>{line.content}</code>
+      <code>{line.content || ' '}</code>
     </div>
   );
 }
 
-function HunkLines({ file, fullyRevealed }: { file: DiffFile; fullyRevealed: boolean }) {
-  const hunks = fullyRevealed ? file.hunks : visibleHunks(file, LARGE_FILE_LINE_LIMIT).hunks;
-
-  return hunks.map((hunk, hunkIndex) => (
-    <div key={`${hunk.header}-${hunkIndex}`}>
-      <p className="diff-hunk">{hunk.header}</p>
-      {groupHunkLines(hunk).map((group, groupIndex) =>
-        group.kind === 'collapsed' ? (
-          <RevealLines key={groupIndex} count={group.lines.length}>
-            {group.lines.map((line, lineIndex) => (
-              <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-            ))}
-          </RevealLines>
-        ) : (
-          group.lines.map((line, lineIndex) => (
-            <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-          ))
-        ),
-      )}
-    </div>
-  ));
+function RevealLines({ count, children }: { count: number; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  if (visible) return <>{children}</>;
+  return (
+    <button
+      type="button"
+      className={`diff-reveal ${focus}`}
+      onClick={() => setVisible(true)}
+      aria-label={`Show remaining ${count} unchanged lines`}
+    >
+      Show remaining lines <span aria-hidden>({count})</span>
+    </button>
+  );
 }
 
-function DiffFileBody({ file }: { file: DiffFile }) {
-  const [fullyRevealed, setFullyRevealed] = useState(false);
-  const totalLines = file.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
-  const remaining = Math.max(0, totalLines - LARGE_FILE_LINE_LIMIT);
+function FileContent({ file }: { file: DiffFile }) {
+  const [showAll, setShowAll] = useState(false);
+  const capped = sliceFileHunks(file.hunks, LARGE_FILE_LINE_LIMIT);
+  const hunks = showAll ? file.hunks : capped.hunks;
 
   return (
     <div className="diff-code" role="region" aria-label={`${file.path} patch`}>
@@ -66,14 +59,27 @@ function DiffFileBody({ file }: { file: DiffFile }) {
           ))}
         </div>
       )}
-      <HunkLines file={file} fullyRevealed={fullyRevealed} />
-      {!fullyRevealed && remaining > 0 && (
-        <button
-          type="button"
-          className={`diff-reveal ${focus}`}
-          onClick={() => setFullyRevealed(true)}
-        >
-          Show remaining {remaining} lines
+      {hunks.map((hunk, hunkIndex) => (
+        <div key={`${hunk.header}-${hunkIndex}`}>
+          <p className="diff-hunk">{hunk.header}</p>
+          {groupHunkLines(hunk).map((group, groupIndex) =>
+            group.kind === 'collapsed' ? (
+              <RevealLines key={groupIndex} count={group.lines.length}>
+                {group.lines.map((line, lineIndex) => (
+                  <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+                ))}
+              </RevealLines>
+            ) : (
+              group.lines.map((line, lineIndex) => (
+                <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+              ))
+            ),
+          )}
+        </div>
+      ))}
+      {!showAll && capped.remaining > 0 && (
+        <button type="button" className={`diff-reveal ${focus}`} onClick={() => setShowAll(true)}>
+          Show remaining {capped.remaining} lines
         </button>
       )}
       {file.status === 'binary' && file.metadata.length === 0 && (
@@ -171,27 +177,12 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 </span>
               </button>
               <div id={`${file.id}-content`} hidden={!open}>
-                {open && <DiffFileBody file={file} />}
+                {open && <FileContent file={file} />}
               </div>
             </article>
           );
         })}
       </div>
     </div>
-  );
-}
-
-export function RevealLines({ count, children }: { count: number; children: React.ReactNode }) {
-  const [visible, setVisible] = useState(false);
-  if (visible) return <>{children}</>;
-  return (
-    <button
-      type="button"
-      className={`diff-reveal ${focus}`}
-      onClick={() => setVisible(true)}
-      aria-label={`Show remaining ${count} lines`}
-    >
-      Show remaining lines <span aria-hidden="true">({count})</span>
-    </button>
   );
 }

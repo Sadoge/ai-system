@@ -78,7 +78,6 @@ export function DiffPresentation({
       </div>
     );
   }
-
   return (
     <>
       <div className="diff-summary">

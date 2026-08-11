@@ -34,6 +34,14 @@ export function visibleHunks(
   return { hunks, remaining: Math.max(0, total - safeLimit) };
 }
 
+/** Compatibility form used by the viewer when it already has the hunk list. */
+export function sliceFileHunks(
+  hunks: readonly DiffHunk[],
+  limit = LARGE_FILE_LINE_LIMIT,
+): CappedHunks {
+  return capHunks(hunks, limit);
+}
+
 /** Collapse only long, unchanged runs. Changed lines and their nearby context
  * remain visible, while the complete source stays available on demand. */
 export function groupHunkLines(hunk: DiffHunk, contextLines = 3): DiffLineGroup[] {

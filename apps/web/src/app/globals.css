@@ -34,7 +34,8 @@
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --font-annot: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
 
   /* The micro step. Rehearsal marks and stage labels are engraver's small

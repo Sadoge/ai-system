@@ -278,7 +278,11 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
     current = null;
   };
 
-  for (const line of patch.replace(/\r\n?/g, '\n').split('\n')) {
+  const normalized = patch.replace(/\r\n?/g, '\n');
+  const lines = normalized.split('\n');
+  if (normalized.endsWith('\n')) lines.pop();
+
+  for (const line of lines) {
     if (line.startsWith('diff --git ')) {
       finishFile();
       current = newPendingFile(line);

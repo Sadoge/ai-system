@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capHunks, groupHunkLines, visibleHunks } from './diff-view-model';
+import { capHunks, groupHunkLines, sliceFileHunks, visibleHunks } from './diff-view-model';
 import type { DiffHunk, DiffLine } from './unified-diff';
 
 const context = (line: number): DiffLine => ({
@@ -26,6 +26,24 @@ describe('groupHunkLines', () => {
       ['visible', 3],
     ]);
     expect(groups.flatMap((group) => group.lines)).toEqual(hunk.lines);
+  });
+
+  it('caps lines across hunks and reports the remainder', () => {
+    const hunks = [
+      {
+        header: '@@ first @@',
+        lines: Array.from({ length: 3 }, (_, index) => context(index + 1)),
+      },
+      {
+        header: '@@ second @@',
+        lines: Array.from({ length: 4 }, (_, index) => context(index + 4)),
+      },
+    ] as DiffHunk[];
+
+    expect(sliceFileHunks(hunks, 5)).toMatchObject({
+      remaining: 2,
+      hunks: [{ lines: hunks[0]!.lines }, { lines: hunks[1]!.lines.slice(0, 2) }],
+    });
   });
 });
 

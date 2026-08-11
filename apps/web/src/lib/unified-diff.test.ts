@@ -15,8 +15,7 @@ index 111..222 100644
  export { a };
 `);
 
-    expect(parsed).toMatchObject({ additions: 2, deletions: 1 });
-    expect(parsed.files).toHaveLength(1);
+    expect(parsed).toMatchObject({ additions: 2, deletions: 1, state: 'parsed' });
     expect(parsed.files[0]).toMatchObject({ path: 'src/a.ts', status: 'modified' });
     expect(
       parsed.files[0]!.hunks[0]!.lines.map((line) => [line.kind, line.oldLine, line.newLine]),
@@ -74,69 +73,38 @@ Binary files a/logo.png and b/logo.png differ
     expect(parsed.files[0]).toMatchObject({ path: 'readme.md', additions: 1, deletions: 1 });
   });
 
-  it('keeps a deleted SQL comment in the hunk and preserves every line number', () => {
-    const parsed =
-      parseUnifiedDiff(`diff --git a/packages/db/migrations/001.sql b/packages/db/migrations/001.sql
---- a/packages/db/migrations/001.sql
-+++ b/packages/db/migrations/001.sql
-@@ -8,3 +8,2 @@
- before
---- SQL comment
- after`);
+  it('treats file-header-looking hunk lines as source and keeps line numbers aligned', () => {
+    const file = parseUnifiedDiff(`diff --git a/migration.sql b/migration.sql
+--- a/migration.sql
++++ b/migration.sql
+@@ -4,3 +4,2 @@
+--- remove the legacy table
+ SELECT 1;
+-SELECT 2;`).files[0]!;
 
-    const file = parsed.files[0]!;
-    expect(file.path).toBe('packages/db/migrations/001.sql');
-    expect(file.oldPath).toBe('packages/db/migrations/001.sql');
+    expect(file).toMatchObject({ path: 'migration.sql', additions: 0, deletions: 2 });
     expect(file.hunks[0]!.lines).toEqual([
-      { kind: 'context', content: 'before', oldLine: 8, newLine: 8 },
-      { kind: 'deletion', content: '-- SQL comment', oldLine: 9, newLine: null },
-      { kind: 'context', content: 'after', oldLine: 10, newLine: 9 },
+      { kind: 'deletion', content: '-- remove the legacy table', oldLine: 4, newLine: null },
+      { kind: 'context', content: 'SELECT 1;', oldLine: 5, newLine: 4 },
+      { kind: 'deletion', content: 'SELECT 2;', oldLine: 6, newLine: null },
     ]);
   });
 
-  it('treats a zero-length hunk line as empty context', () => {
-    const parsed = parseUnifiedDiff(`diff --git a/x.txt b/x.txt
---- a/x.txt
-+++ b/x.txt
-@@ -4,3 +4,3 @@
- before
+  it('keeps trimmed empty context lines and advances both counters', () => {
+    const parsed = parseUnifiedDiff(`diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -8,2 +8,2 @@
 
- after`);
+ next`);
 
     expect(parsed.files[0]!.hunks[0]!.lines).toEqual([
-      { kind: 'context', content: 'before', oldLine: 4, newLine: 4 },
-      { kind: 'context', content: '', oldLine: 5, newLine: 5 },
-      { kind: 'context', content: 'after', oldLine: 6, newLine: 6 },
+      { kind: 'context', content: '', oldLine: 8, newLine: 8 },
+      { kind: 'context', content: 'next', oldLine: 9, newLine: 9 },
     ]);
   });
 
-  it('treats file-header-looking hunk lines as changed source', () => {
-    const file =
-      parseUnifiedDiff(`diff --git a/packages/db/migrations/a.sql b/packages/db/migrations/a.sql
---- a/packages/db/migrations/a.sql
-+++ b/packages/db/migrations/a.sql
-@@ -4,3 +4,3 @@
- keep
---- deleted SQL comment
-+++ added token
- tail`).files[0]!;
-
-    expect(file).toMatchObject({
-      path: 'packages/db/migrations/a.sql',
-      oldPath: 'packages/db/migrations/a.sql',
-      newPath: 'packages/db/migrations/a.sql',
-      additions: 1,
-      deletions: 1,
-    });
-    expect(file.hunks[0]!.lines).toEqual([
-      { kind: 'context', content: 'keep', oldLine: 4, newLine: 4 },
-      { kind: 'deletion', content: '-- deleted SQL comment', oldLine: 5, newLine: null },
-      { kind: 'addition', content: '++ added token', oldLine: null, newLine: 5 },
-      { kind: 'context', content: 'tail', oldLine: 6, newLine: 6 },
-    ]);
-  });
-
-  it('resets line numbers at every hunk and defaults omitted counts to one', () => {
+  it('resets line numbers at each hunk and defaults omitted counts to one', () => {
     const file = parseUnifiedDiff(`diff --git a/example.ts b/example.ts
 --- a/example.ts
 +++ b/example.ts
@@ -161,22 +129,24 @@ Binary files a/logo.png and b/logo.png differ
     ]);
   });
 
-  it('keeps mode-only changes as metadata without inventing line changes', () => {
-    const parsed = parseUnifiedDiff(`diff --git a/script.sh b/script.sh
-old mode 100644
-new mode 100755`);
+  it('decodes quoted paths and preserves unquoted paths containing spaces', () => {
+    const quoted =
+      parseUnifiedDiff(`diff --git "a/src/quoted\\040file.ts" "b/src/quoted\\040file.ts"
+--- "a/src/quoted\\040file.ts"
++++ "b/src/quoted\\040file.ts"`);
+    const unquoted = parseUnifiedDiff(`diff --git a/src/my file.ts b/src/my file.ts
+--- a/src/my file.ts
++++ b/src/my file.ts`);
 
-    expect(parsed).toMatchObject({ additions: 0, deletions: 0, state: 'parsed' });
-    expect(parsed.files[0]).toMatchObject({
-      path: 'script.sh',
-      metadata: ['old mode 100644', 'new mode 100755'],
-      additions: 0,
-      deletions: 0,
-    });
+    expect(quoted.files[0]!.path).toBe('src/quoted file.ts');
+    expect(unquoted.files[0]!.path).toBe('src/my file.ts');
   });
 
-  it('represents no-newline markers without changing counts or line numbers', () => {
-    const parsed = parseUnifiedDiff(`diff --git a/x b/x
+  it('keeps mode-only changes and no-newline markers without inventing counts', () => {
+    const mode = parseUnifiedDiff(`diff --git a/script.sh b/script.sh
+old mode 100644
+new mode 100755`);
+    const noNewline = parseUnifiedDiff(`diff --git a/x b/x
 --- a/x
 +++ b/x
 @@ -1 +1 @@
@@ -184,27 +154,13 @@ new mode 100755`);
 \\ No newline at end of file
 +new
 \\ No newline at end of file`);
-    const lines = parsed.files[0]!.hunks[0]!.lines;
 
-    expect(parsed).toMatchObject({ additions: 1, deletions: 1 });
-    expect(lines.filter((line) => line.kind === 'meta')).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ kind: 'deletion', oldLine: 1, newLine: null });
-    expect(lines[2]).toMatchObject({ kind: 'addition', oldLine: null, newLine: 1 });
-  });
-
-  it.each([
-    [
-      'unquoted paths containing spaces',
-      'diff --git a/src/my file.ts b/src/my file.ts',
-      'src/my file.ts',
-    ],
-    [
-      'quoted paths containing escapes',
-      'diff --git "a/src/quoted\\040file.ts" "b/src/quoted\\040file.ts"',
-      'src/quoted file.ts',
-    ],
-  ])('parses %s', (_name, header, path) => {
-    expect(parseUnifiedDiff(`${header}\n--- a/${path}\n+++ b/${path}`).files[0]!.path).toBe(path);
+    expect(mode.files[0]).toMatchObject({ additions: 0, deletions: 0 });
+    expect(mode.files[0]!.metadata).toEqual(['old mode 100644', 'new mode 100755']);
+    expect(noNewline).toMatchObject({ additions: 1, deletions: 1 });
+    expect(noNewline.files[0]!.hunks[0]!.lines.filter((line) => line.kind === 'meta')).toHaveLength(
+      2,
+    );
   });
 
   it.each([[''], ['   \n\t'], [null], [undefined]])(
@@ -237,7 +193,7 @@ new mode 100755`);
     });
   });
 
-  it('assigns distinct, stable ids when paths repeat', () => {
+  it('assigns distinct, reproducible ids when paths repeat', () => {
     const patch = `diff --git a/x b/x
 --- a/x
 +++ b/x

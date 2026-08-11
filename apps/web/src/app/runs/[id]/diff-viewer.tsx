@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { groupHunkLines, LARGE_FILE_LINE_LIMIT, sliceFileHunks } from '@/lib/diff-view-model';
+import { useState, type ReactNode } from 'react';
+import { capHunkLines, groupHunkLines, LARGE_FILE_LINE_LIMIT } from '@/lib/diff-view-model';
 import type { DiffFile, DiffLine } from '@/lib/unified-diff';
 
 const focus =
@@ -30,7 +30,7 @@ function DiffRow({ line }: { line: DiffLine }) {
   );
 }
 
-function RevealLines({ count, children }: { count: number; children: React.ReactNode }) {
+function RevealLines({ count, children }: { count: number; children: ReactNode }) {
   const [visible, setVisible] = useState(false);
   if (visible) return <>{children}</>;
   return (
@@ -47,7 +47,7 @@ function RevealLines({ count, children }: { count: number; children: React.React
 
 function FileContent({ file }: { file: DiffFile }) {
   const [showAll, setShowAll] = useState(false);
-  const capped = sliceFileHunks(file.hunks, LARGE_FILE_LINE_LIMIT);
+  const capped = capHunkLines(file.hunks, LARGE_FILE_LINE_LIMIT);
   const hunks = showAll ? file.hunks : capped.hunks;
 
   return (
@@ -78,7 +78,12 @@ function FileContent({ file }: { file: DiffFile }) {
         </div>
       ))}
       {!showAll && capped.remaining > 0 && (
-        <button type="button" className={`diff-reveal ${focus}`} onClick={() => setShowAll(true)}>
+        <button
+          type="button"
+          className={`diff-reveal ${focus}`}
+          onClick={() => setShowAll(true)}
+          aria-label={`Show remaining ${capped.remaining} lines in ${file.path}`}
+        >
           Show remaining {capped.remaining} lines
         </button>
       )}

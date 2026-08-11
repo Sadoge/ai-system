@@ -198,12 +198,6 @@ body {
   font-style: italic;
 }
 
-/* Reduced motion: the running voice stops pulsing. */
-@media (prefers-reduced-motion: reduce) {
-  .pulse-live {
-    animation: none;
-  }
-}
 @keyframes stave-pulse {
   0%,
   100% {
@@ -215,6 +209,11 @@ body {
 }
 .pulse-live {
   animation: stave-pulse 1.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-live {
+    animation: none;
+  }
 }
 
 /* ── Code changes ────────────────────────────────────────────────────

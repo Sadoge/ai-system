@@ -144,7 +144,6 @@ function tokenizeGitHeader(value: string): string[] {
   let token = '';
   let quoted = false;
   let escaped = false;
-
   for (const character of value) {
     if (!quoted && character === ' ') {
       if (token) tokens.push(token);
@@ -153,8 +152,7 @@ function tokenizeGitHeader(value: string): string[] {
     }
     token += character;
     if (character === '"' && !escaped) quoted = !quoted;
-    if (quoted && character === '\\' && !escaped) escaped = true;
-    else escaped = false;
+    escaped = quoted && character === '\\' && !escaped;
   }
   if (token) tokens.push(token);
   return tokens;

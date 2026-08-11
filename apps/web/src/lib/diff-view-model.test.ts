@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  capHunks,
-  groupHunkLines,
-  sliceFileHunks,
-  splitDiffHunks,
-  visibleHunks,
-} from './diff-view-model';
+import { capHunkLines, groupHunkLines } from './diff-view-model';
 import type { DiffHunk, DiffLine } from './unified-diff';
 
 const context = (line: number): DiffLine => ({
@@ -15,85 +9,61 @@ const context = (line: number): DiffLine => ({
   newLine: line,
 });
 
+const hunk = (header: string, lines: DiffLine[]): DiffHunk => ({
+  header,
+  oldStart: 1,
+  oldCount: lines.length,
+  newStart: 1,
+  newCount: lines.length,
+  lines,
+});
+
 describe('groupHunkLines', () => {
   it('keeps short context runs visible', () => {
-    const hunk = { lines: Array.from({ length: 7 }, (_, index) => context(index + 1)) } as DiffHunk;
-    expect(groupHunkLines(hunk)).toEqual([{ kind: 'visible', lines: hunk.lines }]);
+    const input = hunk(
+      '@@',
+      Array.from({ length: 7 }, (_, index) => context(index + 1)),
+    );
+    expect(groupHunkLines(input)).toEqual([{ kind: 'visible', lines: input.lines }]);
   });
 
-  it('collapses the middle of long unchanged runs', () => {
-    const hunk = {
-      lines: Array.from({ length: 12 }, (_, index) => context(index + 1)),
-    } as DiffHunk;
-    const groups = groupHunkLines(hunk);
+  it('collapses the middle of long unchanged runs without dropping lines', () => {
+    const input = hunk(
+      '@@',
+      Array.from({ length: 12 }, (_, index) => context(index + 1)),
+    );
+    const groups = groupHunkLines(input);
+
     expect(groups.map((group) => [group.kind, group.lines.length])).toEqual([
       ['visible', 3],
       ['collapsed', 6],
       ['visible', 3],
     ]);
-    expect(groups.flatMap((group) => group.lines)).toEqual(hunk.lines);
-  });
-
-  it('caps lines across hunks and reports the remainder', () => {
-    const hunks = [
-      {
-        header: '@@ first @@',
-        lines: Array.from({ length: 3 }, (_, index) => context(index + 1)),
-      },
-      {
-        header: '@@ second @@',
-        lines: Array.from({ length: 4 }, (_, index) => context(index + 4)),
-      },
-    ] as DiffHunk[];
-
-    expect(sliceFileHunks(hunks, 5)).toMatchObject({
-      remaining: 2,
-      hunks: [{ lines: hunks[0]!.lines }, { lines: hunks[1]!.lines.slice(0, 2) }],
-    });
+    expect(groups.flatMap((group) => group.lines)).toEqual(input.lines);
   });
 });
 
-describe('bounded hunk rendering', () => {
-  const first = {
-    header: '@@ -1,3 +1,3 @@',
-    oldStart: 1,
-    oldCount: 3,
-    newStart: 1,
-    newCount: 3,
-    lines: [context(1), context(2), context(3)],
-  };
-  const second = {
-    ...first,
-    header: '@@ -10,3 +10,3 @@',
-    lines: [context(10), context(11), context(12)],
-  };
+describe('capHunkLines', () => {
+  const first = hunk('@@ first @@', [context(1), context(2), context(3)]);
+  const second = hunk('@@ second @@', [context(10), context(11), context(12)]);
 
-  it('caps lines across hunks and reports the remaining count', () => {
-    const result = visibleHunks({ hunks: [first, second] }, 4);
-    expect(result.hunks.map((hunk) => hunk.lines.length)).toEqual([3, 1]);
-    expect(result.remaining).toBe(2);
+  it('caps across hunk boundaries and reports the exact remainder', () => {
+    const capped = capHunkLines([first, second], 4);
+
+    expect(capped.hunks.map((item) => item.lines.length)).toEqual([3, 1]);
+    expect(capped.remaining).toBe(2);
   });
 
   it('does not mutate the parsed diff', () => {
-    const result = capHunks([first, second], 5);
-    expect(result.hunks.map((hunk) => hunk.lines.length)).toEqual([3, 2]);
-    expect(result.hunks[1]!.lines[0]!.content).toBe('line 10');
+    const capped = capHunkLines([first, second], 5);
+
+    expect(capped.hunks.map((item) => item.lines.length)).toEqual([3, 2]);
+    expect(capped.hunks[1]!.lines[0]!.content).toBe('line 10');
     expect(second.lines).toHaveLength(3);
   });
-});
 
-describe('splitDiffHunks', () => {
-  it('caps lines across hunks and reports the complete remainder', () => {
-    const hunks = [
-      { header: '@@ first @@', lines: [context(1), context(2), context(3)] },
-      { header: '@@ second @@', lines: [context(10), context(11), context(12)] },
-    ] as DiffHunk[];
-
-    const split = splitDiffHunks(hunks, 4);
-
-    expect(split.visible.map((hunk) => hunk.lines.length)).toEqual([3, 1]);
-    expect(split.remaining.map((hunk) => hunk.lines.length)).toEqual([2]);
-    expect(split.remainingLineCount).toBe(2);
-    expect(hunks.map((hunk) => hunk.lines.length)).toEqual([3, 3]);
+  it('handles zero and oversized limits', () => {
+    expect(capHunkLines([first], 0)).toEqual({ hunks: [], remaining: 3 });
+    expect(capHunkLines([first], 10)).toMatchObject({ remaining: 0 });
   });
 });

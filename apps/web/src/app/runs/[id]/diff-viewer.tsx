@@ -33,7 +33,10 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
     });
     if (opening) {
       requestAnimationFrame(() => {
-        document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        document
+          .getElementById(id)
+          ?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
       });
     }
   };
@@ -97,9 +100,7 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                   +{file.additions} −{file.deletions}
                 </span>
               </button>
-              <div id={`${file.id}-content`} hidden={!open}>
-                {fileContents[index]}
-              </div>
+              {open && <div id={`${file.id}-content`}>{fileContents[index]}</div>}
             </article>
           );
         })}

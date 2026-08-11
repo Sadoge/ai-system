@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHunkLines } from './diff-view-model';
+import { capHunks, groupHunkLines } from './diff-view-model';
 import type { DiffHunk, DiffLine } from './unified-diff';
 
 const context = (line: number): DiffLine => ({
@@ -26,5 +26,22 @@ describe('groupHunkLines', () => {
       ['visible', 3],
     ]);
     expect(groups.flatMap((group) => group.lines)).toEqual(hunk.lines);
+  });
+});
+
+describe('capHunks', () => {
+  it('caps across hunk boundaries without mutating the parsed diff', () => {
+    const first = { header: '@@ first', lines: [context(1), context(2)] } as DiffHunk;
+    const second = {
+      header: '@@ second',
+      lines: [context(10), context(11), context(12)],
+    } as DiffHunk;
+
+    const capped = capHunks([first, second], 4);
+
+    expect(capped.remaining).toBe(1);
+    expect(capped.hunks.map((hunk) => hunk.lines.length)).toEqual([2, 2]);
+    expect(capped.hunks[1]!.lines[0]!.content).toBe('line 10');
+    expect(second.lines).toHaveLength(3);
   });
 });

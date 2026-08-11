@@ -115,6 +115,33 @@ exit 1`);
     });
   });
 
+  it('streams CLI warnings while a successful Codex run is still active', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-warning-'));
+    const binary = fakeCli(`cat > /dev/null
+echo 'ERROR codex_models_manager::cache: missing field base_instructions' >&2
+echo '{"type":"thread.started","thread_id":"session-warning"}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented."}}'
+echo '{"type":"turn.completed"}'`);
+    const activity: string[] = [];
+
+    const result = await new CliAgentExecutor({ preset: 'codex', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      limits: { timeoutMs: 10_000 },
+      onActivity: async (event) => {
+        activity.push(event.message);
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'succeeded', sessionId: 'session-warning' });
+    expect(activity).toContain(
+      'ERROR codex_models_manager::cache: missing field base_instructions',
+    );
+    expect(activity).toContain('Finishing the agent run');
+  });
+
   it('continues a Codex session with a compact follow-up prompt', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-resume-'));
     const binary = fakeCli(`printf '%s\\n' "$@" > argv-received.txt

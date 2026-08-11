@@ -33,7 +33,12 @@ export async function ensureWorktree(
   baseBranch: string,
 ): Promise<void> {
   const { existsSync } = await import('node:fs');
-  if (existsSync(worktreeDir)) return; // reused across fix iterations of the same run
+  if (existsSync(worktreeDir)) {
+    // A worker upgrade can add new platform exclusions while a run is paused.
+    // Refresh them for reused fix-iteration worktrees as well as new ones.
+    await excludePlatformFiles(worktreeDir);
+    return;
+  }
 
   const branches = await git(checkoutDir, 'branch', '--list', branch);
   if (branches.trim()) {
@@ -78,8 +83,18 @@ async function registeredWorktreeForBranch(
   return null;
 }
 
-/** Files the platform writes into the worktree for its own purposes. */
-export const PLATFORM_WORKTREE_FILES = ['.ai-system-prompt.md'];
+/**
+ * Files created by the execution harness or dependency tooling that are never
+ * part of an agent's source change. These patterns live in the worktree-local
+ * exclude file so a repository's own .gitignore does not need to know how the
+ * platform provisions coding agents.
+ */
+export const PLATFORM_WORKTREE_FILES = [
+  '.ai-system-prompt.md',
+  '.pnpm-store/',
+  '.npm/',
+  '.yarn/cache/',
+];
 
 /**
  * Keep platform scaffolding out of the user's change. `info/exclude` is
@@ -87,16 +102,57 @@ export const PLATFORM_WORKTREE_FILES = ['.ai-system-prompt.md'];
  * available for a human to inspect without ever appearing in a diff or PR.
  */
 async function excludePlatformFiles(worktreeDir: string): Promise<void> {
-  const { appendFile, mkdir } = await import('node:fs/promises');
+  const { appendFile, mkdir, readFile } = await import('node:fs/promises');
   const { dirname } = await import('node:path');
   const excludePath = (await git(worktreeDir, 'rev-parse', '--git-path', 'info/exclude')).trim();
   const absolute = excludePath.startsWith('/') ? excludePath : `${worktreeDir}/${excludePath}`;
   await mkdir(dirname(absolute), { recursive: true });
-  await appendFile(absolute, `\n${PLATFORM_WORKTREE_FILES.join('\n')}\n`, 'utf8');
+  const existing = await readFile(absolute, 'utf8').catch(() => '');
+  const missing = PLATFORM_WORKTREE_FILES.filter(
+    (pattern) => !existing.split('\n').includes(pattern),
+  );
+  if (missing.length > 0) await appendFile(absolute, `\n${missing.join('\n')}\n`, 'utf8');
 }
 
-export async function commitAll(worktreeDir: string, message: string): Promise<boolean> {
+export async function commitAll(
+  worktreeDir: string,
+  message: string,
+  baseRef?: string,
+): Promise<boolean> {
   await git(worktreeDir, 'add', '-A');
+  // An agent can explicitly stage an ignored file (`git add -f`) or a cache
+  // can already be tracked by a repository snapshot. Unstage platform files
+  // defensively before the host creates its commit; their working copies are
+  // preserved for subsequent commands and troubleshooting.
+  await git(
+    worktreeDir,
+    'reset',
+    '--quiet',
+    '--',
+    ...PLATFORM_WORKTREE_FILES.map((pattern) => pattern.replace(/\/$/, '')),
+  );
+  if (baseRef) {
+    for (const pattern of PLATFORM_WORKTREE_FILES) {
+      const path = pattern.replace(/\/$/, '');
+      // A previous attempt may already have committed generated files before
+      // the worker was upgraded. Stage their removal, then restore only the
+      // version (if any) that genuinely existed on the base branch. `--cached`
+      // keeps the local cache available to subsequent validation commands.
+      await git(
+        worktreeDir,
+        'rm',
+        '-r',
+        '-q',
+        '--cached',
+        '--ignore-unmatch',
+        '--',
+        path,
+      );
+      await git(worktreeDir, 'restore', `--source=${baseRef}`, '--staged', '--', path).catch(
+        () => {},
+      );
+    }
+  }
   const status = await git(worktreeDir, 'status', '--porcelain');
   if (!status.trim()) return false;
   await git(

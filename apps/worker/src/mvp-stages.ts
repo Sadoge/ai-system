@@ -287,7 +287,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     );
   }
 
-  await commitAll(worktreeDir, `ai-system: ${ticket.title} (iteration ${run.iterationCount})`);
+  await commitAll(
+    worktreeDir,
+    `ai-system: ${ticket.title} (iteration ${run.iterationCount})`,
+    repo.defaultBranch,
+  );
   const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
   const { artifactId: diffId } = await createArtifact(db, {
     runId: run.id,

@@ -111,6 +111,7 @@ export class CliAgentExecutor implements AgentExecutor {
       let stdout = '';
       let stderr = '';
       let stdoutLines = '';
+      let stderrLines = '';
       let sessionId = canResume ? input.resumeSessionId : undefined;
       let settled = false;
       let activityChain = Promise.resolve();
@@ -141,7 +142,15 @@ export class CliAgentExecutor implements AgentExecutor {
         }
       });
       child.stderr.on('data', (chunk: Buffer) => {
-        if (stderr.length < TRANSCRIPT_LIMIT) stderr += chunk.toString('utf8');
+        const text = chunk.toString('utf8');
+        if (stderr.length < TRANSCRIPT_LIMIT) stderr += text;
+        stderrLines += text;
+        const lines = stderrLines.split('\n');
+        stderrLines = lines.pop() ?? '';
+        for (const line of lines) {
+          const activity = diagnosticActivity(line);
+          if (activity) emit(activity);
+        }
       });
 
       const heartbeat = setInterval(() => {
@@ -180,6 +189,8 @@ export class CliAgentExecutor implements AgentExecutor {
         sessionId = this.preset.sessionId?.(stdoutLines) ?? sessionId;
         const finalActivity = this.preset.activity?.(stdoutLines);
         if (finalActivity) emit(finalActivity);
+        const finalDiagnostic = diagnosticActivity(stderrLines);
+        if (finalDiagnostic) emit(finalDiagnostic);
         const parsed = this.preset.parse(stdout, stderr);
         const transcript = [parsed.text, stderr]
           .filter(Boolean)
@@ -245,4 +256,16 @@ function wasInterrupted(stdout: string, stderr: string, errorMessage?: string): 
   return /turn(?:_|\s)+(?:was\s+)?(?:aborted|interrupted)|\binterrupted\b/i.test(
     `${stdout}\n${stderr}\n${errorMessage ?? ''}`,
   );
+}
+
+function diagnosticActivity(line: string): { kind: 'message'; message: string } | null {
+  const compact = line.replace(/\s+/g, ' ').trim();
+  if (!compact || !/\b(?:error|warn(?:ing)?)\b/i.test(compact)) return null;
+  const redacted = compact
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|KEY|PASSWORD|SECRET)[A-Z0-9_]*)=\S+/gi, '$1=[redacted]')
+    .replace(/(?:Bearer\s+)[A-Za-z0-9._~+/-]+/gi, 'Bearer [redacted]');
+  return {
+    kind: 'message',
+    message: redacted.length > 240 ? `${redacted.slice(0, 239)}…` : redacted,
+  };
 }

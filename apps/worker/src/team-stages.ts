@@ -208,7 +208,7 @@ export async function executeTask(
       return;
     }
 
-    await commitAll(worktreeDir, `ai-system: ${task.title}`);
+    await commitAll(worktreeDir, `ai-system: ${task.title}`, runBranch(run));
     await db.update(tasksTable).set({ error: null }).where(eq(tasksTable.id, task.id));
     await applyEvent(db, { name: 'task.completed', payload: { runId: run.id, taskId: task.id } });
   } catch (err) {

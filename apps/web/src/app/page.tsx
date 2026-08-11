@@ -1,7 +1,9 @@
-import Link from 'next/link';
+import { Suspense } from 'react';
 import { apiGet, type RunSummary } from '@/lib/api';
 import { startRunAction } from '@/lib/actions';
-import { Stave, StatusMark, System, buttonCls, inputCls, selectCls } from '@/lib/ui';
+import { System, buttonCls, inputCls, selectCls } from '@/lib/ui';
+import { RunsFilters } from './runs-filters';
+import { RunsList } from './runs-list';
 
 function Field({
   label,
@@ -55,7 +57,7 @@ export default async function RunsPage() {
         </form>
       </System>
 
-      <System mark="B" title="Repertoire" aside={`${runs.length} run${runs.length === 1 ? '' : 's'}`}>
+      <System mark="B" title="Repertoire">
         {runs.length === 0 ? (
           <p className="annot py-6 text-sm text-ink-label">
             Nothing has been called yet. Start one above and it appears here as a voice.

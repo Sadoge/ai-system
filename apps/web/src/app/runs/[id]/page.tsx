@@ -45,9 +45,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
   const diffArtifact = (run.artifacts ?? []).filter((artifact) => artifact.kind === 'diff').at(-1);
-  const diffResult = diffArtifact
+  const diffResult: { data: DiffArtifactContent | null; error?: string } = diffArtifact
     ? await fetchDiffArtifact(run.id, diffArtifact.id)
-    : { data: null as DiffArtifactContent | null };
+    : { data: null };
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
@@ -71,18 +71,18 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </p>
       </div>
 
+      {run.error && (
+        <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
+          {run.error}
+        </p>
+      )}
+
       <CodeChanges
         runId={run.id}
         artifactId={diffArtifact?.id}
         content={diffResult.data}
         error={diffResult.error}
       />
-
-      {run.error && (
-        <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
-          {run.error}
-        </p>
-      )}
 
       {/* The hold. Every voice waits here until a human marks it. */}
       {pendingGates.map((gate) => (

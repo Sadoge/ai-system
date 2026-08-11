@@ -123,7 +123,10 @@ export interface ModelProfileRow {
   provider: string;
   model: string;
   params: Record<string, unknown>;
-  fallbacks: { provider: string; model: string }[];
+  fallbacks: {
+    provider: string;
+    model: string;
+  }[];
   projectId: string | null;
   organizationId: string | null;
 }

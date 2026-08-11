@@ -38,16 +38,115 @@ export interface ParsedDiff {
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-function cleanPath(value: string): string | null {
-  const token = value.split('\t', 1)[0]!.trim().replace(/^"|"$/g, '');
-  if (token === '/dev/null') return null;
-  return token.replace(/^[ab]\//, '');
+function decodeQuotedPath(value: string): string {
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]!;
+    if (character !== '\\') {
+      const codePoint = value.codePointAt(index)!;
+      bytes.push(...encoder.encode(String.fromCodePoint(codePoint)));
+      if (codePoint > 0xffff) index++;
+      continue;
+    }
+
+    const escaped = value[index + 1];
+    if (escaped === undefined) {
+      bytes.push(0x5c);
+      continue;
+    }
+
+    const simpleEscapes: Record<string, number> = {
+      '\\': 0x5c,
+      '"': 0x22,
+      t: 0x09,
+      n: 0x0a,
+      r: 0x0d,
+      b: 0x08,
+      f: 0x0c,
+      v: 0x0b,
+      a: 0x07,
+    };
+    const simpleEscape = simpleEscapes[escaped];
+    if (simpleEscape !== undefined) {
+      bytes.push(simpleEscape);
+      index++;
+      continue;
+    }
+
+    if (/[0-7]/.test(escaped)) {
+      let octal = escaped;
+      while (octal.length < 3 && index + 1 + octal.length < value.length) {
+        const next = value[index + 1 + octal.length]!;
+        if (!/[0-7]/.test(next)) break;
+        octal += next;
+      }
+      bytes.push(Number.parseInt(octal, 8) & 0xff);
+      index += octal.length;
+      continue;
+    }
+
+    bytes.push(...encoder.encode(escaped));
+    index++;
+  }
+
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+function cleanPath(raw: string): string | null {
+  let value = raw.trimStart();
+  if (value.startsWith('"')) {
+    let escaped = false;
+    let closingQuote = -1;
+    for (let index = 1; index < value.length; index++) {
+      if (!escaped && value[index] === '"') {
+        closingQuote = index;
+        break;
+      }
+      if (!escaped && value[index] === '\\') escaped = true;
+      else escaped = false;
+    }
+    value = closingQuote >= 0 ? decodeQuotedPath(value.slice(1, closingQuote)) : value;
+  } else {
+    value = value.split('\t', 1)[0]!.trim();
+  }
+  if (value === '/dev/null') return null;
+  return value.replace(/^[ab]\//, '');
+}
+
+function tokenizeGitHeader(value: string): string[] {
+  const tokens: string[] = [];
+  let token = '';
+  let quoted = false;
+  let escaped = false;
+
+  for (const character of value) {
+    if (!quoted && character === ' ') {
+      if (token) tokens.push(token);
+      token = '';
+      continue;
+    }
+    token += character;
+    if (character === '"' && !escaped) quoted = !quoted;
+    if (quoted && character === '\\' && !escaped) escaped = true;
+    else escaped = false;
+  }
+  if (token) tokens.push(token);
+  return tokens;
 }
 
 function pathsFromGitHeader(line: string): [string | null, string | null] {
-  const match = /^diff --git (?:"a\/(.*)"|a\/(.*)) (?:"b\/(.*)"|b\/(.*))$/.exec(line);
-  if (!match) return [null, null];
-  return [match[1] ?? match[2] ?? null, match[3] ?? match[4] ?? null];
+  const value = line.slice('diff --git '.length);
+  const tokens = tokenizeGitHeader(value);
+  if (tokens.length === 2) return [cleanPath(tokens[0]!), cleanPath(tokens[1]!)];
+
+  // Unquoted spaces are ambiguous, but the b/ marker reliably separates the paths.
+  const separator = value.lastIndexOf(' b/');
+  if (separator >= 0) {
+    return [cleanPath(value.slice(0, separator)), cleanPath(value.slice(separator + 1))];
+  }
+  return [null, null];
 }
 
 function fileId(path: string, index: number): string {
@@ -80,14 +179,50 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     return file;
   };
 
+  const hunkIsComplete = () =>
+    hunk !== null &&
+    oldLine >= hunk.oldStart + hunk.oldCount &&
+    newLine >= hunk.newStart + hunk.newCount;
+
   const lines = patch.replace(/\r\n?/g, '\n').split('\n');
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
 
+    if (hunk && line.startsWith('\\')) {
+      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      continue;
+    }
+    if (hunkIsComplete()) hunk = null;
+
+    // Hunk lines must win over file-marker parsing: a deleted source line can
+    // legitimately start with "--- ", and an addition can start with "+++ ".
+    if (hunk) {
+      if (line.startsWith('+')) {
+        hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
+        current!.additions++;
+        newLine++;
+      } else if (line.startsWith('-')) {
+        hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
+        current!.deletions++;
+        oldLine++;
+      } else if (line.startsWith(' ') || line === '') {
+        hunk.lines.push({
+          kind: 'context',
+          content: line === '' ? '' : line.slice(1),
+          oldLine,
+          newLine,
+        });
+        oldLine++;
+        newLine++;
+      } else {
+        hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      }
+      continue;
+    }
+
     if (line.startsWith('diff --git ')) {
       const [oldPath, newPath] = pathsFromGitHeader(line);
       current = startFile(oldPath, newPath);
-      hunk = null;
       continue;
     }
 
@@ -108,22 +243,21 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
     if (line.startsWith('rename from ')) {
-      current.oldPath = line.slice('rename from '.length);
+      current.oldPath = cleanPath(line.slice('rename from '.length));
       current.status = 'renamed';
       current.metadata.push(line);
       continue;
     }
     if (line.startsWith('rename to ')) {
-      current.newPath = line.slice('rename to '.length);
-      current.path = current.newPath;
+      current.newPath = cleanPath(line.slice('rename to '.length));
+      current.path = current.newPath ?? current.path;
       current.status = 'renamed';
       current.metadata.push(line);
       continue;
     }
-    if (line === 'GIT binary patch' || line.startsWith('Binary files ')) {
+    if (line === 'GIT binary patch' || /^(?:Binary files|Files) .+ and .+ differ$/.test(line)) {
       current.status = 'binary';
       current.metadata.push(line);
-      hunk = null;
       continue;
     }
 
@@ -143,26 +277,7 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
 
-    if (!hunk) {
-      if (line) current.metadata.push(line);
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
-      current.additions++;
-      newLine++;
-    } else if (line.startsWith('-')) {
-      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
-      current.deletions++;
-      oldLine++;
-    } else if (line.startsWith(' ')) {
-      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
-      oldLine++;
-      newLine++;
-    } else if (line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
-    }
+    if (line) current.metadata.push(line);
   }
 
   return {

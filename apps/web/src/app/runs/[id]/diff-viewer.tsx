@@ -33,7 +33,12 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
     });
     if (opening) {
       requestAnimationFrame(() => {
-        document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        document.getElementById(id)?.scrollIntoView({
+          block: 'start',
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 'auto'
+            : 'smooth',
+        });
       });
     }
   };
@@ -58,7 +63,7 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                 type="button"
                 className={`diff-index-row ${focus}`}
                 aria-expanded={open}
-                aria-controls={`${file.id}-content`}
+                aria-controls={open ? `${file.id}-content` : undefined}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden>
@@ -85,7 +90,7 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                 type="button"
                 className={`diff-file-header ${focus}`}
                 aria-expanded={open}
-                aria-controls={`${file.id}-content`}
+                aria-controls={open ? `${file.id}-content` : undefined}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden>
@@ -97,9 +102,7 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                   +{file.additions} −{file.deletions}
                 </span>
               </button>
-              <div id={`${file.id}-content`} hidden={!open}>
-                {fileContents[index]}
-              </div>
+              {open && <div id={`${file.id}-content`}>{fileContents[index]}</div>}
             </article>
           );
         })}
@@ -108,7 +111,15 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
   );
 }
 
-export function RevealLines({ count, children }: { count: number; children: ReactNode }) {
+export function RevealLines({
+  count,
+  children,
+  contextOnly = true,
+}: {
+  count: number;
+  children: ReactNode;
+  contextOnly?: boolean;
+}) {
   const [visible, setVisible] = useState(false);
   if (visible) return <>{children}</>;
   return (
@@ -116,9 +127,9 @@ export function RevealLines({ count, children }: { count: number; children: Reac
       type="button"
       className={`diff-reveal ${focus}`}
       onClick={() => setVisible(true)}
-      aria-label={`Show remaining ${count} unchanged lines`}
+      aria-label={`Show remaining ${count}${contextOnly ? ' unchanged' : ''} lines`}
     >
-      Show remaining lines <span aria-hidden>({count})</span>
+      Show remaining {count} lines
     </button>
   );
 }

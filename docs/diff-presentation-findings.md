@@ -87,23 +87,16 @@ This note records the repository contracts that the structured-diff work must us
 
 ### Styling ground truth
 
-The web theme is defined in `apps/web/src/app/globals.css`. Diff styling uses only its existing custom properties:
-
-- Addition mint appearance: `color-mix(in hsl, var(--color-cue-bright) 68%, var(--color-hold-bright))`. The theme has no standalone mint property, so this existing-token mix is the shared addition ink; its 10% transparent mix is the row wash. It does not introduce a mint/aqua custom property or literal replacement color.
-- Deletion: `--color-mark` for the 10% row wash and `--color-mark-bright` for small marker text.
-- Hunk headers and focus: `--color-cue-bright`, with `--color-ground` beneath hunk text.
-- Rules and gutters: `--color-rule`, `--color-rule-strong`, `--color-ink-label`, and `--color-ink-faint`.
-- Code: `--font-mono` with tabular figures.
-
-The existing small breakpoint begins at 640px, so the diff metadata stack applies below it.
+The web theme is defined in `apps/web/src/app/globals.css`. The shipped diff uses only the existing ground, rule, ink, mark, and cue tokens. Additions use `--color-ground-raised`; deletions use `--color-ground-band`; both retain explicit prefix and status text so meaning does not rely on colour. Hunk headers and focus use the cue tokens, while code, metadata, paths, counts, and line numbers use the existing mono/ink vocabulary. The existing small breakpoint begins at 640px, where metadata stacks, file controls reflow, and line-number tracks narrow.
 
 ### CSS class contract
 
-- File shell: `.diff-file`
-- Sticky header outside the horizontal scroller: `.diff-file-header`
-- File header layout and control: `.diff-file-row`, `.diff-file-disclosure`, `.diff-file-path`, `.diff-file-meta`
-- Horizontal scroll container and code block: `.diff-scroll`, `.diff-code`
-- Code row and cells: `.diff-row`, `.diff-line-number`, `.diff-line-marker`, `.diff-line-content`
-- Row states: `.diff-row-addition`, `.diff-row-deletion`, `.diff-row-hunk`
+These names were verified against the class names rendered by `code-changes.tsx` and `runs/[id]/diff-viewer.tsx`, rather than copied from the removed artifact-route viewer:
 
-The required nesting is `.diff-file > .diff-file-header + .diff-scroll`; `.diff-file-header` must never be placed inside `.diff-scroll`, otherwise the sticky header will move with horizontally scrolled code.
+- Summary and states: `.diff-summary`, `.diff-metadata`, `.diff-state`, `.diff-state-error`, and `.diff-raw`.
+- Viewer controls and file index: `.diff-viewer`, `.diff-actions`, `.diff-action`, `.diff-index`, `.diff-index-row`, and `.diff-disclosure`.
+- File shell: `.diff-files`, `.diff-file`, `.diff-file-header`, `.diff-file-path`, `.diff-file-status`, and `.diff-file-counts`.
+- Patch content: `.diff-code`, `.diff-file-metadata`, `.diff-hunk`, `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`, and `.diff-reveal`.
+- Dynamic row states: `.diff-line-addition`, `.diff-line-deletion`, `.diff-line-context`, and `.diff-line-meta`.
+
+The file header is a normal, non-sticky button. An expanded file conditionally mounts patch content inside its `#<file-id>-content` container; collapsed file contents are not rendered. Patch content scrolls horizontally within `.diff-code`, and each file initially renders at most 400 lines before `.diff-reveal` exposes the remainder.

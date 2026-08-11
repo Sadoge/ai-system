@@ -1,6 +1,6 @@
-export type DiffFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+export type DiffFileStatus = 'added' | 'deleted' | 'renamed' | 'modified';
 
-export type DiffLineType = 'addition' | 'deletion' | 'context' | 'meta' | 'no-newline';
+export type DiffLineType = 'context' | 'addition' | 'deletion' | 'meta' | 'no-newline';
 
 export interface DiffLine {
   type: DiffLineType;
@@ -14,10 +14,21 @@ export interface DiffHunk {
   header: string;
   section: string | null;
   oldStart: number;
-  oldLines: number;
+  oldCount: number;
   newStart: number;
+  newCount: number;
+  /** Compatibility aliases used by the diff renderer. */
+  oldLines: number;
   newLines: number;
   lines: DiffLine[];
+}
+
+export interface ModeChange {
+  oldMode: string | null;
+  newMode: string | null;
+  /** Compatibility aliases used by the existing run view. */
+  from: string | null;
+  to: string | null;
 }
 
 export interface DiffFile {
@@ -27,7 +38,7 @@ export interface DiffFile {
   newPath: string | null;
   status: DiffFileStatus;
   binary: boolean;
-  modeChange: { from: string; to: string } | null;
+  modeChange: ModeChange | null;
   additions: number;
   deletions: number;
   hunks: DiffHunk[];
@@ -35,9 +46,9 @@ export interface DiffFile {
 
 export interface ParsedDiff {
   files: DiffFile[];
-  fileCount: number;
   additions: number;
   deletions: number;
+  fileCount: number;
 }
 
 interface PendingHunk extends Omit<DiffHunk, 'id'> {
@@ -67,7 +78,7 @@ interface PendingFile {
   activeHunk: PendingHunk | null;
 }
 
-const EMPTY_DIFF: ParsedDiff = { files: [], fileCount: 0, additions: 0, deletions: 0 };
+const EMPTY_DIFF: ParsedDiff = { files: [], additions: 0, deletions: 0, fileCount: 0 };
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
 
 function decodeQuotedPath(value: string): string {
@@ -127,7 +138,7 @@ function decodeQuotedPath(value: string): string {
 }
 
 function unquoteGitPath(raw: string): string | null {
-  let path = raw;
+  let path = raw.trim();
   if (path.startsWith('"') && path.endsWith('"') && path.length >= 2) {
     path = decodeQuotedPath(path.slice(1, -1));
   }
@@ -137,22 +148,14 @@ function unquoteGitPath(raw: string): string | null {
 
 function headerPath(raw: string): string | null {
   const value = raw.trimStart();
-  if (!value.startsWith('"')) {
-    return unquoteGitPath(value.split('\t', 1)[0]!);
-  }
+  if (!value.startsWith('"')) return unquoteGitPath(value.split('\t', 1)[0]!);
 
   let escaped = false;
   for (let index = 1; index < value.length; index += 1) {
-    if (!escaped && value[index] === '"') {
-      return unquoteGitPath(value.slice(0, index + 1));
-    }
-    if (!escaped && value[index] === '\\') {
-      escaped = true;
-    } else {
-      escaped = false;
-    }
+    if (!escaped && value[index] === '"') return unquoteGitPath(value.slice(0, index + 1));
+    if (!escaped && value[index] === '\\') escaped = true;
+    else escaped = false;
   }
-
   return unquoteGitPath(value);
 }
 
@@ -170,11 +173,8 @@ function tokenizeGitHeader(value: string): string[] {
     }
     token += character;
     if (character === '"' && !escaped) quoted = !quoted;
-    if (quoted && character === '\\' && !escaped) {
-      escaped = true;
-    } else {
-      escaped = false;
-    }
+    if (quoted && character === '\\' && !escaped) escaped = true;
+    else escaped = false;
   }
   if (token) tokens.push(token);
   return tokens;
@@ -185,9 +185,8 @@ function fallbackPaths(header: string): [string | null, string | null] {
   const tokens = tokenizeGitHeader(value);
   if (tokens.length === 2) return [unquoteGitPath(tokens[0]!), unquoteGitPath(tokens[1]!)];
 
-  // Unquoted spaces make this header intrinsically ambiguous. This split is only
-  // a fallback; rename and ---/+++ headers take precedence during finalization.
-  const separator = value.indexOf(' b/');
+  // Unquoted spaces are ambiguous. Rename and file-marker paths take precedence.
+  const separator = value.lastIndexOf(' b/');
   if (separator >= 0) {
     return [unquoteGitPath(value.slice(0, separator)), unquoteGitPath(value.slice(separator + 1))];
   }
@@ -225,8 +224,8 @@ function appendMeta(file: PendingFile, content: string): void {
 
 function lineCountsAreComplete(hunk: PendingHunk): boolean {
   return (
-    hunk.nextOldNumber >= hunk.oldStart + hunk.oldLines &&
-    hunk.nextNewNumber >= hunk.newStart + hunk.newLines
+    hunk.nextOldNumber >= hunk.oldStart + hunk.oldCount &&
+    hunk.nextNewNumber >= hunk.newStart + hunk.newCount
   );
 }
 
@@ -235,20 +234,13 @@ function appendHunkLine(file: PendingFile, line: string): boolean {
   if (!hunk) return false;
 
   if (line === '\\ No newline at end of file') {
-    hunk.lines.push({
-      type: 'no-newline',
-      content: line.slice(1),
-      oldNumber: null,
-      newNumber: null,
-    });
+    hunk.lines.push({ type: 'no-newline', content: line, oldNumber: null, newNumber: null });
     return true;
   }
-
   if (lineCountsAreComplete(hunk)) {
     file.activeHunk = null;
     return false;
   }
-
   if (line.startsWith('+')) {
     hunk.lines.push({
       type: 'addition',
@@ -282,7 +274,6 @@ function appendHunkLine(file: PendingFile, line: string): boolean {
     hunk.nextNewNumber += 1;
     return true;
   }
-
   appendMeta(file, line);
   return true;
 }
@@ -292,16 +283,18 @@ function resolveStatus(
   oldPath: string | null,
   newPath: string | null,
 ): DiffFileStatus {
-  if (file.explicitlyAdded || (file.sawOldMarker && oldPath === null && newPath !== null))
+  if (file.explicitlyAdded || (file.sawOldMarker && oldPath === null && newPath !== null)) {
     return 'added';
-  if (file.explicitlyDeleted || (file.sawNewMarker && newPath === null && oldPath !== null))
+  }
+  if (file.explicitlyDeleted || (file.sawNewMarker && newPath === null && oldPath !== null)) {
     return 'deleted';
+  }
   if (file.sawRename || (file.sawSimilarity && oldPath !== newPath)) return 'renamed';
   return 'modified';
 }
 
 export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
-  if (!patch || patch.trim() === '') return { ...EMPTY_DIFF };
+  if (!patch?.trim()) return { ...EMPTY_DIFF, files: [] };
 
   const files: DiffFile[] = [];
   const idCounts = new Map<string, number>();
@@ -325,6 +318,15 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
         id: `${id}@${hunk.oldStart},${hunk.newStart}`,
       }),
     );
+    const modeChange =
+      currentFile.oldMode !== null || currentFile.newMode !== null
+        ? {
+            oldMode: currentFile.oldMode,
+            newMode: currentFile.newMode,
+            from: currentFile.oldMode,
+            to: currentFile.newMode,
+          }
+        : null;
 
     files.push({
       id,
@@ -333,12 +335,7 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
       newPath,
       status: resolveStatus(currentFile, oldPath, newPath),
       binary: currentFile.binary,
-      modeChange:
-        currentFile.oldMode !== null && currentFile.newMode !== null
-          ? { from: currentFile.oldMode, to: currentFile.newMode }
-          : null,
-      // Counts deliberately come only from +/- body lines inside parsed hunks.
-      // File markers and the no-newline sentinel are metadata, never changes.
+      modeChange,
       additions: currentFile.additions,
       deletions: currentFile.deletions,
       hunks,
@@ -352,7 +349,6 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
       currentFile = newPendingFile(line);
       continue;
     }
-
     if (!currentFile && (line.startsWith('--- ') || line.startsWith('@@'))) {
       currentFile = newPendingFile();
     }
@@ -365,17 +361,19 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
         continue;
       }
       const oldStart = Number(match[1]);
-      const oldLines = match[2] === undefined ? 1 : Number(match[2]);
+      const oldCount = match[2] === undefined ? 1 : Number(match[2]);
       const newStart = Number(match[3]);
-      const newLines = match[4] === undefined ? 1 : Number(match[4]);
+      const newCount = match[4] === undefined ? 1 : Number(match[4]);
       const section = match[5]!.trim();
       const hunk: PendingHunk = {
         header: line,
         section: section || null,
         oldStart,
-        oldLines,
+        oldCount,
         newStart,
-        newLines,
+        newCount,
+        oldLines: oldCount,
+        newLines: newCount,
         lines: [],
         nextOldNumber: oldStart,
         nextNewNumber: newStart,
@@ -403,12 +401,14 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
       currentFile.sawSimilarity = true;
     } else if (line.startsWith('new file mode ')) {
       currentFile.explicitlyAdded = true;
+      currentFile.newMode = line.slice('new file mode '.length).trim();
     } else if (line.startsWith('deleted file mode ')) {
       currentFile.explicitlyDeleted = true;
+      currentFile.oldMode = line.slice('deleted file mode '.length).trim();
     } else if (line.startsWith('old mode ')) {
-      currentFile.oldMode = line.slice('old mode '.length);
+      currentFile.oldMode = line.slice('old mode '.length).trim();
     } else if (line.startsWith('new mode ')) {
-      currentFile.newMode = line.slice('new mode '.length);
+      currentFile.newMode = line.slice('new mode '.length).trim();
     } else if (
       line === 'GIT binary patch' ||
       /^(?:Binary files|Files) .+ and .+ differ$/.test(line)
@@ -420,5 +420,5 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   finishFile();
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
-  return { files, fileCount: files.length, additions, deletions };
+  return { files, additions, deletions, fileCount: files.length };
 }

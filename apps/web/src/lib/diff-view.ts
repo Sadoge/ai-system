@@ -1,167 +1,169 @@
-import type { DiffFile, ParsedDiff } from '@/lib/diff';
+import type { DiffFile, DiffFileStatus, DiffHunk } from './diff';
 
 export const DEFAULT_OPEN_FILE_LIMIT = 3;
 export const LARGE_FILE_LINE_LIMIT = 400;
 
-type DiffFileView = DiffFile & {
-  additions: number;
-  binary: boolean;
-  deletions: number;
-  displayPath?: string | null;
-  id: string;
-  newPath?: string | null;
-  oldPath?: string | null;
-  path?: string | null;
-  status: string;
-};
+export type ChangeBarSegment = 'addition' | 'deletion' | 'neutral';
 
-type ParsedDiffView = ParsedDiff & {
-  additions?: number;
-  deletions?: number;
-  files: DiffFile[];
-  totalAdditions?: number;
-  totalDeletions?: number;
-};
+export interface VisibleHunks {
+  hunks: DiffHunk[];
+  remaining: number;
+}
 
-export function initialExpandedFiles(files: DiffFile[]): Set<string> {
+export function initialExpandedFiles(files: readonly DiffFile[]): Set<string> {
   return files.length <= DEFAULT_OPEN_FILE_LIMIT ? expandAll(files) : collapseAll();
 }
 
-export function toggleFile(expanded: ReadonlySet<string>, id: string): Set<string> {
+export function toggleFile(expanded: ReadonlySet<string>, fileId: string): Set<string> {
   const next = new Set(expanded);
-
-  if (next.has(id)) {
-    next.delete(id);
-  } else {
-    next.add(id);
-  }
-
+  if (next.has(fileId)) next.delete(fileId);
+  else next.add(fileId);
   return next;
 }
 
-export function expandAll(files: DiffFile[]): Set<string> {
-  return new Set(files.map((file) => (file as DiffFileView).id));
+export function expandAll(files: readonly DiffFile[]): Set<string> {
+  return new Set(files.map((file) => file.id));
 }
 
 export function collapseAll(): Set<string> {
-  return new Set<string>();
+  return new Set();
 }
 
-export function fileStatusLabel(file: DiffFile): string {
-  const { binary, status } = file as DiffFileView;
-  const normalizedStatus = status.toLowerCase();
-  const label =
-    normalizedStatus === 'added' || normalizedStatus === 'add'
-      ? 'Added'
-      : normalizedStatus === 'deleted' || normalizedStatus === 'delete'
-        ? 'Deleted'
-        : normalizedStatus === 'renamed' || normalizedStatus === 'rename'
-          ? 'Renamed'
-          : 'Modified';
+const STATUS_LABELS: Record<DiffFileStatus, string> = {
+  added: 'Added',
+  deleted: 'Deleted',
+  renamed: 'Renamed',
+  modified: 'Modified',
+};
 
-  if (!binary) return label;
-  if (label === 'Modified') return 'Binary';
-  return `${label} (binary)`;
+export function fileStatusLabel(file: Pick<DiffFile, 'status' | 'binary'>): string {
+  return `${STATUS_LABELS[file.status]}${file.binary ? ' binary' : ''}`;
 }
 
-export function fileAccessibleLabel(file: DiffFile): string {
-  const view = file as DiffFileView;
-  const path = view.path ?? view.displayPath ?? view.newPath ?? view.oldPath ?? '';
-  const parts = [path, fileStatusLabel(file)];
-
-  if (fileStatusLabel(file).startsWith('Renamed') && view.oldPath) {
-    parts.push(`renamed from ${view.oldPath}`);
-  }
-
-  if (view.binary) {
-    parts.push('binary file, no line changes');
-  } else {
-    parts.push(pluralized(view.additions, 'addition'), pluralized(view.deletions, 'deletion'));
-  }
-
-  return parts.join(', ');
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
 }
 
-export function summaryAccessibleLabel(parsed: ParsedDiff): string {
-  const view = parsed as ParsedDiffView;
-  if (view.files.length === 0) return 'No files changed';
-
-  const additions =
-    view.additions ?? view.totalAdditions ?? sumFileChanges(view.files, 'additions');
-  const deletions =
-    view.deletions ?? view.totalDeletions ?? sumFileChanges(view.files, 'deletions');
-
-  return [
-    pluralized(view.files.length, 'file changed', 'files changed'),
-    pluralized(additions, 'addition'),
-    pluralized(deletions, 'deletion'),
-  ].join(', ');
+function changeCountLabel(additions: number, deletions: number): string {
+  return `${countLabel(additions, 'addition')} and ${countLabel(deletions, 'deletion')}`;
 }
 
-export function truncatePath(path: string, max = 72): { head: string; tail: string } {
-  const finalSlash = path.lastIndexOf('/');
-  const basename = path.slice(finalSlash + 1);
-  const directory = path.slice(0, finalSlash + 1);
+export function fileAccessibleLabel(
+  file: Pick<
+    DiffFile,
+    'path' | 'oldPath' | 'newPath' | 'status' | 'binary' | 'additions' | 'deletions'
+  >,
+): string {
+  const subject =
+    file.status === 'renamed'
+      ? `${file.oldPath ?? file.path} to ${file.newPath ?? file.path}`
+      : file.path;
+  const action = fileStatusLabel(file);
+  if (file.binary) return `${action} file ${subject}`;
+  return `${action} file ${subject}, ${changeCountLabel(file.additions, file.deletions)}`;
+}
 
-  if (path.length <= max || finalSlash === -1) return { head: directory, tail: basename };
+export function summaryAccessibleLabel(
+  summary: Pick<
+    { fileCount: number; additions: number; deletions: number },
+    'fileCount' | 'additions' | 'deletions'
+  >,
+): string {
+  if (summary.fileCount === 0) return 'No code changes';
+  return `${countLabel(summary.fileCount, 'file')} changed, ${changeCountLabel(summary.additions, summary.deletions)}`;
+}
 
-  const segments = directory.slice(0, -1).split('/');
-  const elision = '…/';
-  let head = elision;
+export function truncatePath(path: string, maxLength = 56): string {
+  if (path.length <= maxLength) return path;
+  if (maxLength <= 1) return '…'.slice(0, maxLength);
 
-  while (segments.length > 0) {
-    const candidate = `${elision}${segments.at(-1)}/${head.slice(elision.length)}`;
-    if (candidate.length + basename.length > max) break;
-    head = candidate;
-    segments.pop();
-  }
+  const slash = path.lastIndexOf('/');
+  const basename = slash >= 0 ? path.slice(slash + 1) : path;
+  if (basename.length + 2 >= maxLength) return `…/${basename}`;
+  const availablePrefix = maxLength - basename.length - 2;
+  return `${path.slice(0, availablePrefix)}…/${basename}`;
+}
 
-  return { head, tail: basename };
+/** Splits a path for renderers that style its directory and basename separately. */
+export function truncatePathParts(path: string, maxLength = 72): { head: string; tail: string } {
+  const truncated = truncatePath(path, maxLength);
+  const finalSlash = truncated.lastIndexOf('/');
+  return {
+    head: finalSlash < 0 ? '' : truncated.slice(0, finalSlash + 1),
+    tail: truncated.slice(finalSlash + 1),
+  };
 }
 
 export function changeBarSegments(
   additions: number,
   deletions: number,
   slots = 5,
-): { added: number; deleted: number; neutral: number } {
-  const slotCount = Math.max(0, Math.floor(slots));
-  const addedChanges = Math.max(0, additions);
-  const deletedChanges = Math.max(0, deletions);
-  const nonZeroSides = Number(addedChanges > 0) + Number(deletedChanges > 0);
+): ChangeBarSegment[] {
+  const safeSlots = Math.max(0, Math.floor(slots));
+  const safeAdditions = Math.max(0, additions);
+  const safeDeletions = Math.max(0, deletions);
+  const total = safeAdditions + safeDeletions;
+  if (safeSlots === 0) return [];
+  if (total === 0) return Array<ChangeBarSegment>(safeSlots).fill('neutral');
 
-  if (slotCount < nonZeroSides) {
-    throw new RangeError(`At least ${nonZeroSides} slots are required for the non-zero changes`);
+  let additionSlots: number;
+  let deletionSlots: number;
+  if (total <= safeSlots) {
+    additionSlots = safeAdditions;
+    deletionSlots = safeDeletions;
+  } else if (safeAdditions === 0) {
+    additionSlots = 0;
+    deletionSlots = safeSlots;
+  } else if (safeDeletions === 0) {
+    additionSlots = safeSlots;
+    deletionSlots = 0;
+  } else {
+    additionSlots = Math.round((safeAdditions / total) * safeSlots);
+    additionSlots = Math.max(1, Math.min(safeSlots - 1, additionSlots));
+    deletionSlots = safeSlots - additionSlots;
   }
 
-  const total = addedChanges + deletedChanges;
-  if (total === 0) return { added: 0, deleted: 0, neutral: slotCount };
-  if (deletedChanges === 0) return { added: slotCount, deleted: 0, neutral: 0 };
-  if (addedChanges === 0) return { added: 0, deleted: slotCount, neutral: 0 };
-
-  const added = Math.min(
-    slotCount - 1,
-    Math.max(1, Math.round((addedChanges / total) * slotCount)),
-  );
-  return { added, deleted: slotCount - added, neutral: 0 };
+  const neutralSlots = Math.max(0, safeSlots - additionSlots - deletionSlots);
+  return [
+    ...Array<ChangeBarSegment>(additionSlots).fill('addition'),
+    ...Array<ChangeBarSegment>(deletionSlots).fill('deletion'),
+    ...Array<ChangeBarSegment>(neutralSlots).fill('neutral'),
+  ];
 }
 
+export function sliceFileLines(hunks: readonly DiffHunk[], limit: number): VisibleHunks;
 export function sliceFileLines<Line>(
   hunk: { lines: readonly Line[] },
-  shown: number,
-): { lines: Line[]; remaining: number } {
-  const shownCount = Math.max(0, Math.floor(shown));
-  const lines = hunk.lines.slice(0, shownCount);
+  limit: number,
+): { lines: Line[]; remaining: number };
+export function sliceFileLines<Line>(
+  input: readonly DiffHunk[] | { lines: readonly Line[] },
+  limit: number,
+): VisibleHunks | { lines: Line[]; remaining: number } {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  if (!isHunkList(input)) {
+    const lines = input.lines.slice(0, safeLimit);
+    return { lines, remaining: input.lines.length - lines.length };
+  }
 
-  return {
-    lines,
-    remaining: hunk.lines.length - lines.length,
-  };
+  const total = input.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  let available = safeLimit;
+  const hunks: DiffHunk[] = [];
+  for (const hunk of input) {
+    if (available <= 0) break;
+    const lines = hunk.lines.slice(0, available);
+    if (lines.length > 0) hunks.push({ ...hunk, lines });
+    available -= lines.length;
+  }
+  return { hunks, remaining: Math.max(0, total - safeLimit) };
 }
 
-function pluralized(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`;
+function isHunkList<Line>(
+  input: readonly DiffHunk[] | { lines: readonly Line[] },
+): input is readonly DiffHunk[] {
+  return Array.isArray(input);
 }
 
-function sumFileChanges(files: DiffFile[], key: 'additions' | 'deletions'): number {
-  return files.reduce((total, file) => total + (file as DiffFileView)[key], 0);
+export function visibleHunks(file: Pick<DiffFile, 'hunks'>, limit: number): VisibleHunks {
+  return sliceFileLines(file.hunks, limit);
 }

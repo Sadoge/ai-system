@@ -52,6 +52,13 @@ describe('validateRunForm', () => {
     expect(
       validateRunForm(input({ source: 'jira', jiraKey: 'not a key' })).fieldErrors.jiraKey,
     ).toBeTruthy();
+    expect(
+      validateRunForm(input({ source: 'jira', jiraKey: 'ab_c-12' })).fieldErrors.jiraKey,
+    ).toBeUndefined();
+  });
+
+  it('requires a project when none exist', () => {
+    expect(validateRunForm(input({ projectId: '' })).fieldErrors.projectId).toBeTruthy();
   });
 
   it('requires a project when projects exist', () => {
@@ -68,6 +75,19 @@ describe('validateRunForm', () => {
       validateRunForm(input({ repositoryId: '', pipeline: 'trivial' }), { projects }).fieldErrors
         .repositoryId,
     ).toBeUndefined();
+  });
+
+  it('rejects a repository outside the selected project', () => {
+    expect(
+      validateRunForm(input({ repositoryId: 'repo-from-another-project' }), { projects }).fieldErrors
+        .repositoryId,
+    ).toBeTruthy();
+  });
+
+  it('rejects a project that is no longer available', () => {
+    expect(
+      validateRunForm(input({ projectId: 'deleted-project' }), { projects }).fieldErrors.projectId,
+    ).toBeTruthy();
   });
 });
 
@@ -90,6 +110,20 @@ describe('buildRunPayload', () => {
     expect(payload).not.toHaveProperty('title');
     expect(payload).not.toHaveProperty('description');
     expect(payload).toHaveProperty('jiraKey', 'PROJ-123');
+  });
+
+  it('keeps an explicitly selected repository for a trivial run', () => {
+    expect(buildRunPayload(input({ pipeline: 'trivial', repositoryId: 'repo-1' }))).toHaveProperty(
+      'repositoryId',
+      'repo-1',
+    );
+  });
+
+  it('includes API-supported project and repository targeting', () => {
+    expect(buildRunPayload(input())).toMatchObject({
+      projectId: 'project-1',
+      repositoryId: 'repo-1',
+    });
   });
 
   it.each(PIPELINE_OPTIONS)('passes pipeline value $value through unchanged', ({ value }) => {

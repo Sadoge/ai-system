@@ -1,6 +1,8 @@
 export type TicketSource = 'manual' | 'jira';
 
-export const JIRA_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]+-\d+$/;
+// Jira instances are the authority on project-key policy. Keep this check
+// deliberately permissive while still rejecting obviously malformed input.
+export const JIRA_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
 export interface RunFormRepository {
   id: string;
@@ -86,18 +88,33 @@ export function validateRunForm(
     }
   }
 
-  if (context.projects.length > 0 && input.projectId.trim().length === 0) {
+  if (context.projects.length === 0) {
+    fieldErrors.projectId = 'Create a project before starting a run.';
+  } else if (input.projectId.trim().length === 0) {
     fieldErrors.projectId = 'Select a project.';
   }
 
   const selectedProject = context.projects.find((project) => project.id === input.projectId);
-  if (
-    input.pipeline !== 'trivial' &&
-    selectedProject &&
-    selectedProject.repositories.length > 1 &&
-    input.repositoryId.trim().length === 0
-  ) {
-    fieldErrors.repositoryId = 'Select a repository for this pipeline.';
+  if (input.projectId && !selectedProject) {
+    fieldErrors.projectId = 'This project is no longer available. Choose another project.';
+  }
+
+  if (selectedProject) {
+    const repositoryId = input.repositoryId.trim();
+    if (
+      repositoryId &&
+      !selectedProject.repositories.some((repository) => repository.id === repositoryId)
+    ) {
+      fieldErrors.repositoryId = 'This repository does not belong to the selected project.';
+    } else if (input.pipeline !== 'trivial' && selectedProject.repositories.length === 0) {
+      fieldErrors.repositoryId = 'Register a repository for this project before using this pipeline.';
+    } else if (
+      input.pipeline !== 'trivial' &&
+      selectedProject.repositories.length > 1 &&
+      repositoryId.length === 0
+    ) {
+      fieldErrors.repositoryId = 'Select a repository for this pipeline.';
+    }
   }
 
   return { fieldErrors };
@@ -132,9 +149,7 @@ export function buildRunPayload(input: RunFormInput): RunPayload {
     pipeline: input.pipeline,
     automation: input.automation,
     ...(input.projectId ? { projectId: input.projectId } : {}),
-    ...(input.pipeline !== 'trivial' && input.repositoryId
-      ? { repositoryId: input.repositoryId }
-      : {}),
+    ...(input.repositoryId ? { repositoryId: input.repositoryId } : {}),
   };
 }
 

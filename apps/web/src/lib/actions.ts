@@ -52,9 +52,17 @@ export async function startRun(
     return { status: 'error', fieldErrors };
   }
 
-  let result: { runId: string };
+  let runId: string;
   try {
-    result = await apiPost<{ runId: string }>('/runs', buildRunPayload(input));
+    const result = await apiPost<{ runId?: unknown }>('/runs', buildRunPayload(input));
+    if (typeof result.runId !== 'string' || result.runId.length === 0) {
+      return {
+        status: 'error',
+        formError:
+          'The run may have started, but the API did not return its identifier. Check the API response before starting another run.',
+      };
+    }
+    runId = result.runId;
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : 'The API returned an unknown error';
     return {
@@ -64,7 +72,7 @@ export async function startRun(
   }
 
   revalidatePath('/');
-  redirect(`/runs/${result.runId}`);
+  redirect(`/runs/${runId}`);
 }
 
 export async function resolveGateAction(formData: FormData): Promise<void> {

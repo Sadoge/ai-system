@@ -73,8 +73,15 @@ function OptionGroup({
   );
 }
 
-export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
+export function StartRunForm({
+  projects,
+  projectsError,
+}: {
+  projects: RunFormProject[];
+  projectsError?: string;
+}) {
   const [state, dispatch, isPending] = useActionState(startRun, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
   const submittingRef = useRef(false);
   const [source, setSource] = useState<TicketSource>('manual');
   const [title, setTitle] = useState('');
@@ -139,8 +146,16 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
     edit('repositoryId');
   }
 
+  const hiddenTargetError =
+    (projects.length === 1 ? state.fieldErrors?.projectId : undefined) ??
+    (!selectedProject || selectedProject.repositories.length <= 1
+      ? state.fieldErrors?.repositoryId
+      : undefined);
+  const formAlert = state.formError ?? hiddenTargetError;
+
   return (
     <form
+      ref={formRef}
       action={(formData) => {
         if (submittingRef.current) return;
         submittingRef.current = true;
@@ -148,8 +163,11 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
       }}
       onSubmit={(event) => {
         setSubmitted(true);
-        if (Object.keys(clientErrors).length > 0 || projects.length === 0) {
+        if (Object.keys(clientErrors).length > 0 || projectsError) {
           event.preventDefault();
+          window.requestAnimationFrame(() => {
+            formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+          });
         }
       }}
       noValidate
@@ -170,7 +188,7 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
             >
               <input
                 type="radio"
-                name="ticketSourceChoice"
+                name="source"
                 value={value}
                 checked={source === value}
                 onChange={() => selectSource(value)}
@@ -184,7 +202,6 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
           ))}
         </div>
       </fieldset>
-      <input type="hidden" name="source" value={source} />
 
       <div className="min-w-0 space-y-6">
         <p className="annot text-sm text-ink-label">
@@ -237,7 +254,7 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
               name="jiraKey"
               value={jiraKey}
               onChange={(event) => {
-                setJiraKey(normalizeJiraKey(event.target.value));
+                setJiraKey(event.target.value);
                 edit('jiraKey');
               }}
               onBlur={() => {
@@ -292,7 +309,11 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
           The final pull request always requires human approval, regardless of automation level.
         </p>
 
-        {projects.length === 0 ? (
+        {projectsError ? (
+          <p className="annot border-y border-rule py-4 text-sm text-mark-bright">
+            {projectsError}. Reload the page to try again.
+          </p>
+        ) : projects.length === 0 ? (
           <p className="annot border-y border-rule py-4 text-sm text-ink-label">
             No projects yet — create a project before calling a run.
           </p>
@@ -390,17 +411,16 @@ export function StartRunForm({ projects }: { projects: RunFormProject[] }) {
       <div className="flex min-w-0 flex-col items-start gap-3 border-t border-rule pt-5 sm:flex-row sm:items-center lg:col-span-2">
         <button
           type="submit"
-          disabled={isPending || projects.length === 0}
+          disabled={isPending || projects.length === 0 || Boolean(projectsError)}
           className={`${buttonCls} shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
         >
           {isPending ? 'Starting run…' : 'Start run'}
         </button>
         <div
           role="alert"
-          aria-live="assertive"
           className="min-h-6 min-w-0 text-sm leading-6 text-mark-bright"
         >
-          {state.formError ?? ''}
+          {formAlert ?? ''}
         </div>
       </div>
     </form>

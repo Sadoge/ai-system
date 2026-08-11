@@ -5,15 +5,23 @@ import { Stave, StatusMark, System } from '@/lib/ui';
 import { StartRunForm } from './start-run-form';
 
 export default async function RunsPage() {
-  const [runs, projects] = await Promise.all([
+  const [runs, projectsResult] = await Promise.all([
     apiGet<RunSummary[]>('/runs'),
-    apiGet<RunFormProject[]>('/projects').catch(() => []),
+    apiGet<RunFormProject[]>('/projects')
+      .then((projects) => ({ projects, error: undefined }))
+      .catch((error: unknown) => ({
+        projects: [],
+        error:
+          error instanceof Error
+            ? `Projects could not be loaded: ${error.message}`
+            : 'Projects could not be loaded. Check the API connection and reload the page.',
+      })),
   ]);
 
   return (
     <main>
       <System mark="A" title="Call a run">
-        <StartRunForm projects={projects} />
+        <StartRunForm projects={projectsResult.projects} projectsError={projectsResult.error} />
       </System>
 
       <System mark="B" title="Repertoire" aside={`${runs.length} run${runs.length === 1 ? '' : 's'}`}>

@@ -39,15 +39,23 @@ export interface ParsedDiff {
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 function cleanPath(value: string): string | null {
-  const token = value.split('\t', 1)[0]!.trim().replace(/^"|"$/g, '');
+  const token = value.split('\t', 1)[0]!.trim();
   if (token === '/dev/null') return null;
-  return token.replace(/^[ab]\//, '');
+  return decodeGitPath(token).replace(/^[ab]\//, '');
+}
+
+function decodeGitPath(value: string): string {
+  const unquoted = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return unquoted.replace(/\\([0-7]{3}|[\\"])/g, (_match, escape: string) => {
+    if (escape === '\\' || escape === '"') return escape;
+    return String.fromCharCode(Number.parseInt(escape, 8));
+  });
 }
 
 function pathsFromGitHeader(line: string): [string | null, string | null] {
   const match = /^diff --git (?:"a\/(.*)"|a\/(.*)) (?:"b\/(.*)"|b\/(.*))$/.exec(line);
   if (!match) return [null, null];
-  return [match[1] ?? match[2] ?? null, match[3] ?? match[4] ?? null];
+  return [decodeGitPath(match[1] ?? match[2] ?? ''), decodeGitPath(match[3] ?? match[4] ?? '')];
 }
 
 function fileId(path: string, index: number): string {
@@ -80,7 +88,37 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     return file;
   };
 
-  const lines = patch.replace(/\r\n?/g, '\n').split('\n');
+  const normalized = patch.replace(/\r\n?/g, '\n');
+  const lines = normalized.split('\n');
+  if (normalized.endsWith('\n')) lines.pop();
+
+  const appendHunkLine = (line: string): boolean => {
+    if (!current || !hunk) return false;
+    if (line.startsWith('+')) {
+      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
+      current.additions++;
+      newLine++;
+    } else if (line.startsWith('-')) {
+      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
+      current.deletions++;
+      oldLine++;
+    } else if (line.startsWith(' ') || line === '') {
+      hunk.lines.push({
+        kind: 'context',
+        content: line === '' ? '' : line.slice(1),
+        oldLine,
+        newLine,
+      });
+      oldLine++;
+      newLine++;
+    } else if (line.startsWith('\\')) {
+      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+    } else {
+      return false;
+    }
+    return true;
+  };
+
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
 
@@ -95,6 +133,11 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       current = startFile(cleanPath(line.slice(4)), cleanPath(lines[index + 1]!.slice(4)));
     }
     if (!current) continue;
+
+    // Hunk bodies take precedence over file markers: a deleted source line
+    // beginning with "-- " is encoded as "--- ", and an added line beginning
+    // with "++ " is encoded as "+++ ".
+    if (appendHunkLine(line)) continue;
 
     if (line.startsWith('--- ')) {
       current.oldPath = cleanPath(line.slice(4));
@@ -143,26 +186,7 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
 
-    if (!hunk) {
-      if (line) current.metadata.push(line);
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
-      current.additions++;
-      newLine++;
-    } else if (line.startsWith('-')) {
-      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
-      current.deletions++;
-      oldLine++;
-    } else if (line.startsWith(' ')) {
-      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
-      oldLine++;
-      newLine++;
-    } else if (line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
-    }
+    if (line) current.metadata.push(line);
   }
 
   return {

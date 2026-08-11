@@ -380,7 +380,7 @@ body {
   display: grid;
   width: max-content;
   min-width: 100%;
-  grid-template-columns: 3.25rem 3.25rem 4.75rem minmax(max-content, 1fr);
+  grid-template-columns: 3.25rem 3.25rem 4.75rem 1.25rem minmax(max-content, 1fr);
   border-top: 1px solid transparent;
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -414,8 +414,6 @@ body {
   color: var(--color-ink-secondary);
 }
 .diff-prefix {
-  display: inline-block;
-  width: 1.25rem;
   color: var(--color-ink);
   text-align: center;
   user-select: none;
@@ -431,6 +429,21 @@ body {
 }
 .diff-reveal:hover {
   background-color: var(--color-ground-raised);
+}
+.diff-raw {
+  max-height: 32rem;
+  overflow: auto;
+  border-block: 1px solid var(--color-rule);
+  padding: 0.75rem;
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre;
+}
+.diff-raw:focus-visible {
+  outline: 2px solid var(--color-cue-bright);
+  outline-offset: 2px;
 }
 
 @media (max-width: 639px) {
@@ -455,7 +468,7 @@ body {
     grid-row: 1 / span 2;
   }
   .diff-line {
-    grid-template-columns: 2.75rem 2.75rem 4.25rem minmax(max-content, 1fr);
+    grid-template-columns: 2.75rem 2.75rem 4.25rem 1.25rem minmax(max-content, 1fr);
   }
 }
 

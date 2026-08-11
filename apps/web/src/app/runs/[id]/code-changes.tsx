@@ -14,6 +14,7 @@ interface CodeChangesProps {
   content: DiffArtifactContent | null;
   error?: string | null;
   loading?: boolean;
+  showArtifactLink?: boolean;
 }
 
 function DiffRow({ line }: { line: DiffLine }) {
@@ -27,15 +28,11 @@ function DiffRow({ line }: { line: DiffLine }) {
       <span className="diff-line-number" aria-hidden="true">
         {line.newLine ?? ''}
       </span>
-      <span className="diff-line-status" aria-hidden={!status}>
-        {status}
+      <span className="diff-line-status">{status}</span>
+      <span className="diff-prefix" aria-hidden="true">
+        {prefix}
       </span>
-      <code>
-        <span className="diff-prefix" aria-hidden>
-          {prefix}
-        </span>
-        {line.content || ' '}
-      </code>
+      <code>{line.content || ' '}</code>
     </div>
   );
 }
@@ -92,7 +89,14 @@ function FilePatch({ file }: { file: DiffFile }) {
   );
 }
 
-export function DiffPresentation({ runId, artifactId, content, error, loading }: CodeChangesProps) {
+export function DiffPresentation({
+  runId,
+  artifactId,
+  content,
+  error,
+  loading,
+  showArtifactLink = true,
+}: CodeChangesProps) {
   if (error) {
     return (
       <div className="diff-state diff-state-error" role="alert">
@@ -115,26 +119,36 @@ export function DiffPresentation({ runId, artifactId, content, error, loading }:
   }
 
   const parsed = parseUnifiedDiff(content.diff);
-  if (parsed.files.length === 0) {
-    if (content.diff.trim()) {
-      return (
-        <div className="diff-state diff-state-unparseable">
-          <p className="annot text-sm text-mark-bright" role="alert">
-            This content could not be parsed as a unified diff. The stored content is shown below.
-          </p>
-          <pre className="diff-raw">{content.diff}</pre>
-        </div>
-      );
-    }
+  if (parsed.state === 'empty') {
     return (
       <div className="diff-state">
         <p className="annot text-sm text-ink-label">This artifact contains no file changes.</p>
-        <Link
-          href={`/runs/${runId}/artifacts/${artifactId}`}
-          className={`${linkCls} mt-2 inline-block text-sm`}
+        {showArtifactLink && (
+          <Link
+            href={`/runs/${runId}/artifacts/${artifactId}`}
+            className={`${linkCls} mt-2 inline-block text-sm`}
+          >
+            Open artifact details
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  if (parsed.state === 'unparseable') {
+    return (
+      <div className="diff-state">
+        <p className="annot text-sm text-ink-label">
+          This artifact could not be parsed as a unified diff. The stored content is shown below.
+        </p>
+        <pre
+          className="diff-raw mt-3"
+          role="region"
+          aria-label="Unparsed diff content"
+          tabIndex={0}
         >
-          Open artifact details
-        </Link>
+          {content.diff}
+        </pre>
       </div>
     );
   }
@@ -187,9 +201,11 @@ export function DiffPresentation({ runId, artifactId, content, error, loading }:
             </div>
           )}
         </dl>
-        <Link href={`/runs/${runId}/artifacts/${artifactId}`} className={`${linkCls} text-sm`}>
-          Open artifact details
-        </Link>
+        {showArtifactLink && (
+          <Link href={`/runs/${runId}/artifacts/${artifactId}`} className={`${linkCls} text-sm`}>
+            Open artifact details
+          </Link>
+        )}
       </div>
 
       <DiffViewer files={files}>

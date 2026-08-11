@@ -100,7 +100,9 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                   +{file.additions} −{file.deletions}
                 </span>
               </button>
-              {open && <div id={`${file.id}-content`}>{fileContents[index]}</div>}
+              <div id={`${file.id}-content`} hidden={!open}>
+                {open ? fileContents[index] : null}
+              </div>
             </article>
           );
         })}
@@ -117,9 +119,9 @@ export function RevealLines({ count, children }: { count: number; children: Reac
       type="button"
       className={`diff-reveal ${focus}`}
       onClick={() => setVisible(true)}
-      aria-label={`Show remaining ${count} unchanged lines`}
+      aria-label={`Show remaining ${count} lines`}
     >
-      Show remaining lines <span aria-hidden>({count})</span>
+      Show remaining {count} lines
     </button>
   );
 }

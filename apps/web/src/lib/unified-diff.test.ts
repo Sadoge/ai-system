@@ -124,12 +124,52 @@ Binary files a/logo.png and b/logo.png differ
     });
   });
 
-  it('keeps mode changes as metadata without inventing line changes', () => {
+  it('treats file-header-looking hunk lines as changed source', () => {
+    const parsed =
+      parseUnifiedDiff(`diff --git a/packages/db/migrations/a.sql b/packages/db/migrations/a.sql
+--- a/packages/db/migrations/a.sql
++++ b/packages/db/migrations/a.sql
+@@ -4,3 +4,3 @@
+ SELECT 1;
+--- explain why this migration is safe
++++ explain why this migration is reversible
+ SELECT 2;`);
+
+    expect(parsed.files[0]).toMatchObject({
+      path: 'packages/db/migrations/a.sql',
+      oldPath: 'packages/db/migrations/a.sql',
+      newPath: 'packages/db/migrations/a.sql',
+      additions: 1,
+      deletions: 1,
+    });
+    expect(parsed.files[0]!.hunks[0]!.lines).toMatchObject([
+      { kind: 'context', oldLine: 4, newLine: 4 },
+      { kind: 'deletion', content: '-- explain why this migration is safe', oldLine: 5 },
+      { kind: 'addition', content: '++ explain why this migration is reversible', newLine: 5 },
+      { kind: 'context', oldLine: 6, newLine: 6 },
+    ]);
+  });
+
+  it('keeps a trimmed empty context line and advances both counters', () => {
+    const parsed = parseUnifiedDiff(`diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -7,2 +7,2 @@
+
+ next`);
+
+    expect(parsed.files[0]!.hunks[0]!.lines).toEqual([
+      { kind: 'context', content: '', oldLine: 7, newLine: 7 },
+      { kind: 'context', content: 'next', oldLine: 8, newLine: 8 },
+    ]);
+  });
+
+  it('keeps mode-only changes as metadata without inventing line changes', () => {
     const parsed = parseUnifiedDiff(`diff --git a/script.sh b/script.sh
 old mode 100644
 new mode 100755`);
 
-    expect(parsed).toMatchObject({ additions: 0, deletions: 0 });
+    expect(parsed).toMatchObject({ additions: 0, deletions: 0, state: 'parsed' });
     expect(parsed.files[0]).toMatchObject({
       path: 'script.sh',
       metadata: ['old mode 100644', 'new mode 100755'],
@@ -156,24 +196,57 @@ new mode 100755`);
   });
 
   it.each([
+    [
+      'unquoted paths containing spaces',
+      'diff --git a/src/my file.ts b/src/my file.ts',
+      'src/my file.ts',
+    ],
+    [
+      'quoted paths containing escapes',
+      'diff --git "a/src/quoted\\040file.ts" "b/src/quoted\\040file.ts"',
+      'src/quoted file.ts',
+    ],
+  ])('parses %s', (_name, header, path) => {
+    expect(parseUnifiedDiff(`${header}\n--- a/${path}\n+++ b/${path}`).files[0]!.path).toBe(path);
+  });
+
+  it.each([[''], ['   \n\t'], [null], [undefined]])(
+    'distinguishes empty input from unparseable content %#',
+    (input) => {
+      expect(parseUnifiedDiff(input)).toEqual({
+        files: [],
+        additions: 0,
+        deletions: 0,
+        state: 'empty',
+      });
+    },
+  );
+
+  it.each([
     ['truncated hunk', 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-old'],
-    ['malformed hunk', 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ not a hunk @@\n+not code'],
-    ['random content', 'this is not a diff\nand has no headers'],
-  ])('handles malformed input without throwing: %s', (_name, patch) => {
+    ['non-matching hunk header', 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ not a hunk @@'],
+    ['random blob', 'this is not a diff\nand has no headers'],
+  ])('handles malformed input without throwing or producing NaN: %s', (_name, patch) => {
     expect(() => parseUnifiedDiff(patch)).not.toThrow();
     const parsed = parseUnifiedDiff(patch);
     expect(Number.isNaN(parsed.additions)).toBe(false);
     expect(Number.isNaN(parsed.deletions)).toBe(false);
   });
 
-  it('assigns distinct, stable ids when paths repeat', () => {
+  it('marks nonempty content with no file structure as unparseable', () => {
+    expect(parseUnifiedDiff('not a unified diff')).toMatchObject({
+      files: [],
+      state: 'unparseable',
+    });
+  });
+
+  it('assigns distinct, reproducible ids when paths repeat', () => {
     const patch = `diff --git a/x b/x
 --- a/x
 +++ b/x
 diff --git a/x b/x
 --- a/x
 +++ b/x`;
-
     const first = parseUnifiedDiff(patch);
     const second = parseUnifiedDiff(patch);
     expect(first.files[0]!.id).not.toBe(first.files[1]!.id);

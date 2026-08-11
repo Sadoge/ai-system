@@ -34,24 +34,26 @@ export interface ParsedDiff {
   files: DiffFile[];
   additions: number;
   deletions: number;
+  state: 'empty' | 'parsed' | 'unparseable';
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-function decodeQuotedPath(value: string): string {
+function decodeGitPath(value: string): string {
+  const unquoted = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
   const bytes: number[] = [];
   const encoder = new TextEncoder();
 
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index]!;
+  for (let index = 0; index < unquoted.length; index++) {
+    const character = unquoted[index]!;
     if (character !== '\\') {
-      const codePoint = value.codePointAt(index)!;
+      const codePoint = unquoted.codePointAt(index)!;
       bytes.push(...encoder.encode(String.fromCodePoint(codePoint)));
       if (codePoint > 0xffff) index++;
       continue;
     }
 
-    const escaped = value[index + 1];
+    const escaped = unquoted[index + 1];
     if (escaped === undefined) {
       bytes.push(0x5c);
       continue;
@@ -77,8 +79,8 @@ function decodeQuotedPath(value: string): string {
 
     if (/[0-7]/.test(escaped)) {
       let octal = escaped;
-      while (octal.length < 3 && index + 1 + octal.length < value.length) {
-        const next = value[index + 1 + octal.length]!;
+      while (octal.length < 3 && index + 1 + octal.length < unquoted.length) {
+        const next = unquoted[index + 1 + octal.length]!;
         if (!/[0-7]/.test(next)) break;
         octal += next;
       }
@@ -107,12 +109,13 @@ function cleanPath(value: string): string | null {
       if (!escaped && token[index] === '\\') escaped = true;
       else escaped = false;
     }
-    token = decodeQuotedPath(token.slice(1, closingQuote < 0 ? undefined : closingQuote));
+    token = token.slice(0, closingQuote < 0 ? undefined : closingQuote + 1);
   } else {
     token = token.split('\t', 1)[0]!.trim();
   }
-  if (token === '/dev/null') return null;
-  return token.replace(/^[ab]\//, '');
+  const decoded = decodeGitPath(token);
+  if (decoded === '/dev/null') return null;
+  return decoded.replace(/^[ab]\//, '');
 }
 
 function tokenizeGitHeader(value: string): string[] {
@@ -152,7 +155,7 @@ function fileId(path: string, index: number): string {
 
 /** Parse the git-style unified patch emitted by the worker. Malformed sections
  * are retained as metadata where possible instead of taking down the run page. */
-export function parseUnifiedDiff(patch: string): ParsedDiff {
+export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   const files: DiffFile[] = [];
   let current: DiffFile | null = null;
   let hunk: DiffHunk | null = null;
@@ -176,6 +179,13 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     return file;
   };
 
+  if (!patch?.trim()) return { files, additions: 0, deletions: 0, state: 'empty' };
+
+  const hunkComplete = () =>
+    hunk !== null &&
+    oldLine >= hunk.oldStart + hunk.oldCount &&
+    newLine >= hunk.newStart + hunk.newCount;
+
   const lines = patch.replace(/\r\n?/g, '\n').split('\n');
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
@@ -184,6 +194,51 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       const [oldPath, newPath] = pathsFromGitHeader(line);
       current = startFile(oldPath, newPath);
       hunk = null;
+      continue;
+    }
+
+    const header = HUNK_HEADER.exec(line);
+    if (current && header) {
+      oldLine = Number(header[1]);
+      newLine = Number(header[3]);
+      hunk = {
+        header: line,
+        oldStart: oldLine,
+        oldCount: Number(header[2] ?? 1),
+        newStart: newLine,
+        newCount: Number(header[4] ?? 1),
+        lines: [],
+      };
+      current.hunks.push(hunk);
+      continue;
+    }
+
+    // A no-newline marker belongs to the preceding hunk even when that hunk's
+    // declared line counts have just been satisfied.
+    if (current && hunk && line.startsWith('\\')) {
+      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      continue;
+    }
+    if (hunkComplete()) hunk = null;
+
+    // Hunk bodies must win over file-header detection: a deleted SQL comment
+    // such as "-- note" is encoded as "--- note" in a patch.
+    if (current && hunk && line.startsWith('+')) {
+      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
+      current.additions++;
+      newLine++;
+      continue;
+    }
+    if (current && hunk && line.startsWith('-')) {
+      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
+      current.deletions++;
+      oldLine++;
+      continue;
+    }
+    if (current && hunk && (line.startsWith(' ') || line === '')) {
+      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
+      oldLine++;
+      newLine++;
       continue;
     }
 
@@ -242,13 +297,13 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
     if (line.startsWith('rename from ')) {
-      current.oldPath = line.slice('rename from '.length);
+      current.oldPath = decodeGitPath(line.slice('rename from '.length));
       current.status = 'renamed';
       current.metadata.push(line);
       continue;
     }
     if (line.startsWith('rename to ')) {
-      current.newPath = line.slice('rename to '.length);
+      current.newPath = decodeGitPath(line.slice('rename to '.length));
       current.path = current.newPath;
       current.status = 'renamed';
       current.metadata.push(line);
@@ -261,22 +316,6 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
 
-    const header = HUNK_HEADER.exec(line);
-    if (header) {
-      oldLine = Number(header[1]);
-      newLine = Number(header[3]);
-      hunk = {
-        header: line,
-        oldStart: oldLine,
-        oldCount: Number(header[2] ?? 1),
-        newStart: newLine,
-        newCount: Number(header[4] ?? 1),
-        lines: [],
-      };
-      current.hunks.push(hunk);
-      continue;
-    }
-
     if (line) current.metadata.push(line);
   }
 
@@ -284,5 +323,6 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     files,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    state: files.length > 0 ? 'parsed' : 'unparseable',
   };
 }

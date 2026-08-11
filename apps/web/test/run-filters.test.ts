@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { RunStatus } from '../../../packages/domain/src/enums';
 import { filterRuns, parseStatusParam, statusBucket } from '../src/lib/run-filters';
 
 interface RunFixture {
   id: string;
   status: string;
   ticket: {
-    title?: string | null;
+    title: string | null;
     externalKey?: string | null;
   };
 }
@@ -51,7 +52,7 @@ describe('filterRuns search', () => {
       {
         id: 'undefined-fields',
         status: 'created',
-        ticket: {},
+        ticket: { title: null },
       },
     ];
 
@@ -60,28 +61,15 @@ describe('filterRuns search', () => {
 });
 
 describe('filterRuns status buckets', () => {
-  it('maps every declared non-terminal status to running', () => {
-    const nonTerminal = [
-      'created',
-      'classifying',
-      'awaiting_split',
-      'researching',
-      'planning',
-      'awaiting_plan_approval',
-      'decomposing',
-      'executing',
-      'integrating',
-      'awaiting_pre_merge',
-      'reviewing',
-      'testing',
-      'awaiting_iteration_gate',
-      'documenting',
-      'packaging',
-      'awaiting_final_approval',
-      'paused',
-    ];
-
-    expect(nonTerminal.map(statusBucket)).toEqual(nonTerminal.map(() => 'running'));
+  it('maps every status declared by the domain to its deliberate bucket', () => {
+    expect(RunStatus.options.map((status) => [status, statusBucket(status)])).toEqual(
+      RunStatus.options.map((status) => {
+        if (status === 'completed') return [status, 'completed'];
+        if (status === 'failed') return [status, 'failed'];
+        if (status === 'cancelled') return [status, null];
+        return [status, 'running'];
+      }),
+    );
   });
 
   it('returns only running runs', () => {
@@ -89,7 +77,6 @@ describe('filterRuns status buckets', () => {
       '1',
       '2',
       '3',
-      '7',
     ]);
   });
 
@@ -108,8 +95,8 @@ describe('filterRuns status buckets', () => {
     expect(filterRuns(runs, { query: '', status: 'all' })).toEqual(runs);
   });
 
-  it('defaults an unknown future status to running', () => {
-    expect(statusBucket('future_status')).toBe('running');
+  it('leaves an unknown future status available only under All', () => {
+    expect(statusBucket('future_status')).toBeNull();
   });
 
   it('combines query and status conditions', () => {

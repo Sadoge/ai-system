@@ -25,7 +25,6 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
   const [status, setStatus] = useState<RunStatusFilter>(() =>
     parseStatusParam(searchParams.get('status')),
   );
-  const searchParamsValue = searchParams.toString();
   const urlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const replaceFilterUrl = useCallback(
@@ -73,17 +72,20 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
   );
 
   useEffect(() => {
-    if (urlTimerRef.current) {
-      clearTimeout(urlTimerRef.current);
-      urlTimerRef.current = null;
+    function restoreFiltersFromUrl() {
+      if (urlTimerRef.current) {
+        clearTimeout(urlTimerRef.current);
+        urlTimerRef.current = null;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      setQuery(params.get('q') ?? '');
+      setStatus(parseStatusParam(params.get('status')));
     }
 
-    const nextParams = new URLSearchParams(searchParamsValue);
-    const nextQuery = nextParams.get('q') ?? '';
-    const nextStatus = parseStatusParam(nextParams.get('status'));
-    setQuery((current) => (current === nextQuery ? current : nextQuery));
-    setStatus((current) => (current === nextStatus ? current : nextStatus));
-  }, [searchParamsValue]);
+    window.addEventListener('popstate', restoreFiltersFromUrl);
+    return () => window.removeEventListener('popstate', restoreFiltersFromUrl);
+  }, []);
 
   const visible = useMemo(() => filterRuns(runs, { query, status }), [query, runs, status]);
   const hasFilters = query.trim().length > 0 || status !== 'all';

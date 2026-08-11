@@ -1,24 +1,43 @@
+import type { RunSummary } from './api';
+
 export type RunStatusFilter = 'all' | 'running' | 'failed' | 'completed';
 type RunStatusBucket = Exclude<RunStatusFilter, 'all'>;
 
 export const RUN_STATUS_FILTERS = ['all', 'running', 'failed', 'completed'] as const;
+
+const RUNNING_RUN_STATUSES = new Set([
+  'created',
+  'classifying',
+  'awaiting_split',
+  'researching',
+  'planning',
+  'awaiting_plan_approval',
+  'decomposing',
+  'executing',
+  'integrating',
+  'awaiting_pre_merge',
+  'reviewing',
+  'testing',
+  'awaiting_iteration_gate',
+  'documenting',
+  'packaging',
+  'awaiting_final_approval',
+  'paused',
+]);
 
 export function statusBucket(status: string): RunStatusBucket | null {
   if (status === 'completed') return 'completed';
   if (status === 'failed') return 'failed';
   // Cancelled is rendered as inert elsewhere in the UI, not as a failure.
   if (status === 'cancelled') return null;
-
-  // The domain has only three terminal statuses. Treat new statuses as
-  // non-terminal so a future pipeline stage remains visible under Running.
-  return 'running';
+  return RUNNING_RUN_STATUSES.has(status) ? 'running' : null;
 }
 
 interface FilterableRun {
   status: string;
   ticket: {
-    title?: string | null;
-    externalKey?: string | null;
+    title: RunSummary['ticket']['title'] | null;
+    externalKey?: RunSummary['ticket']['externalKey'] | null;
   };
 }
 

@@ -28,6 +28,7 @@ import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import { ApiLoopAgentExecutor, CliAgentExecutor } from '@ai-system/agent-execution';
 import { agentJobLeaseSeconds, OutboxDispatcher } from './outbox-dispatcher.js';
+import { DEFAULT_ORPHAN_HEARTBEAT_GRACE_MS, recoverOrphanedAgentJobs } from './orphan-recovery.js';
 import { WebhookNotifier } from './webhook-notifier.js';
 import { executeStage, runTask } from './stages.js';
 import { distillKnowledge } from './learning.js';
@@ -365,8 +366,7 @@ async function enrichGatePayload(
 }
 
 async function main(): Promise<void> {
-  const connectionString =
-    process.env.DATABASE_URL ?? 'postgres://ai:ai@localhost:5432/ai_system';
+  const connectionString = process.env.DATABASE_URL ?? 'postgres://ai:ai@localhost:5432/ai_system';
   const pool = createPool(connectionString);
   const db = createDb(pool);
 
@@ -381,6 +381,13 @@ async function main(): Promise<void> {
   boss.on('error', (err) => log.error({ err }, 'pg-boss error'));
   await boss.start();
   for (const queue of QUEUES) await boss.createQueue(queue);
+
+  const recoveredJobs = await recoverOrphanedAgentJobs(
+    pool,
+    log,
+    positiveDuration('ORPHAN_AGENT_HEARTBEAT_GRACE_MS', DEFAULT_ORPHAN_HEARTBEAT_GRACE_MS),
+  );
+  if (recoveredJobs > 0) log.info({ recoveredJobs }, 'orphaned agent recovery complete');
 
   await boss.work('stage.execute', async (jobs) => {
     for (const job of jobs) {

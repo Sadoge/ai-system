@@ -1,7 +1,31 @@
 import type { DiffHunk, DiffLine } from './unified-diff';
 
+export const LARGE_FILE_LINE_LIMIT = 400;
+
 export type DiffLineGroup =
   { kind: 'visible'; lines: DiffLine[] } | { kind: 'collapsed'; lines: DiffLine[] };
+
+export interface CappedHunks {
+  hunks: DiffHunk[];
+  remaining: number;
+}
+
+/** Return a non-mutating prefix of a file's hunks for bounded initial render. */
+export function capHunks(hunks: readonly DiffHunk[], limit = LARGE_FILE_LINE_LIMIT): CappedHunks {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const total = hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  let available = safeLimit;
+  const visible: DiffHunk[] = [];
+
+  for (const hunk of hunks) {
+    if (available <= 0) break;
+    const lines = hunk.lines.slice(0, available);
+    if (lines.length > 0) visible.push({ ...hunk, lines });
+    available -= lines.length;
+  }
+
+  return { hunks: visible, remaining: Math.max(0, total - safeLimit) };
+}
 
 /** Collapse only long, unchanged runs. Changed lines and their nearby context
  * remain visible, while the complete source stays available on demand. */

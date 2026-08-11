@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { filterRuns, parseStatusParam, statusBucket } from '../src/run-filters.js';
+import { filterRuns, parseStatusParam, statusBucket } from '../src/lib/run-filters';
 
 interface RunFixture {
   id: string;
   status: string;
-  ticket?: { title?: string | null; externalKey?: string | null } | null;
+  ticket: {
+    title: string | null | undefined;
+    externalKey: string | null | undefined;
+  };
 }
 
 const runs: RunFixture[] = [
@@ -42,11 +45,14 @@ describe('filterRuns search', () => {
     expect(filterRuns(runs, { query: 'not here', status: 'all' })).toEqual([]);
   });
 
-  it('tolerates null and missing searchable fields', () => {
+  it('tolerates null and undefined searchable fields', () => {
     const incomplete: RunFixture[] = [
-      { id: 'missing-ticket', status: 'created' },
-      { id: 'null-ticket', status: 'created', ticket: null },
       { id: 'null-fields', status: 'created', ticket: { title: null, externalKey: null } },
+      {
+        id: 'undefined-fields',
+        status: 'created',
+        ticket: { title: undefined, externalKey: undefined },
+      },
     ];
 
     expect(filterRuns(incomplete, { query: 'anything', status: 'all' })).toEqual([]);
@@ -78,13 +84,19 @@ describe('filterRuns status buckets', () => {
     expect(nonTerminal.map(statusBucket)).toEqual(nonTerminal.map(() => 'running'));
   });
 
-  it('returns only the selected status bucket', () => {
+  it('returns only running runs', () => {
     expect(filterRuns(runs, { query: '', status: 'running' }).map((run) => run.id)).toEqual([
       '1',
       '2',
       '3',
     ]);
+  });
+
+  it('returns only failed runs', () => {
     expect(filterRuns(runs, { query: '', status: 'failed' }).map((run) => run.id)).toEqual(['4']);
+  });
+
+  it('returns only completed runs', () => {
     expect(filterRuns(runs, { query: '', status: 'completed' }).map((run) => run.id)).toEqual([
       '5',
     ]);
@@ -113,8 +125,11 @@ describe('parseStatusParam', () => {
     expect(parseStatusParam(status)).toBe(status);
   });
 
-  it('falls back to all for missing and unrecognized values', () => {
+  it('falls back to all for a missing value', () => {
     expect(parseStatusParam(null)).toBe('all');
+  });
+
+  it('falls back to all for an unrecognized value', () => {
     expect(parseStatusParam('garbage')).toBe('all');
   });
 });

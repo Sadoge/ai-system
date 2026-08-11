@@ -25,17 +25,13 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
   const [status, setStatus] = useState<RunStatusFilter>(() =>
     parseStatusParam(searchParams.get('status')),
   );
-  const [debouncedQuery, setDebouncedQuery] = useState(query);
-  const serializedSearchParams = searchParams.toString();
-  const urlSyncReadyRef = useRef(false);
+  const urlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const replaceFilterUrl = useCallback(
     (nextQuery: string, nextStatus: RunStatusFilter) => {
-      const params = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams();
       if (nextQuery.trim()) params.set('q', nextQuery.trim());
-      else params.delete('q');
       if (nextStatus !== 'all') params.set('status', nextStatus);
-      else params.delete('status');
 
       const queryString = params.toString();
       const nextUrl = `${pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
@@ -45,41 +41,43 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
     [pathname],
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 250);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const scheduleUrlSync = useCallback(
+    (nextQuery: string, nextStatus: RunStatusFilter, delay: number) => {
+      if (urlTimerRef.current) clearTimeout(urlTimerRef.current);
 
-  useEffect(() => {
-    if (!urlSyncReadyRef.current) {
-      urlSyncReadyRef.current = true;
-      return;
-    }
-    replaceFilterUrl(debouncedQuery, status);
-  }, [debouncedQuery, replaceFilterUrl, status]);
+      if (delay === 0) {
+        urlTimerRef.current = null;
+        replaceFilterUrl(nextQuery, nextStatus);
+        return;
+      }
 
-  useEffect(() => {
-    const currentParams = new URLSearchParams(serializedSearchParams);
-    const urlQuery = currentParams.get('q') ?? '';
-    const urlStatus = parseStatusParam(currentParams.get('status'));
-    setQuery(urlQuery);
-    setDebouncedQuery(urlQuery);
-    setStatus(urlStatus);
-  }, [serializedSearchParams]);
+      urlTimerRef.current = setTimeout(() => {
+        urlTimerRef.current = null;
+        replaceFilterUrl(nextQuery, nextStatus);
+      }, delay);
+    },
+    [replaceFilterUrl],
+  );
+
+  useEffect(
+    () => () => {
+      if (urlTimerRef.current) clearTimeout(urlTimerRef.current);
+    },
+    [],
+  );
 
   const visible = useMemo(() => filterRuns(runs, { query, status }), [query, runs, status]);
   const hasFilters = query.trim().length > 0 || status !== 'all';
 
   function selectStatus(nextStatus: RunStatusFilter) {
     setStatus(nextStatus);
-    replaceFilterUrl(debouncedQuery, nextStatus);
+    scheduleUrlSync(query, nextStatus, 0);
   }
 
   function clearFilters() {
     setQuery('');
-    setDebouncedQuery('');
     setStatus('all');
-    replaceFilterUrl('', 'all');
+    scheduleUrlSync('', 'all', 0);
   }
 
   return (
@@ -90,7 +88,11 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              const nextQuery = event.target.value;
+              setQuery(nextQuery);
+              scheduleUrlSync(nextQuery, status, 250);
+            }}
             className="runs-search-input"
             placeholder="Search by ticket title or key…"
           />
@@ -115,6 +117,11 @@ export function RunsFilters({ runs }: { runs: RunSummary[] }) {
             Clear filters
           </button>
         )}
+
+        <span className="runs-filter-count" role="status" aria-live="polite" aria-atomic="true">
+          {hasFilters ? `${visible.length} of ${runs.length}` : runs.length}{' '}
+          {runs.length === 1 ? 'run' : 'runs'}
+        </span>
       </div>
 
       {visible.length === 0 ? (

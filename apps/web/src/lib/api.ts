@@ -39,7 +39,7 @@ export interface RunSummary {
   currentStage: string | null;
   complexity: string | null;
   iterationCount: number;
-  ticket: { title: string; source: string; externalKey?: string };
+  ticket: { title: string; source: string; externalKey: string | undefined };
   policySnapshot: { pipeline: string; automationLevel: string };
   createdAt: string;
   updatedAt: string;

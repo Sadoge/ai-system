@@ -3,6 +3,25 @@ import type { DiffHunk, DiffLine } from './unified-diff';
 export type DiffLineGroup =
   { kind: 'visible'; lines: DiffLine[] } | { kind: 'collapsed'; lines: DiffLine[] };
 
+export function visibleHunks(
+  file: { hunks: readonly DiffHunk[] },
+  limit: number,
+): { hunks: DiffHunk[]; remaining: number } {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const total = file.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  let available = safeLimit;
+  const hunks: DiffHunk[] = [];
+
+  for (const hunk of file.hunks) {
+    if (available <= 0) break;
+    const lines = hunk.lines.slice(0, available);
+    if (lines.length > 0) hunks.push({ ...hunk, lines });
+    available -= lines.length;
+  }
+
+  return { hunks, remaining: Math.max(0, total - safeLimit) };
+}
+
 /** Collapse only long, unchanged runs. Changed lines and their nearby context
  * remain visible, while the complete source stays available on demand. */
 export function groupHunkLines(hunk: DiffHunk, contextLines = 3): DiffLineGroup[] {

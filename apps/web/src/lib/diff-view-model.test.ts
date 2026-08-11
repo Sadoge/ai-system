@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHunkLines } from './diff-view-model';
+import { groupHunkLines, visibleHunks } from './diff-view-model';
 import type { DiffHunk, DiffLine } from './unified-diff';
 
 const context = (line: number): DiffLine => ({
@@ -26,5 +26,27 @@ describe('groupHunkLines', () => {
       ['visible', 3],
     ]);
     expect(groups.flatMap((group) => group.lines)).toEqual(hunk.lines);
+  });
+});
+
+describe('visibleHunks', () => {
+  it('caps lines across hunks and reports the remaining count', () => {
+    const first = {
+      header: '@@ -1,3 +1,3 @@',
+      oldStart: 1,
+      oldCount: 3,
+      newStart: 1,
+      newCount: 3,
+      lines: [context(1), context(2), context(3)],
+    };
+    const second = {
+      ...first,
+      header: '@@ -10,3 +10,3 @@',
+      lines: [context(10), context(11), context(12)],
+    };
+
+    const result = visibleHunks({ hunks: [first, second] }, 4);
+    expect(result.hunks.map((hunk) => hunk.lines.length)).toEqual([3, 1]);
+    expect(result.remaining).toBe(2);
   });
 });

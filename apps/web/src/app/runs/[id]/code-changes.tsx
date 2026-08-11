@@ -1,44 +1,14 @@
 import Link from 'next/link';
-import { groupHunkLines } from '@/lib/diff-view-model';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
-import { parseUnifiedDiff, type DiffLine } from '@/lib/unified-diff';
+import { parseUnifiedDiff } from '@/lib/unified-diff';
 import { System, linkCls } from '@/lib/ui';
-import { DiffViewer, RevealLines } from './diff-viewer';
+import { DiffViewer } from './diff-viewer';
 
 interface CodeChangesProps {
   runId: string;
   artifactId?: string;
   content: DiffArtifactContent | null;
   error?: string | null;
-}
-
-function DiffRow({ line }: { line: DiffLine }) {
-  const prefix = line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ' ';
-  const status =
-    line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : line.kind;
-  return (
-    <div className={`diff-line diff-line-${line.kind}`}>
-      <span
-        className="diff-line-number"
-        aria-label={line.oldLine ? `old line ${line.oldLine}` : ''}
-      >
-        {line.oldLine ?? ''}
-      </span>
-      <span
-        className="diff-line-number"
-        aria-label={line.newLine ? `new line ${line.newLine}` : ''}
-      >
-        {line.newLine ?? ''}
-      </span>
-      <span className="diff-line-status">{status}</span>
-      <code>
-        <span className="diff-prefix" aria-hidden>
-          {prefix}
-        </span>
-        {line.content || ' '}
-      </code>
-    </div>
-  );
 }
 
 export function DiffPresentation({ runId, artifactId, content, error }: CodeChangesProps) {
@@ -61,6 +31,18 @@ export function DiffPresentation({ runId, artifactId, content, error }: CodeChan
 
   const parsed = parseUnifiedDiff(content.diff);
   if (parsed.files.length === 0) {
+    if (content.diff.trim()) {
+      return (
+        <div className="diff-state diff-state-error" role="alert">
+          <p className="annot text-sm text-mark-bright">
+            This content could not be parsed as a unified diff. The stored patch is shown below.
+          </p>
+          <pre className="diff-fallback mt-3 overflow-x-auto border-l border-rule-strong bg-ground-raised p-4 font-mono text-xs leading-relaxed text-ink-secondary">
+            {content.diff}
+          </pre>
+        </div>
+      );
+    }
     return (
       <div className="diff-state">
         <p className="annot text-sm text-ink-label">This artifact contains no file changes.</p>
@@ -73,14 +55,6 @@ export function DiffPresentation({ runId, artifactId, content, error }: CodeChan
       </div>
     );
   }
-
-  const files = parsed.files.map(({ id, path, status, additions, deletions }) => ({
-    id,
-    path,
-    status,
-    additions,
-    deletions,
-  }));
 
   return (
     <>
@@ -127,40 +101,7 @@ export function DiffPresentation({ runId, artifactId, content, error }: CodeChan
         </Link>
       </div>
 
-      <DiffViewer files={files}>
-        {parsed.files.map((file) => (
-          <div key={file.id} className="diff-code" role="region" aria-label={`${file.path} patch`}>
-            {file.metadata.length > 0 && (
-              <div className="diff-file-metadata">
-                {file.metadata.map((line, index) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
-              </div>
-            )}
-            {file.hunks.map((hunk, hunkIndex) => (
-              <div key={`${hunk.header}-${hunkIndex}`}>
-                <p className="diff-hunk">{hunk.header}</p>
-                {groupHunkLines(hunk).map((group, groupIndex) =>
-                  group.kind === 'collapsed' ? (
-                    <RevealLines key={groupIndex} count={group.lines.length}>
-                      {group.lines.map((line, lineIndex) => (
-                        <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-                      ))}
-                    </RevealLines>
-                  ) : (
-                    group.lines.map((line, lineIndex) => (
-                      <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-                    ))
-                  ),
-                )}
-              </div>
-            ))}
-            {file.status === 'binary' && file.metadata.length === 0 && (
-              <p className="diff-file-metadata">Binary file changed.</p>
-            )}
-          </div>
-        ))}
-      </DiffViewer>
+      <DiffViewer key={artifactId} files={parsed.files} />
     </>
   );
 }

@@ -213,6 +213,25 @@ describe('team pipeline iteration', () => {
     });
   });
 
+  it('skips a second review after corrective tasks are integrated', () => {
+    const corrected: RunSnapshot = {
+      ...runWithTasks([task(T.a, { status: 'completed' })]),
+      status: 'integrating',
+      currentStage: 'integrate',
+      iterationCount: 1,
+    };
+    const result = advance(corrected, {
+      name: 'run.stage.completed',
+      payload: { runId: RUN_ID, stageExecutionId: RUN_ID, stage: 'integrate', artifactIds: [] },
+    });
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'testing',
+      currentStage: 'test',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'test' }],
+    });
+  });
+
   it('parks at the pre-merge gate after integration when the level enables it', () => {
     const policy: PolicySnapshot = {
       ...defaultTeamPolicy('code_gated'),

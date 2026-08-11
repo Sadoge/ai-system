@@ -624,15 +624,20 @@ function Readout({
   label,
   value,
   className = '',
+  valueClassName = '',
 }: {
   label: string;
   value: string;
   className?: string;
+  valueClassName?: string;
 }) {
   return (
     <div className={className}>
       <dt className="annot text-xs text-ink-label">{label}</dt>
-      <dd className="mt-1 truncate font-mono text-xs text-ink-secondary tnum" title={value}>
+      <dd
+        className={`mt-1 truncate font-mono text-xs text-ink-secondary tnum ${valueClassName}`}
+        title={value}
+      >
         {value}
       </dd>
     </div>
@@ -641,12 +646,19 @@ function Readout({
 
 function PrPackageView({ content }: { content: RecordValue }) {
   const stats = isRecord(content.diffStat) ? content.diffStat : {};
+  const published = content.branchPublished === true;
+  const publicationKnown = typeof content.branchPublished === 'boolean';
+  const publicationStatus = publicationKnown
+    ? published
+      ? `yes · ${asText(content.gitHost) ?? 'repository'}`
+      : 'no'
+    : 'unknown';
   return (
     <>
       <h3 className="max-w-[75ch] text-xl leading-snug text-ink">
         {asText(content.title) ?? 'Untitled pull request'}
       </h3>
-      <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-rule py-4 sm:grid-cols-5">
+      <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-rule py-4 sm:grid-cols-6">
         <Readout label="base" value={asText(content.baseBranch) ?? 'unknown'} />
         <Readout
           label="branch"
@@ -658,7 +670,19 @@ function PrPackageView({ content }: { content: RecordValue }) {
           label="lines"
           value={`+${String(stats.additions ?? 0)} / −${String(stats.deletions ?? 0)}`}
         />
+        <Readout
+          label="published"
+          value={publicationStatus}
+          valueClassName={
+            publicationKnown ? (published ? 'text-mint-bright' : 'text-mark-bright') : ''
+          }
+        />
       </dl>
+      {asText(content.publicationNote) && (
+        <p className="annot mt-4 text-sm leading-relaxed text-mint-bright">
+          {String(content.publicationNote)}
+        </p>
+      )}
       {asText(content.prUrl) && (
         <p className="mt-5">
           <a

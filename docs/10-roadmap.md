@@ -23,7 +23,7 @@ Skeleton with the load-bearing decisions implemented while they're cheap.
 
 | Area | MVP content |
 |---|---|
-| Pipeline | intake → classify → research → plan → **plan gate** → code (1 task, 1 worktree) → review → test → iterate (budget 2) → package → **final gate** → PR |
+| Pipeline | intake → classify → research → plan → **plan gate** → code (1 task, 1 worktree) → review → test → at most one corrective code pass → test → package → **final gate** → PR |
 | Ticket source | Jira read integration (fetch by key + webhook trigger); manual ticket paste as fallback |
 | Agents | intake, classifier, research, planning, coding (via `cli` executor), review (read-only), testing (deterministic run + LLM interpretation) |
 | Project Brain v1 | Layer 1 repo index (file map + symbols + deps); Layer 2 hand-authored rules/conventions via import scan + editor; structural + rules context assembly (semantic retrieval deferred) |

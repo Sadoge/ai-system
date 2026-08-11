@@ -167,6 +167,20 @@ export async function openBlockingFindings(db: Db, runId: string) {
     .where(and(eq(reviewFindings.runId, runId), eq(reviewFindings.status, 'open')));
 }
 
+/**
+ * A successful corrective coding pass is the terminal disposition of the
+ * findings it was given. The following test stage may create fresh findings
+ * from deterministic failures, but the old review must not reopen itself now
+ * that corrective passes intentionally skip a second review.
+ */
+export async function resolveCorrectedFindings(db: Db, run: RunRow): Promise<void> {
+  if (run.iterationCount === 0) return;
+  await db
+    .update(reviewFindings)
+    .set({ status: 'resolved' })
+    .where(and(eq(reviewFindings.runId, run.id), eq(reviewFindings.status, 'open')));
+}
+
 // ── stage handlers (docs/10 Phase 1 pipeline) ─────────────────────────
 
 export async function classifyStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
@@ -309,6 +323,7 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
     createdByAgentRunId: execution.agentRunId,
   });
+  await resolveCorrectedFindings(db, run);
   return { artifactIds: [...execution.artifactIds, diffId] };
 }
 
@@ -482,7 +497,8 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
 
   if (testsPassed && blocking.length === 0) return { artifactIds: [artifactId] };
 
-  // The engine — not this handler — decides between a fix iteration and the gate.
+  // The engine — not this handler — decides between the one correction and a
+  // hard stop when that allowance has already been used.
   await applyEvent(db, {
     name: 'run.iteration.needed',
     payload: { runId: run.id, blockingFindingIds: blocking.map((f) => f.id), testsPassed },
@@ -514,15 +530,32 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     `- Iterations used: ${run.iterationCount}`,
   ].join('\n');
 
-  // Git-host port: the stage speaks "push branch, open change request"; GitHub,
-  // GitLab, and Bitbucket are interchangeable behind that sentence.
+  // Repository publication is mandatory. Hosted forges also open a change
+  // request; a local repository receives the branch directly.
   let prUrl: string | null = null;
   let prError: string | null = null;
   const host = gitHostFor(repo.remoteUrl, { githubToken: services.githubToken });
-  if (host) {
+  if (!host) {
+    const detected = detectGitHost(repo.remoteUrl);
+    if (detected) {
+      throw new Error(
+        `Cannot publish ${branch}: ${detected} credentials are not configured for the worker.`,
+      );
+    }
+    throw new Error(`Cannot publish ${branch}: the repository remote is not supported.`);
+  }
+
+  const { checkoutDir } = repoPaths(services, repo.id, run.id);
+  try {
+    await host.push(checkoutDir, branch);
+  } catch {
+    throw new Error(
+      `Failed to publish ${branch} to the ${host.name} repository; verify the remote and write permissions.`,
+    );
+  }
+
+  if (host.openChangeRequest) {
     try {
-      const { checkoutDir } = repoPaths(services, repo.id, run.id);
-      await host.push(checkoutDir, branch);
       const cr = await host.openChangeRequest({
         title: ticket.title,
         body,
@@ -533,13 +566,12 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
-  } else {
-    // A recognized forge without credentials is a configuration mistake, not a
-    // silent no-op: say so in the artifact so the gate reviewer sees why the
-    // package has a branch but no link.
-    const detected = detectGitHost(repo.remoteUrl);
-    if (detected) prError = `${detected} remote detected but no credentials are configured`;
   }
+
+  const publicationNote =
+    host.name === 'local'
+      ? `Published to the registered local repository. Run git switch ${branch} there to inspect it.`
+      : `Published to ${host.name}.`;
 
   const trackerResult = prUrl ? await notifyTracker(ticket, prUrl) : null;
 
@@ -555,6 +587,8 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
       prUrl,
       prError,
       gitHost: host?.name ?? null,
+      branchPublished: true,
+      publicationNote,
       tracker: trackerResult,
     },
   });

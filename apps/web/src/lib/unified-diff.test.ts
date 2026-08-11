@@ -90,6 +90,28 @@ Binary files a/logo.png and b/logo.png differ
     ]);
   });
 
+  it('treats --- and +++ prefixes inside a hunk as changed source lines', () => {
+    const parsed = parseUnifiedDiff(`diff --git a/migration.sql b/migration.sql
+--- a/migration.sql
++++ b/migration.sql
+@@ -4,3 +4,3 @@
+---- remove the legacy table
+-old value
++++ add the replacement table
++new value
+ keep`);
+
+    const file = parsed.files[0]!;
+    expect(file.path).toBe('migration.sql');
+    expect(file.hunks[0]!.lines).toEqual([
+      { kind: 'deletion', content: '--- remove the legacy table', oldLine: 4, newLine: null },
+      { kind: 'deletion', content: 'old value', oldLine: 5, newLine: null },
+      { kind: 'addition', content: '++ add the replacement table', oldLine: null, newLine: 4 },
+      { kind: 'addition', content: 'new value', oldLine: null, newLine: 5 },
+      { kind: 'context', content: 'keep', oldLine: 6, newLine: 6 },
+    ]);
+  });
+
   it('keeps trimmed empty context lines and advances both counters', () => {
     const parsed = parseUnifiedDiff(`diff --git a/x b/x
 --- a/x

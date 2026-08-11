@@ -65,3 +65,23 @@ function mergeVisibleGroups(groups: DiffLineGroup[]): DiffLineGroup[] {
   }
   return merged;
 }
+
+/** Return a stable prefix of a file's hunks without mutating the parser output. */
+export function sliceFileHunks(
+  hunks: readonly DiffHunk[],
+  limit: number,
+): { hunks: DiffHunk[]; remaining: number } {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const total = hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  let available = safeLimit;
+  const visible: DiffHunk[] = [];
+
+  for (const hunk of hunks) {
+    if (available <= 0) break;
+    const lines = hunk.lines.slice(0, available);
+    if (lines.length > 0) visible.push({ ...hunk, lines });
+    available -= lines.length;
+  }
+
+  return { hunks: visible, remaining: Math.max(0, total - safeLimit) };
+}

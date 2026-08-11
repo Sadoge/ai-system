@@ -98,7 +98,6 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(files.length <= 3 ? files.map((file) => file.id) : []),
   );
-
   const setAll = (open: boolean) => {
     setExpanded(new Set(open ? files.map((file) => file.id) : []));
   };

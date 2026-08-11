@@ -54,7 +54,7 @@ One end-to-end execution for one ticket.
 | `status` | run lifecycle state (see §3.1) |
 | `current_stage` | pointer into the stage sequence |
 | `policy_snapshot` | frozen copy of gate policy + model profiles at run start |
-| `iteration_count` / `iteration_budget` | fix-loop bound |
+| `iteration_count` / `iteration_budget` | correction count and frozen allowance; runtime ceiling is one |
 | `branch_name` | integration branch for this run |
 
 Child entities (same aggregate):
@@ -67,7 +67,7 @@ Child entities (same aggregate):
 1. `policy_snapshot` is immutable after run start — mid-run config changes never alter a running pipeline (determinism).
 2. A stage advances only via the engine's single transition function; there is exactly one non-terminal `current_stage` at a time.
 3. A task may start only when all its dependencies are `completed`.
-4. `iteration_count <= iteration_budget`; the transition that would exceed it produces a gate request instead.
+4. `iteration_count <= min(iteration_budget, 1)`; a transition that requests another correction fails the run without emitting more coding work.
 5. A run in a gate state accepts no transitions except the corresponding gate decision (or cancellation).
 
 ### 2.4 AgentRun (Agent Execution)

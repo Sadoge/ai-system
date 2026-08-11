@@ -127,7 +127,7 @@ Rules that hold everywhere:
 2. **Every LLM output is validated** against a schema before it enters domain state. Invalid output is a retryable failure of the *agent run*, never a corruption of the *pipeline*.
 3. **Every LLM call is recorded** (model, parameters, prompt hash, token counts, cost, latency) in the model-call ledger.
 4. **Everything an agent saw can be reconstructed.** Context bundles are persisted as artifacts, so any decision can be audited after the fact.
-5. **Iteration is bounded.** The fix loop (review/test failures → new fix tasks) has a per-run iteration budget; exhausting it parks the run at a human gate instead of looping forever.
+5. **Correction is single-pass.** Review/test failures may create exactly one corrective coding pass. That pass goes directly to deterministic testing without another review; any remaining blocking failure stops the run for manual intervention.
 
 ## 5. Request-to-PR flow (condensed)
 
@@ -138,7 +138,7 @@ Full detail in [05-event-flow.md](05-event-flow.md).
 3. Stages that need judgment invoke an agent through the Model Gateway; stages that don't (git ops, test runs, context assembly) are plain code.
 4. Configured **gates** park the run in an awaiting-approval state; the UI/CLI surfaces the pending decision; a human approves, edits, or rejects.
 5. Coding tasks fan out to parallel agent executors in isolated worktrees; the integration stage merges branches deterministically.
-6. Review and test stages produce findings; findings spawn bounded fix iterations.
+6. Review and test stages produce findings; blocking findings may spawn one corrective coding pass.
 7. The run ends with a **PR package** (branch, description, plan, review report, test evidence) awaiting final human approval.
 
 ## 6. Deployment views

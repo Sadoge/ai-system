@@ -61,7 +61,7 @@ function mvpPolicy(automationLevel: 'plan_gated' | 'autonomous'): PolicySnapshot
     automationLevel,
     enabledGates: gatesForAutomationLevel(automationLevel),
     maxParallelTasks: 1,
-    iterationBudget: 2,
+    iterationBudget: 1,
     maxTaskAttempts: 2,
     budgetUsd: null,
   };
@@ -208,7 +208,7 @@ describe('mvp_linear pipeline gates', () => {
     expect(trace.at(-1)!.commands).toEqual([{ kind: 'request_gate', runId: RUN_ID, gate: 'final_pr' }]);
   });
 
-  it('final approval completes the run; rejection re-enters coding', () => {
+  it('final approval completes the run; rejection consumes the only correction', () => {
     const base = replay(initialRun(mvpPolicy('autonomous')), [
       created,
       stageCompleted('intake'),
@@ -228,7 +228,16 @@ describe('mvp_linear pipeline gates', () => {
     expect(advance(base, gateResolved('final_pr', 'rejected'))).toMatchObject({
       outcome: 'transitioned',
       status: 'executing',
+      iterationCount: 1,
       commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
+    });
+
+    const alreadyCorrected: RunSnapshot = { ...base, iterationCount: 1 };
+    expect(advance(alreadyCorrected, gateResolved('final_pr', 'rejected'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'failed',
+      commands: [],
+      error: expect.stringContaining('Correction limit reached'),
     });
   });
 
@@ -254,7 +263,7 @@ describe('mvp_linear pipeline gates', () => {
     expect(result).toMatchObject({
       outcome: 'transitioned',
       status: 'classifying',
-      policyPatch: { maxParallelTasks: 5, iterationBudget: 4 },
+      policyPatch: { maxParallelTasks: 5, iterationBudget: 1 },
     });
 
     // Once the run has left `classifying`, a late duplicate cannot rewrite policy.
@@ -267,7 +276,7 @@ describe('mvp_linear pipeline gates', () => {
     ).toMatchObject({ outcome: 'ignored' });
   });
 
-  it('consumes iteration budget re-entering code, then parks at the iteration gate', () => {
+  it('allows one correction, then fails closed without an extension gate', () => {
     const testing: RunSnapshot = {
       ...initialRun(mvpPolicy('autonomous')),
       status: 'testing',
@@ -287,43 +296,46 @@ describe('mvp_linear pipeline gates', () => {
       commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'code' }],
     });
 
-    const exhausted: RunSnapshot = { ...testing, iterationCount: 2 }; // budget is 2
-    const gated = advance(exhausted, {
+    const exhausted: RunSnapshot = { ...testing, iterationCount: 1 };
+    const stopped = advance(exhausted, {
       name: 'run.iteration.needed',
       payload: { runId: RUN_ID, blockingFindingIds: [], testsPassed: false },
     });
-    expect(gated).toMatchObject({
+    expect(stopped).toMatchObject({
       outcome: 'transitioned',
-      status: 'awaiting_iteration_gate',
-      commands: [
-        {
-          kind: 'request_gate',
-          runId: RUN_ID,
-          gate: 'iteration_extension',
-          payload: { iterationCount: 2, iterationBudget: 2 },
-        },
-      ],
+      status: 'failed',
+      currentStage: 'test',
+      commands: [],
+      error: expect.stringContaining('Correction limit reached'),
     });
   });
 
-  it('iteration gate: approval grants one more coding round; rejection proceeds to packaging', () => {
-    const parked: RunSnapshot = {
+  it('skips a second review after the corrective coding pass', () => {
+    const corrected: RunSnapshot = {
       ...initialRun(mvpPolicy('autonomous')),
+      status: 'executing',
+      currentStage: 'code',
+      iterationCount: 1,
+    };
+    expect(advance(corrected, stageCompleted('code'))).toMatchObject({
+      outcome: 'transitioned',
+      status: 'testing',
+      currentStage: 'test',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'test' }],
+    });
+  });
+
+  it('does not let a historical iteration-extension gate reopen coding', () => {
+    const parked: RunSnapshot = {
+      ...initialRun({ ...mvpPolicy('autonomous'), iterationBudget: 4 }),
       status: 'awaiting_iteration_gate',
       currentStage: 'test',
-      iterationCount: 2,
+      iterationCount: 1,
     };
     expect(advance(parked, gateResolved('iteration_extension', 'approved'))).toMatchObject({
       outcome: 'transitioned',
-      status: 'executing',
-      currentStage: 'code',
-      iterationCount: 3,
-    });
-    expect(advance(parked, gateResolved('iteration_extension', 'rejected'))).toMatchObject({
-      outcome: 'transitioned',
-      status: 'packaging',
-      currentStage: 'package',
-      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'package' }],
+      status: 'failed',
+      commands: [],
     });
   });
 

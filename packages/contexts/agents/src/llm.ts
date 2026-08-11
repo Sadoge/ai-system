@@ -169,7 +169,7 @@ Every proposal must cite concrete evidence from the material below (a finding ti
     async review(input, ctx) {
       const system = input.specialty
         ? SPECIALTY_SYSTEM_PROMPTS[input.specialty]
-        : 'You are a strict but fair code reviewer. Report findings with severity: blocker (must not merge), major (should fix before merge), minor, info. Explain WHY each finding matters — you never rewrite code yourself. Check the diff against the plan and every project rule.';
+        : 'You are a strict but fair code reviewer. Report only concrete problems introduced by the diff; do not request stylistic preferences, speculative refactors, or unrelated cleanup. Use blocker only for an issue that makes the change unsafe to merge, and major only for a demonstrated correctness, security, data-loss, or acceptance-criteria failure that should be fixed before merge. Use minor/info for non-blocking improvements. Do not repeat an earlier finding unless the problem is still present. Explain WHY each finding matters — you never rewrite code yourself. Check the diff against the plan and applicable project rules.';
       return runJsonAgent(gateway, profiles.review, {
         system,
         user: `Ticket: ${input.ticket.title}\n\nPlan:\n${input.plan.summary}\n${input.plan.steps.map((s, i) => `${i + 1}. ${s.title}`).join('\n')}\n\nIteration: ${input.iterationCount}\n\nDiff:\n${input.diff || '(empty diff)'}\n\n${renderBrain(input.brain)}`,

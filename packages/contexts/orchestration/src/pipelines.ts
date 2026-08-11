@@ -19,6 +19,10 @@ export interface PipelineDefinition {
   taskStage?: StageKind;
   /** Where a fix iteration re-enters the pipeline (docs/05 §5). */
   iterationReentryStage: StageKind;
+  /** Stage whose completion ends a corrective coding pass. */
+  correctionCompletionStage?: StageKind;
+  /** Stage entered after a correction, intentionally bypassing another review. */
+  correctionExitStage?: StageKind;
 }
 
 export const TRIVIAL_PIPELINE: PipelineDefinition = {
@@ -64,6 +68,8 @@ export const MVP_LINEAR_PIPELINE: PipelineDefinition = {
     return null;
   },
   iterationReentryStage: 'code',
+  correctionCompletionStage: 'code',
+  correctionExitStage: 'test',
 };
 
 /**
@@ -96,6 +102,8 @@ export const TEAM_PIPELINE: PipelineDefinition = {
   },
   taskStage: 'code',
   iterationReentryStage: 'decompose',
+  correctionCompletionStage: 'integrate',
+  correctionExitStage: 'test',
 };
 
 const PIPELINES: Record<PolicySnapshot['pipeline'], PipelineDefinition> = {

@@ -17,16 +17,23 @@ export const PolicySnapshot = z.object({
 });
 export type PolicySnapshot = z.infer<typeof PolicySnapshot>;
 
+/**
+ * A run may make one corrective coding pass after its initial review/test.
+ * Keep this engine-level ceiling separate from frozen policy snapshots so
+ * historical runs with a larger stored budget cannot resume an old loop.
+ */
+export const MAX_CORRECTION_ITERATIONS = 1;
+
 // Complexity → policy table (docs/03 §4). Epic is rejected at classification,
 // so it has no row here.
 export const COMPLEXITY_POLICY: Record<
   Exclude<Complexity, 'epic'>,
   Pick<PolicySnapshot, 'maxParallelTasks' | 'iterationBudget'>
 > = {
-  tiny: { maxParallelTasks: 1, iterationBudget: 1 },
-  small: { maxParallelTasks: 1, iterationBudget: 2 },
-  medium: { maxParallelTasks: 3, iterationBudget: 3 },
-  large: { maxParallelTasks: 5, iterationBudget: 4 },
+  tiny: { maxParallelTasks: 1, iterationBudget: MAX_CORRECTION_ITERATIONS },
+  small: { maxParallelTasks: 1, iterationBudget: MAX_CORRECTION_ITERATIONS },
+  medium: { maxParallelTasks: 3, iterationBudget: MAX_CORRECTION_ITERATIONS },
+  large: { maxParallelTasks: 5, iterationBudget: MAX_CORRECTION_ITERATIONS },
 };
 
 // Automation level → gates (docs/05 §2). final_pr is always present: the
@@ -67,7 +74,7 @@ export function defaultTeamPolicy(
     enabledGates: gatesForAutomationLevel(automationLevel),
     // Specialized from complexity at classification; these are the pre-classification defaults.
     maxParallelTasks: 1,
-    iterationBudget: 2,
+    iterationBudget: MAX_CORRECTION_ITERATIONS,
     maxTaskAttempts: 2,
     budgetUsd: null,
   };
@@ -81,7 +88,7 @@ export function defaultMvpPolicy(
     automationLevel,
     enabledGates: gatesForAutomationLevel(automationLevel),
     maxParallelTasks: 1,
-    iterationBudget: 2,
+    iterationBudget: MAX_CORRECTION_ITERATIONS,
     maxTaskAttempts: 2,
     budgetUsd: null,
   };

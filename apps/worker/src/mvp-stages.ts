@@ -167,6 +167,20 @@ export async function openBlockingFindings(db: Db, runId: string) {
     .where(and(eq(reviewFindings.runId, runId), eq(reviewFindings.status, 'open')));
 }
 
+/**
+ * A successful corrective coding pass is the terminal disposition of the
+ * findings it was given. The following test stage may create fresh findings
+ * from deterministic failures, but the old review must not reopen itself now
+ * that corrective passes intentionally skip a second review.
+ */
+export async function resolveCorrectedFindings(db: Db, run: RunRow): Promise<void> {
+  if (run.iterationCount === 0) return;
+  await db
+    .update(reviewFindings)
+    .set({ status: 'resolved' })
+    .where(and(eq(reviewFindings.runId, run.id), eq(reviewFindings.status, 'open')));
+}
+
 // ── stage handlers (docs/10 Phase 1 pipeline) ─────────────────────────
 
 export async function classifyStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
@@ -309,6 +323,7 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
     createdByAgentRunId: execution.agentRunId,
   });
+  await resolveCorrectedFindings(db, run);
   return { artifactIds: [...execution.artifactIds, diffId] };
 }
 
@@ -482,7 +497,8 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
 
   if (testsPassed && blocking.length === 0) return { artifactIds: [artifactId] };
 
-  // The engine — not this handler — decides between a fix iteration and the gate.
+  // The engine — not this handler — decides between the one correction and a
+  // hard stop when that allowance has already been used.
   await applyEvent(db, {
     name: 'run.iteration.needed',
     payload: { runId: run.id, blockingFindingIds: blocking.map((f) => f.id), testsPassed },

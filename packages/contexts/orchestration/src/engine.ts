@@ -1,4 +1,5 @@
 import {
+  MAX_CORRECTION_ITERATIONS,
   TERMINAL_RUN_STATUSES,
   policyForComplexity,
   type Complexity,
@@ -274,7 +275,7 @@ function afterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): Ad
       { kind: 'request_gate', runId: run.runId, gate },
     ]);
   }
-  const next = nextStage(def, stage);
+  const next = nextStageAfter(run, def, stage);
   if (!next) return completeRun(run);
   return enterStage(run, def, next);
 }
@@ -286,29 +287,21 @@ function enterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): Ad
 }
 
 /**
- * The iteration decision (docs/05 §5), deterministically: budget remaining →
- * consume one iteration and re-enter the pipeline's fix stage; exhausted →
- * hand to a human.
+ * The iteration decision (docs/05 §5), deterministically: one correction is
+ * allowed; a second request fails closed instead of reopening coding.
  */
 function onIterationNeeded(run: RunSnapshot): AdvanceResult {
   if (run.status !== 'testing' || run.currentStage !== 'test') {
     return ignored(`iteration.needed in status ${run.status}`);
   }
   const def = pipelineFor(run.policy);
-  if (run.iterationCount < run.policy.iterationBudget) {
+  if (canCorrect(run)) {
     return {
       ...reenter(run, def, def.iterationReentryStage),
       iterationCount: run.iterationCount + 1,
     } as AdvanceResult;
   }
-  return transitioned('awaiting_iteration_gate', run.currentStage, [
-    {
-      kind: 'request_gate',
-      runId: run.runId,
-      gate: 'iteration_extension',
-      payload: { iterationCount: run.iterationCount, iterationBudget: run.policy.iterationBudget },
-    },
-  ]);
+  return correctionLimitReached(run.currentStage);
 }
 
 function onGateResolved(
@@ -324,17 +317,10 @@ function onGateResolved(
   switch (gate) {
     case 'final_pr':
       if (decision === 'approved') return completeRun(run);
-      // Changes requested → a fresh fix round (docs/05 §6).
-      return reenter(run, def, def.iterationReentryStage);
+      return startCorrection(run, def);
 
     case 'iteration_extension':
-      if (decision === 'approved') {
-        // One more iteration, explicitly human-granted — bypasses the budget check once.
-        return {
-          ...reenter(run, def, def.iterationReentryStage),
-          iterationCount: run.iterationCount + 1,
-        } as AdvanceResult;
-      }
+      if (decision === 'approved') return correctionLimitReached(run.currentStage);
       // Accept as-is: remaining findings are explicitly waived; carry on from `test`.
       return afterStageIgnoringGate(run, def, 'test');
 
@@ -345,7 +331,7 @@ function onGateResolved(
 
     case 'pre_merge':
       if (decision === 'approved') return afterStageIgnoringGate(run, def, 'integrate');
-      return reenter(run, def, def.iterationReentryStage);
+      return startCorrection(run, def);
 
     default:
       return ignored(`gate ${gate} is not part of the ${def.name} pipeline`);
@@ -358,9 +344,50 @@ function afterStageIgnoringGate(
   def: PipelineDefinition,
   stage: Stage,
 ): AdvanceResult {
-  const next = nextStage(def, stage);
+  const next = nextStageAfter(run, def, stage);
   if (!next) return completeRun(run);
   return enterStage(run, def, next);
+}
+
+function nextStageAfter(
+  run: RunSnapshot,
+  def: PipelineDefinition,
+  stage: Stage,
+): StageKind | null {
+  if (
+    run.iterationCount > 0 &&
+    stage === def.correctionCompletionStage &&
+    def.correctionExitStage
+  ) {
+    return def.correctionExitStage;
+  }
+  return nextStage(def, stage);
+}
+
+function correctionBudget(run: RunSnapshot): number {
+  return Math.min(run.policy.iterationBudget, MAX_CORRECTION_ITERATIONS);
+}
+
+function canCorrect(run: RunSnapshot): boolean {
+  return run.iterationCount < correctionBudget(run);
+}
+
+function startCorrection(run: RunSnapshot, def: PipelineDefinition): AdvanceResult {
+  if (!canCorrect(run)) return correctionLimitReached(run.currentStage);
+  return {
+    ...reenter(run, def, def.iterationReentryStage),
+    iterationCount: run.iterationCount + 1,
+  } as AdvanceResult;
+}
+
+function correctionLimitReached(stage: RunSnapshot['currentStage']): AdvanceResult {
+  return {
+    outcome: 'transitioned',
+    status: 'failed',
+    currentStage: stage,
+    commands: [],
+    error: 'Correction limit reached after the single corrective coding pass; manual changes are required.',
+  };
 }
 
 function onResumed(run: RunSnapshot): AdvanceResult {

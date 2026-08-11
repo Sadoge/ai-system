@@ -27,6 +27,7 @@ import {
   openBlockingFindings,
   repoPaths,
   requireRepo,
+  resolveCorrectedFindings,
   runBranch,
   taskBranch,
   taskWorktreeDir,
@@ -304,6 +305,7 @@ export async function integrateStage(services: StageServices, run: RunRow): Prom
     kind: 'diff',
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
   });
+  await resolveCorrectedFindings(db, run);
   return { artifactIds: [reportId, diffId] };
 }
 

@@ -27,11 +27,11 @@ import type {
 import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import { ApiLoopAgentExecutor, CliAgentExecutor } from '@ai-system/agent-execution';
-import { OutboxDispatcher } from './outbox-dispatcher.js';
+import { agentJobLeaseSeconds, OutboxDispatcher } from './outbox-dispatcher.js';
 import { WebhookNotifier } from './webhook-notifier.js';
 import { executeStage, runTask } from './stages.js';
 import { distillKnowledge } from './learning.js';
-import { resolveExecutor } from './executors.js';
+import { resolveExecutorCandidates, withAutomaticExecutorFallbacks } from './executors.js';
 import type { StageServices } from './services.js';
 // (Agents type is used for the mock roster's explicit annotation.)
 
@@ -62,6 +62,25 @@ const DistillPayload = z.object({
 });
 
 const QUEUES = ['stage.execute', 'task.execute', 'knowledge.distill', 'gate.request'] as const;
+const DEFAULT_CODING_TIMEOUT_MS = 45 * 60 * 1000;
+const DEFAULT_AGENT_JOB_LEASE_GRACE_MS = 5 * 60 * 1000;
+const DEFAULT_CODING_MAX_ATTEMPTS = 3;
+
+function positiveDuration(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  log.warn({ name, value: raw, fallback }, 'invalid duration environment value');
+  return fallback;
+}
+
+function positiveInteger(name: string, fallback: number): number {
+  const value = positiveDuration(name, fallback);
+  if (Number.isInteger(value)) return value;
+  log.warn({ name, value, fallback }, 'expected an integer environment value');
+  return fallback;
+}
 
 type ReasoningProvider = 'codex_cli' | 'claude_cli' | 'anthropic' | 'openai';
 const REASONING_PURPOSES = [
@@ -223,8 +242,20 @@ async function buildServices(db: Db): Promise<StageServices> {
       });
     },
   };
+  const codingMaxAttempts = positiveInteger(
+    'CODING_MAX_EXECUTOR_ATTEMPTS',
+    DEFAULT_CODING_MAX_ATTEMPTS,
+  );
+  const automaticExecutorTargets: ModelTarget[] = [
+    ...(!mock && codexStatus.authenticated
+      ? [{ provider: 'codex_cli', model: process.env.CODEX_CODING_MODEL || 'default' }]
+      : []),
+    ...(!mock && claudeStatus.authenticated
+      ? [{ provider: 'claude_cli', model: process.env.CLAUDE_CODING_MODEL || 'default' }]
+      : []),
+  ];
   const executorAssignments = new Map<string, ResolvedProfile>();
-  const executorFor: StageServices['executorFor'] = async (run, repo, purpose) => {
+  const executorsFor: StageServices['executorsFor'] = async (run, repo, purpose) => {
     const settings = (repo?.settings ?? {}) as {
       executor?: string;
       executorModel?: string;
@@ -264,7 +295,12 @@ async function buildServices(db: Db): Promise<StageServices> {
       executorAssignments.set(cacheKey, assignment);
       if (executorAssignments.size > 1_000) executorAssignments.clear();
     }
-    return resolveExecutor(repo as never, executorDeps, assignment);
+    const profile = withAutomaticExecutorFallbacks(
+      assignment,
+      automaticExecutorTargets,
+      codingMaxAttempts,
+    );
+    return resolveExecutorCandidates(repo as never, executorDeps, profile);
   };
 
   if (mock) {
@@ -297,13 +333,14 @@ async function buildServices(db: Db): Promise<StageServices> {
   return {
     db,
     agents,
-    executorFor,
+    executorsFor,
     embedder,
     // Git resolves worktree paths relative to the checkout it runs inside.
     // Keep this root absolute so checkout and worktree operations agree even
     // when AI_DATA_DIR is configured as the documented relative `./data`.
     dataDir: resolve(process.env.AI_DATA_DIR ?? join(process.cwd(), 'data')),
-    codingTimeoutMs: Number(process.env.CODING_TIMEOUT_MS ?? 15 * 60 * 1000),
+    codingTimeoutMs: positiveDuration('CODING_TIMEOUT_MS', DEFAULT_CODING_TIMEOUT_MS),
+    codingMaxAttempts,
     githubToken: process.env.GITHUB_TOKEN,
   };
 }
@@ -401,7 +438,18 @@ async function main(): Promise<void> {
     log[available ? 'info' : 'warn']({ cli: name, available }, 'coding agent CLI probe');
   }
 
-  const dispatcher = new OutboxDispatcher(db, boss, log);
+  const leaseGraceMs = positiveDuration(
+    'AGENT_JOB_LEASE_GRACE_MS',
+    DEFAULT_AGENT_JOB_LEASE_GRACE_MS,
+  );
+  const fallbackAwareExpireInSeconds = agentJobLeaseSeconds(
+    services.codingTimeoutMs,
+    services.codingMaxAttempts,
+    leaseGraceMs,
+  );
+  const dispatcher = new OutboxDispatcher(db, boss, log, {
+    longRunningExpireInSeconds: fallbackAwareExpireInSeconds,
+  });
   dispatcher.start();
   const webhooks = new WebhookNotifier(db, log);
   webhooks.start();

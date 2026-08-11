@@ -72,7 +72,17 @@ export const AddModelProfileBody = z.object({
     })
     .passthrough()
     .default({}),
-  fallbacks: z.array(z.object({ provider: z.string(), model: z.string() })).default([]),
+  fallbacks: z
+    .array(
+      z.object({
+        provider: z.string(),
+        model: z.string(),
+        params: z
+          .object({ reasoningEffort: z.enum(['low', 'medium', 'high']).optional() })
+          .optional(),
+      }),
+    )
+    .default([]),
   projectId: z.string().uuid().optional(),
 });
 

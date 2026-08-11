@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +9,10 @@ import type { CodingTaskSpec } from '../src/types.js';
 
 function sh(cwd: string, ...args: string[]) {
   execFileSync('git', args, { cwd, stdio: 'pipe' });
+}
+
+function gitOutput(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
 }
 
 function makeOriginRepo(): string {
@@ -92,6 +96,55 @@ describe('worktree lifecycle with scripted executor', () => {
     const diff = await diffAgainst(worktree, 'main');
     expect(diff).toContain('real-change.txt');
     expect(diff).not.toContain('.ai-system-prompt.md');
+  });
+
+  it('keeps package-manager caches out even when an agent explicitly stages them', async () => {
+    const origin = makeOriginRepo();
+    const base = mkdtempSync(join(tmpdir(), 'exec-cache-exclude-'));
+    const checkout = join(base, 'checkout');
+    const worktree = join(base, 'wt');
+    await ensureCheckout(origin, checkout);
+    await ensureWorktree(checkout, worktree, 'ai/run-cache-exclude', 'main');
+
+    mkdirSync(join(worktree, '.pnpm-store', 'v11', 'files'), { recursive: true });
+    writeFileSync(join(worktree, '.pnpm-store', 'v11', 'index.db'), 'large local cache');
+    writeFileSync(join(worktree, '.pnpm-store', 'v11', 'files', 'blob'), 'generated dependency');
+    writeFileSync(join(worktree, 'real-change.txt'), 'the actual work');
+    // Simulate a tool or agent overriding the worktree-local ignore rule.
+    sh(worktree, 'add', '-f', '.pnpm-store');
+
+    await commitAll(worktree, 'agent: cache-safe work');
+
+    const diff = await diffAgainst(worktree, 'main');
+    expect(diff).toContain('real-change.txt');
+    expect(diff).not.toContain('.pnpm-store');
+  });
+
+  it('cleans generated caches that a previous attempt already committed', async () => {
+    const origin = makeOriginRepo();
+    const base = mkdtempSync(join(tmpdir(), 'exec-cache-recovery-'));
+    const checkout = join(base, 'checkout');
+    const worktree = join(base, 'wt');
+    await ensureCheckout(origin, checkout);
+    await ensureWorktree(checkout, worktree, 'ai/run-cache-recovery', 'main');
+
+    mkdirSync(join(worktree, '.pnpm-store', 'v11'), { recursive: true });
+    writeFileSync(join(worktree, '.pnpm-store', 'v11', 'index.db'), 'old accidental cache');
+    writeFileSync(join(worktree, 'real-change.txt'), 'completed agent work');
+    sh(worktree, 'add', '-f', '.pnpm-store', 'real-change.txt');
+    sh(worktree, '-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-m', 'bad attempt');
+
+    // The artifact path is independently guarded even before cleanup.
+    expect(await diffAgainst(worktree, 'main')).not.toContain('.pnpm-store');
+    expect(await commitAll(worktree, 'agent: remove generated cache', 'main')).toBe(true);
+
+    const recoveredDiff = await diffAgainst(worktree, 'main');
+    expect(recoveredDiff).toContain('real-change.txt');
+    expect(recoveredDiff).not.toContain('.pnpm-store');
+    expect(gitOutput(worktree, 'ls-tree', '-r', '--name-only', 'HEAD')).not.toContain(
+      '.pnpm-store',
+    );
+    expect(existsSync(join(worktree, '.pnpm-store', 'v11', 'index.db'))).toBe(true);
   });
 
   it('moves a branch registered at an old worktree path to the canonical path', async () => {

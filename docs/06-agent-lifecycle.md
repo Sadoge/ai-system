@@ -122,7 +122,7 @@ benefit from different agents and cost/effort settings. Three executors ship:
 | Executor      | What it is                                                                                                    | When to use it                                        |
 | ------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | `claude_code` | Claude Code CLI, non-interactive (`-p --output-format json --permission-mode acceptEdits`), prompt over stdin | default; strongest coding agent available today       |
-| `codex`       | OpenAI Codex CLI (`codex exec --full-auto`), prompt over stdin                                                | teams standardized on Codex                           |
+| `codex`       | OpenAI Codex CLI (`codex exec --sandbox workspace-write --json`), prompt over stdin                           | teams standardized on Codex                           |
 | `api_loop`    | the platform's own tool loop through the Model Gateway                                                        | no CLI dependency; full control over tools and limits |
 | `scripted`    | deterministic stand-in                                                                                        | tests and offline demos                               |
 
@@ -130,6 +130,12 @@ Selection is project model profile → organization model profile → legacy
 `repositories.settings.executor` → `CODING_EXECUTOR` env → `claude_code`. A `claude_cli` profile
 maps to `claude_code`; `codex_cli` maps to `codex`. Profile `model` and `reasoningEffort` are passed
 to the CLI. `executorBinary` and `executorArgs` remain escape hatches for a pinned or custom CLI.
+
+Editing profiles are ordered routes, not single assignments. The primary target runs first,
+followed by configured provider/model fallbacks; the worker then appends the other authenticated
+Codex or Claude subscription CLI when it is not already present. The chain is capped by
+`CODING_MAX_EXECUTOR_ATTEMPTS` (default 3). Every attempt operates on the same worktree and is
+reported separately, while the pg-boss lease covers the sum of all attempt deadlines plus grace.
 
 **Invocation rules, common to every CLI preset:**
 

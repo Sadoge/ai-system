@@ -59,12 +59,23 @@ export async function decideKnowledgeAction(formData: FormData): Promise<void> {
 
 export async function addModelProfileAction(formData: FormData): Promise<void> {
   const effort = String(formData.get('reasoningEffort') ?? '').trim();
+  const fallbackProvider = String(formData.get('fallbackProvider') ?? '').trim();
+  const fallbackEffort = String(formData.get('fallbackEffort') ?? '').trim();
   const projectId = String(formData.get('projectId') ?? '').trim();
   await apiPost('/model-profiles', {
     purpose: String(formData.get('purpose')),
     provider: String(formData.get('provider')),
     model: String(formData.get('model') ?? '').trim() || 'default',
     params: effort ? { reasoningEffort: effort } : {},
+    fallbacks: fallbackProvider
+      ? [
+          {
+            provider: fallbackProvider,
+            model: String(formData.get('fallbackModel') ?? '').trim() || 'default',
+            params: fallbackEffort ? { reasoningEffort: fallbackEffort } : {},
+          },
+        ]
+      : [],
     ...(projectId ? { projectId } : {}),
   });
   revalidatePath('/settings/models');

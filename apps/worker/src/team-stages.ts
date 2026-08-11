@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { agentRuns, gateDecisions, gateRequests, tasks as tasksTable } from '@ai-system/db';
-import { PolicySnapshot, TicketSnapshot, uuidv7 } from '@ai-system/domain';
+import { gateDecisions, gateRequests, tasks as tasksTable } from '@ai-system/db';
+import { PolicySnapshot, TicketSnapshot } from '@ai-system/domain';
 import { applyEvent, createTasks, listTasks, type TaskDraft } from '@ai-system/orchestration';
 import { ImplementationPlan } from '@ai-system/agents';
 import {
@@ -12,14 +12,13 @@ import {
   ensureCheckout,
   ensureWorktree,
   git,
-  renderCodingPrompt,
   renderConflictPrompt,
   startMerge,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
-import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
-import { recordExecutorUsage } from './executors.js';
+import { reportActivity } from './activity.js';
+import { executeWithFallbacks } from './execution-fallback.js';
 import {
   agentCtx,
   allowedCommandsFor,
@@ -140,6 +139,12 @@ export async function executeTask(
   // Redelivery guard: only a task the engine has marked running may execute.
   if (task.status !== 'running') return;
 
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', taskId: task.id },
+    { kind: 'stage', message: 'Preparing an isolated worktree and project context' },
+  );
+
   const ticket = TicketSnapshot.parse(run.ticket);
   const repo = await requireRepo(db, run);
   const brain = await getBrainContext(services, run, repo);
@@ -150,8 +155,6 @@ export async function executeTask(
   const branch = task.branch ?? taskBranch(run, task.id);
   const { checkoutDir, worktreeDir: runWorktree } = repoPaths(services, repo.id, run.id);
   const worktreeDir = taskWorktreeDir(services, run.id, task.id);
-  const agentRunId = uuidv7();
-  const executor = await services.executorFor(run, repo, 'coding');
 
   try {
     await ensureCheckout(repo.remoteUrl, checkoutDir);
@@ -175,80 +178,45 @@ export async function executeTask(
       rules: brain.rules.map((r) => ({ title: r.title, content: r.content })),
     };
 
-    const { artifactId: bundleId } = await createArtifact(db, {
-      runId: run.id,
-      kind: 'task_spec',
-      content: { taskId: task.id, taskSpec, prompt: renderCodingPrompt(taskSpec) },
-    });
-    await db.insert(agentRuns).values({
-      id: agentRunId,
-      runId: run.id,
-      taskId: task.id,
-      agentKind: 'coding',
-      executorKind: executor.executorKind,
-      status: 'running',
-      contextBundleArtifactId: bundleId,
-      startedAt: new Date(),
-    });
     await applyEvent(db, {
       name: 'task.started',
       payload: { runId: run.id, taskId: task.id, attempt: task.attemptCount },
     });
 
-    const startedAt = Date.now();
-    const result = await executor.execute({
+    const execution = await executeWithFallbacks({
+      db,
+      candidates: await services.executorsFor(run, repo, 'coding'),
+      maxAttempts: services.codingMaxAttempts,
       runId: run.id,
-      agentRunId,
       taskId: task.id,
+      stage: 'code',
+      agentKind: 'coding',
       worktreeDir,
       taskSpec,
-      limits: { timeoutMs: services.codingTimeoutMs },
+      timeoutMs: services.codingTimeoutMs,
       allowedCommands: allowedCommandsFor(repo),
+      artifactContext: { taskId: task.id },
     });
-    await recordExecutorUsage(db, {
-      runId: run.id,
-      agentRunId,
-      executorKind: executor.executorKind,
-      ...(executor instanceof CliAgentExecutor ? { cliName: executor.cliName } : {}),
-      usage: result.usage,
-      status: result.status === 'succeeded' ? 'succeeded' : 'failed',
-      latencyMs: Date.now() - startedAt,
-    });
-
-    await createArtifact(db, {
-      runId: run.id,
-      kind: 'agent_transcript',
-      content: { taskId: task.id, transcript: result.transcript.slice(-100_000) },
-      createdByAgentRunId: agentRunId,
-    });
-
-    if (result.status === 'failed') {
-      await db
-        .update(agentRuns)
-        .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
-        .where(eq(agentRuns.id, agentRunId));
+    if (execution.status === 'failed') {
+      const { result } = execution;
       await failTask(
         services,
         run.id,
         task.id,
-        `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
+        `all coding agents failed; last failure: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
       );
       return;
     }
 
-    await commitAll(worktreeDir, `ai-system: ${task.title}`);
-    await db
-      .update(agentRuns)
-      .set({ status: 'succeeded', finishedAt: new Date() })
-      .where(eq(agentRuns.id, agentRunId));
+    await reportActivity(
+      db,
+      { runId: run.id, stage: 'code', taskId: task.id, agentRunId: execution.agentRunId },
+      { kind: 'stage', message: 'Coding agent succeeded; finalizing its Git changes' },
+    );
+    await commitAll(worktreeDir, `ai-system: ${task.title}`, runBranch(run));
     await db.update(tasksTable).set({ error: null }).where(eq(tasksTable.id, task.id));
     await applyEvent(db, { name: 'task.completed', payload: { runId: run.id, taskId: task.id } });
   } catch (err) {
-    await db
-      .update(agentRuns)
-      .set({ status: 'failed', failureReason: 'sandbox_error', finishedAt: new Date() })
-      .where(eq(agentRuns.id, agentRunId))
-      .catch(() => {});
     await failTask(services, run.id, task.id, err instanceof Error ? err.message : String(err));
   }
 }
@@ -352,20 +320,13 @@ async function resolveConflicts(
   conflicts: string[],
   worktreeDir: string,
 ): Promise<{ resolved: boolean; reason: string }> {
-  const agentRunId = uuidv7();
-  const executor = await services.executorFor(run, repo, 'integration');
-  await services.db.insert(agentRuns).values({
-    id: agentRunId,
+  const execution = await executeWithFallbacks({
+    db: services.db,
+    candidates: await services.executorsFor(run, repo, 'integration'),
+    maxAttempts: services.codingMaxAttempts,
     runId: run.id,
+    stage: 'integrate',
     agentKind: 'conflict_resolution',
-    executorKind: executor.executorKind,
-    status: 'running',
-    startedAt: new Date(),
-  });
-
-  const result = await executor.execute({
-    runId: run.id,
-    agentRunId,
     worktreeDir,
     taskSpec: {
       ticketTitle,
@@ -376,26 +337,23 @@ async function resolveConflicts(
       rules: [],
       conflicts,
     },
-    limits: { timeoutMs: services.codingTimeoutMs },
+    timeoutMs: services.codingTimeoutMs,
+    artifactContext: { taskTitle, conflicts },
+    validate: async () => {
+      const stillConflicted = await conflictMarkersRemain(worktreeDir, conflicts);
+      return {
+        ok: !stillConflicted,
+        ...(stillConflicted
+          ? { note: 'conflict markers remain after the resolution attempt' }
+          : {}),
+      };
+    },
   });
-
-  const stillConflicted =
-    result.status === 'succeeded' ? await conflictMarkersRemain(worktreeDir, conflicts) : true;
-
-  await services.db
-    .update(agentRuns)
-    .set({
-      status: result.status === 'succeeded' && !stillConflicted ? 'succeeded' : 'failed',
-      finishedAt: new Date(),
-      ...(stillConflicted ? { failureReason: 'invalid_output' as const } : {}),
-    })
-    .where(eq(agentRuns.id, agentRunId));
-
-  if (result.status !== 'succeeded') {
-    return { resolved: false, reason: `resolution agent failed (${result.failureReason})` };
-  }
-  if (stillConflicted) {
-    return { resolved: false, reason: 'conflict markers remain after the resolution attempt' };
+  if (execution.status === 'failed') {
+    return {
+      resolved: false,
+      reason: `all resolution agents failed (${execution.result.failureReason})`,
+    };
   }
   return { resolved: true, reason: '' };
 }

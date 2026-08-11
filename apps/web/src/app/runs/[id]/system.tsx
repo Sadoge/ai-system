@@ -50,9 +50,10 @@ const plotted = (frac: number) => `calc(${LABEL_W} + (100% - ${LABEL_W}) * ${fra
 
 function toneClass(tone: ReturnType<typeof readState>['tone'], current: boolean) {
   if (tone === 'fault') return 'text-mark-bright';
-  if (tone === 'hold') return 'text-hold-bright';
+  if (tone === 'await') return 'text-hold-bright';
+  if (tone === 'hold') return 'text-violet-bright';
   if (tone === 'live' || current) return 'pulse-live text-cue-bright';
-  if (tone === 'done') return 'text-ink-secondary';
+  if (tone === 'done') return 'text-mint-bright';
   return 'text-ink-faint';
 }
 

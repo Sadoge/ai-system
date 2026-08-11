@@ -89,12 +89,48 @@ export default async function ModelsPage() {
               </select>
             </Field>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-rule pt-3">
+          <div className="border-y border-rule py-3">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <p className="annot text-sm text-hold-bright">Fallback route</p>
+              <p className="annot text-xs text-ink-label">
+                Tried only when the primary agent or model fails.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+              <Field label="Preferred fallback">
+                <select name="fallbackProvider" className={selectCls} defaultValue="">
+                  <option value="">Automatic alternate agent</option>
+                  <option value="claude_cli">Claude</option>
+                  <option value="codex_cli">Codex</option>
+                </select>
+              </Field>
+              <Field label="Fallback model or alias">
+                <input
+                  name="fallbackModel"
+                  className={inputCls}
+                  defaultValue="default"
+                  aria-describedby="fallback-help"
+                />
+              </Field>
+              <Field label="Fallback effort">
+                <select name="fallbackEffort" className={selectCls} defaultValue="low">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </Field>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <p id="model-help" className="annot max-w-3xl text-sm leading-relaxed text-ink-label">
               <span className="font-mono not-italic text-ink-secondary">default</span> uses the
               model selected by that CLI. Enter any model name or alias your installed Claude or
               Codex CLI accepts. Low effort uses the least reasoning time and subscription
               allowance.
+            </p>
+            <p id="fallback-help" className="sr-only">
+              Leave the fallback agent automatic to switch between authenticated Codex and Claude
+              subscriptions. Choose an agent to try a specific model first.
             </p>
             <button type="submit" className={buttonCls}>
               Save assignment
@@ -110,12 +146,13 @@ export default async function ModelsPage() {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[42rem] border-collapse text-left">
+            <table className="w-full min-w-[52rem] border-collapse text-left">
               <thead>
                 <tr className="border-b border-rule-strong">
                   <th className="annot px-1 py-2 text-xs text-ink-label">stage</th>
                   <th className="annot px-1 py-2 text-xs text-ink-label">agent</th>
                   <th className="annot px-1 py-2 text-xs text-ink-label">model</th>
+                  <th className="annot px-1 py-2 text-xs text-ink-label">fallback</th>
                   <th className="annot px-1 py-2 text-xs text-ink-label">effort</th>
                   <th className="annot px-1 py-2 text-xs text-ink-label">scope</th>
                 </tr>
@@ -129,6 +166,16 @@ export default async function ModelsPage() {
                     </td>
                     <td className="px-1 py-2.5 font-mono text-sm text-ink-secondary">
                       {profile.model}
+                    </td>
+                    <td className="px-1 py-2.5 font-mono text-xs text-hold-bright">
+                      {profile.fallbacks.length > 0
+                        ? profile.fallbacks
+                            .map(
+                              (fallback) =>
+                                `${providerName(fallback.provider)} · ${fallback.model}`,
+                            )
+                            .join(' → ')
+                        : 'automatic alternate'}
                     </td>
                     <td className="px-1 py-2.5 font-mono text-sm text-ink-muted">
                       {String(profile.params.reasoningEffort ?? 'default')}
@@ -146,7 +193,9 @@ export default async function ModelsPage() {
         )}
         <p className="annot mt-4 max-w-3xl text-sm leading-relaxed text-ink-label">
           Project assignments override organization-wide assignments. Changes apply when a worker
-          first resolves a new run; an active run keeps the assignments it already loaded.
+          first resolves a new run; an active run keeps the assignments it already loaded. After
+          configured fallbacks, the worker tries the other authenticated subscription agent when
+          available.
         </p>
       </System>
     </main>

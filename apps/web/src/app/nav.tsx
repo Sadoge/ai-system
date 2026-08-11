@@ -4,15 +4,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const MOVEMENTS = [
-  { href: '/', label: 'Runs' },
-  { href: '/gates', label: 'Gates' },
-  { href: '/findings', label: 'Findings' },
-  { href: '/analytics', label: 'Analytics' },
-  { href: '/knowledge', label: 'Knowledge' },
-  { href: '/knowledge/inbox', label: 'Inbox' },
-  { href: '/brain', label: 'Brain' },
-  { href: '/settings/models', label: 'Models' },
-  { href: '/settings/webhooks', label: 'Webhooks' },
+  { href: '/', label: 'Runs', tone: 'cue' },
+  { href: '/gates', label: 'Gates', tone: 'mark' },
+  { href: '/findings', label: 'Findings', tone: 'hold' },
+  { href: '/analytics', label: 'Analytics', tone: 'aqua' },
+  { href: '/knowledge', label: 'Knowledge', tone: 'violet' },
+  { href: '/knowledge/inbox', label: 'Inbox', tone: 'violet' },
+  { href: '/brain', label: 'Brain', tone: 'mint' },
+  { href: '/settings/models', label: 'Models', tone: 'cue' },
+  { href: '/settings/webhooks', label: 'Webhooks', tone: 'hold' },
 ];
 
 /**
@@ -34,7 +34,7 @@ export function Movements() {
   const pathname = usePathname();
   const current = activeHref(pathname);
   return (
-    <nav className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+    <nav className="flex flex-wrap items-center gap-1.5" aria-label="Primary navigation">
       {MOVEMENTS.map((m) => {
         const active = m.href === current;
         return (
@@ -42,12 +42,13 @@ export function Movements() {
             key={m.href}
             href={m.href}
             aria-current={active ? 'page' : undefined}
-            className={`relative py-0.5 font-mono text-xs tracking-wide ${
-              active ? 'text-ink' : 'text-ink-label hover:text-ink-secondary'
-            }`}
+            className={`movement movement-${m.tone} relative px-2.5 py-1.5 font-mono text-xs tracking-wide`}
           >
             {active && (
-              <span aria-hidden className="absolute -left-2 top-0 h-full w-0.5 bg-mark" />
+              <span
+                aria-hidden
+                className="absolute inset-x-1 bottom-0 h-px bg-[var(--movement-accent)]"
+              />
             )}
             {m.label}
           </Link>

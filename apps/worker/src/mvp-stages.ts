@@ -4,7 +4,6 @@ import { promisify } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
 import {
   artifacts,
-  agentRuns,
   gateDecisions,
   gateRequests,
   pipelineRuns,
@@ -29,24 +28,19 @@ import {
   saveIndexSnapshot,
   type BrainContext,
 } from '@ai-system/brain';
-import {
-  ImplementationPlan,
-  ResearchReport,
-  type AgentContext,
-} from '@ai-system/agents';
+import { ImplementationPlan, ResearchReport, type AgentContext } from '@ai-system/agents';
 import {
   commitAll,
   diffAgainst,
   ensureCheckout,
   ensureWorktree,
-  renderCodingPrompt,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
-import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
 import { detectGitHost, gitHostFor } from './git-host.js';
 import { notifyTracker } from './trackers.js';
-import { recordExecutorUsage } from './executors.js';
+import { reportActivity } from './activity.js';
+import { executeWithFallbacks } from './execution-fallback.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
 
@@ -249,6 +243,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
   if (!planArtifact) throw new Error('no implementation plan to code from');
   const plan = ImplementationPlan.parse(planArtifact.content);
   const findings = await openBlockingFindings(db, run.id);
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code' },
+    { kind: 'stage', message: 'Loading repository context and coding rules' },
+  );
   const brain = await getBrainContext(services, run, repo);
 
   const { checkoutDir, worktreeDir } = repoPaths(services, repo.id, run.id);
@@ -268,74 +267,49 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     rules: brain.rules.map((r) => ({ title: r.title, content: r.content })),
   };
 
-  const agentRunId = uuidv7();
-  // Persist the exact context BEFORE execution — every agent run is reproducible (docs/06 §2).
-  const { artifactId: bundleId } = await createArtifact(db, {
+  const execution = await executeWithFallbacks({
+    db,
+    candidates: await services.executorsFor(run, repo, 'coding'),
+    maxAttempts: services.codingMaxAttempts,
     runId: run.id,
-    kind: 'task_spec',
-    content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
-  });
-  const executor = await services.executorFor(run, repo, 'coding');
-  await db.insert(agentRuns).values({
-    id: agentRunId,
-    runId: run.id,
+    stage: 'code',
     agentKind: 'coding',
-    executorKind: executor.executorKind,
-    status: 'running',
-    contextBundleArtifactId: bundleId,
-    startedAt: new Date(),
-  });
-
-  const startedAt = Date.now();
-  const result = await executor.execute({
-    runId: run.id,
-    agentRunId,
     worktreeDir,
     taskSpec,
-    limits: { timeoutMs: services.codingTimeoutMs },
+    timeoutMs: services.codingTimeoutMs,
     allowedCommands: allowedCommandsFor(repo),
+    artifactContext: { iteration: run.iterationCount },
   });
-  await recordExecutorUsage(db, {
-    runId: run.id,
-    agentRunId,
-    executorKind: executor.executorKind,
-    ...(executor instanceof CliAgentExecutor ? { cliName: executor.cliName } : {}),
-    usage: result.usage,
-    status: result.status === 'succeeded' ? 'succeeded' : 'failed',
-    latencyMs: Date.now() - startedAt,
-  });
-
-  const { artifactId: transcriptId } = await createArtifact(db, {
-    runId: run.id,
-    kind: 'agent_transcript',
-    content: { transcript: result.transcript.slice(-100_000) },
-    createdByAgentRunId: agentRunId,
-  });
-
-  if (result.status === 'failed') {
-    await db
-      .update(agentRuns)
-      .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
-      .where(eq(agentRuns.id, agentRunId));
+  if (execution.status === 'failed') {
+    const { result } = execution;
     throw new Error(
-      `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
+      `all coding agents failed; last failure: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
     );
   }
 
-  await commitAll(worktreeDir, `ai-system: ${ticket.title} (iteration ${run.iterationCount})`);
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Coding agent succeeded; finalizing its Git changes' },
+  );
+  await commitAll(
+    worktreeDir,
+    `ai-system: ${ticket.title} (iteration ${run.iterationCount})`,
+    repo.defaultBranch,
+  );
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Generating the review diff' },
+  );
   const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
   const { artifactId: diffId } = await createArtifact(db, {
     runId: run.id,
     kind: 'diff',
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
-    createdByAgentRunId: agentRunId,
+    createdByAgentRunId: execution.agentRunId,
   });
-
-  await db
-    .update(agentRuns)
-    .set({ status: 'succeeded', finishedAt: new Date() })
-    .where(eq(agentRuns.id, agentRunId));
-  return { artifactIds: [bundleId, transcriptId, diffId] };
+  return { artifactIds: [...execution.artifactIds, diffId] };
 }
 
 export async function reviewStage(services: StageServices, run: RunRow): Promise<StageOutcome> {

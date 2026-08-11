@@ -116,8 +116,12 @@ The configurable purposes are `classifier`, `research`, `planning`, `decompositi
 `integration`, `review`, `testing`, `documentation`, and `distillation`. `model: default` leaves
 model selection to the CLI. Otherwise the model is passed through verbatim. `reasoningEffort` is
 `low`, `medium`, or `high`; Codex receives `model_reasoning_effort`, while Claude receives
-`--effort`. Editing-purpose fallbacks are intentionally not attempted after execution starts,
-because a failed editor may already have changed the worktree.
+`--effort`. Editing-purpose fallbacks deliberately continue in the same isolated worktree: the
+assigned provider/model runs first, explicit `fallbacks[]` follow in order, and then the other
+authenticated subscription CLI is appended automatically. Partial edits are preserved so the
+next agent diagnoses and completes the existing work instead of restarting it. Each attempt has
+its own `agent_run`, context artifact, transcript, cost entry, and live fallback activity. A
+`budget_denied` result stops the chain rather than bypassing the frozen run budget.
 
 ## 4. Reliability policy
 

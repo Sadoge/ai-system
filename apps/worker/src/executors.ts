@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { agentRuns, modelCalls, repositories, type Db } from '@ai-system/db';
 import { uuidv7 } from '@ai-system/domain';
 import {
@@ -7,7 +7,8 @@ import {
   type AgentExecutionUsage,
   type AgentExecutor,
 } from '@ai-system/agent-execution';
-import type { ResolvedProfile } from '@ai-system/model-gateway';
+import type { ModelTarget, ResolvedProfile } from '@ai-system/model-gateway';
+import type { ExecutorCandidate } from './services.js';
 
 export type RepoRow = typeof repositories.$inferSelect;
 
@@ -24,6 +25,61 @@ export interface ExecutorFactoryDeps {
   mock: boolean;
   /** Built lazily so a missing provider key never breaks CLI-only setups. */
   apiLoop: () => AgentExecutor;
+}
+
+function targetKey(target: ModelTarget): string {
+  return `${target.provider}:${target.model}:${target.params?.reasoningEffort ?? ''}`;
+}
+
+/** Keep configured model fallbacks first, then add available alternate CLIs. */
+export function withAutomaticExecutorFallbacks(
+  profile: ResolvedProfile,
+  automaticTargets: ModelTarget[],
+  maxAttempts: number,
+): ResolvedProfile {
+  const alternateProviders = automaticTargets.filter(
+    (target) => target.provider !== profile.primary.provider,
+  );
+  const sameProviderModels = automaticTargets.filter(
+    (target) => target.provider === profile.primary.provider,
+  );
+  const ordered = [
+    profile.primary,
+    ...profile.fallbacks,
+    ...alternateProviders,
+    ...sameProviderModels,
+  ];
+  const seen = new Set<string>();
+  const unique = ordered.filter((target) => {
+    const key = targetKey(target);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const limited = unique.slice(0, Math.max(1, maxAttempts));
+  return { purpose: profile.purpose, primary: limited[0]!, fallbacks: limited.slice(1) };
+}
+
+interface PreviousAgentRun {
+  executorKind: string;
+  status: string;
+  failureReason: string | null;
+  sessionId: string | null;
+}
+
+export function resumableSessionFrom(latest: PreviousAgentRun | undefined): string | undefined {
+  if (
+    latest?.executorKind !== 'cli:codex' ||
+    latest.status !== 'failed' ||
+    (latest.failureReason !== 'timeout' && latest.failureReason !== 'cancelled')
+  ) {
+    return undefined;
+  }
+  return latest.sessionId ?? undefined;
+}
+
+export function persistedExecutorKind(executor: AgentExecutor): string {
+  return executor instanceof CliAgentExecutor ? `cli:${executor.cliName}` : executor.executorKind;
 }
 
 /**
@@ -43,6 +99,7 @@ export function resolveExecutor(
 ): AgentExecutor {
   const settings = (repo?.settings ?? {}) as ExecutorSettings;
   const assignedProvider = assignment?.primary.provider;
+  const configuredChoice = settings.executor ?? process.env.CODING_EXECUTOR;
   const choice = assignedProvider
     ? assignedProvider === 'claude_cli'
       ? 'claude_code'
@@ -52,8 +109,23 @@ export function resolveExecutor(
     : (settings.executor ??
       process.env.CODING_EXECUTOR ??
       (deps.mock ? 'scripted' : 'claude_code'));
+  const normalizedConfiguredChoice =
+    configuredChoice === 'claude_cli' || configuredChoice === 'cli'
+      ? 'claude_code'
+      : configuredChoice === 'codex_cli'
+        ? 'codex'
+        : configuredChoice;
+  const useRepositoryOverrides = !assignment || normalizedConfiguredChoice === choice;
   const assignedModel = assignment?.primary.model;
-  const effort = assignment?.primary.params?.reasoningEffort ?? settings.executorEffort;
+  const effort =
+    assignment?.primary.params?.reasoningEffort ??
+    (assignment ? undefined : settings.executorEffort);
+  const model =
+    assignedModel && assignedModel !== 'default'
+      ? assignedModel
+      : assignment
+        ? undefined
+        : settings.executorModel;
 
   switch (choice) {
     case 'scripted':
@@ -65,10 +137,9 @@ export function resolveExecutor(
     case 'codex':
       return new CliAgentExecutor({
         preset: choice === 'cli' ? 'claude_code' : choice,
-        binary: settings.executorBinary,
-        args: settings.executorArgs,
-        model:
-          assignedModel && assignedModel !== 'default' ? assignedModel : settings.executorModel,
+        binary: useRepositoryOverrides ? settings.executorBinary : undefined,
+        args: useRepositoryOverrides ? settings.executorArgs : undefined,
+        model,
         effort,
       });
     default:
@@ -76,6 +147,58 @@ export function resolveExecutor(
         `provider "${choice}" cannot edit a worktree — use claude_cli or codex_cli for this stage`,
       );
   }
+}
+
+export function resolveExecutorCandidates(
+  repo: RepoRow | null,
+  deps: ExecutorFactoryDeps,
+  assignment: ResolvedProfile,
+): ExecutorCandidate[] {
+  return [assignment.primary, ...assignment.fallbacks].map((target) => ({
+    target,
+    executor: resolveExecutor(repo, deps, {
+      purpose: assignment.purpose,
+      primary: target,
+      fallbacks: [],
+    }),
+  }));
+}
+
+export function executorCandidateLabel(candidate: ExecutorCandidate): string {
+  const provider =
+    candidate.target.provider === 'codex_cli'
+      ? 'Codex'
+      : candidate.target.provider === 'claude_cli'
+        ? 'Claude'
+        : candidate.target.provider;
+  const effort = candidate.target.params?.reasoningEffort;
+  return `${provider} · ${candidate.target.model}${effort ? ` · ${effort} effort` : ''}`;
+}
+
+/** Latest interrupted Codex conversation that can safely continue in this worktree. */
+export async function resumableCodexSession(
+  db: Db,
+  input: { runId: string; taskId?: string; executor: AgentExecutor },
+): Promise<string | undefined> {
+  if (!(input.executor instanceof CliAgentExecutor) || input.executor.cliName !== 'codex') {
+    return undefined;
+  }
+
+  const taskCondition = input.taskId
+    ? eq(agentRuns.taskId, input.taskId)
+    : isNull(agentRuns.taskId);
+  const rows = await db
+    .select({
+      executorKind: agentRuns.executorKind,
+      status: agentRuns.status,
+      failureReason: agentRuns.failureReason,
+      sessionId: agentRuns.sessionId,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.runId, input.runId), taskCondition, eq(agentRuns.agentKind, 'coding')))
+    .orderBy(desc(agentRuns.createdAt))
+    .limit(1);
+  return resumableSessionFrom(rows[0]);
 }
 
 /**

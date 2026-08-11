@@ -4,8 +4,8 @@ This note records the repository contracts that the structured-diff work must us
 
 ## 1. Current artifact route
 
-- `apps/web/src/app/runs/[id]/artifacts/[artifactId]/` contains only `page.tsx`; there is no existing `artifact-view.tsx` or `artifact-view.test.ts`. Consistent with that file inventory, the route owns the artifact shape, fetch, and rendering inline rather than importing an artifact view (`apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:1-11`, `apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:13-39`). Extraction is therefore part of this work.
-- The page branches on **no artifact kinds**. It uses `artifact.kind` only as the `System` title and renders every artifact with the same `JSON.stringify` block (`apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:29-32`).
+- The artifact route delegates rendering to `artifact-view.tsx`. Diff artifacts use the shared run-level `DiffPresentation`; every other artifact retains the JSON rendering fallback.
+- The artifact-local diff viewer was removed. Both the run and artifact routes now use `apps/web/src/app/runs/[id]/diff-viewer.tsx` and `apps/web/src/lib/unified-diff.ts`.
 - It fetches `GET /runs/${id}/artifacts/${artifactId}` through `apiGet`, and the body field it renders is exactly `content`, not `body` or `data` (`apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:5-11`, `apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:18-19`, `apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:29-32`). The web helper adds the `/api` prefix to the configured API origin (`apps/web/src/lib/api.ts:4-5`, `apps/web/src/lib/api.ts:14-17`).
 - Fetch failure is not handled locally. `apiGet` throws for a non-2xx response, and the page awaits it without `try`/`catch`, a route error state, or `notFound()` (`apps/web/src/lib/api.ts:14-17`, `apps/web/src/app/runs/[id]/artifacts/[artifactId]/page.tsx:13-20`).
 - A full artifact row may have `content: null` and a non-null `storageRef`, because large artifacts are offloaded and exactly one storage location is intended (`packages/db/src/schema.ts:250-265`, `apps/worker/src/artifacts.ts:18-33`). `getArtifact` returns the raw selected row and does not hydrate object-storage content (`apps/api/src/api.service.ts:303-310`). Downstream UI must therefore tolerate absent/non-string `content`; it must not assume every `diff` response already contains inline text.
@@ -48,7 +48,7 @@ This note records the repository contracts that the structured-diff work must us
 - The package name is exactly `@ai-system/web` (`apps/web/package.json:1-4`).
 - The existing test script is `vitest run --passWithNoTests`, and `vitest` is already declared as `^3.0.0` in `devDependencies` (`apps/web/package.json:5-10`, `apps/web/package.json:17-24`).
 - `@testing-library/react` and `jsdom` are absent from both dependency sections; the declared runtime dependencies are only Next, React, and React DOM, while the listed dev dependencies are Tailwind/PostCSS, React types, TypeScript, and Vitest (`apps/web/package.json:12-24`). Tests should therefore stay pure/Node unless the manifest is intentionally changed.
-- `apps/web/vitest.config.ts` does not currently exist in the web package inventory. The manifest nevertheless already supplies the runnable Vitest script and dependency that the planned config must preserve (`apps/web/package.json:5-10`, `apps/web/package.json:17-24`).
+- `apps/web/vitest.config.ts` keeps pure `src/**/*.test.ts` and `src/**/*.test.tsx` tests in the Node environment; the parser and view-model coverage uses that existing setup.
 
 ## 7. Design tokens and idioms
 
@@ -89,21 +89,22 @@ This note records the repository contracts that the structured-diff work must us
 
 The web theme is defined in `apps/web/src/app/globals.css`. Diff styling uses only its existing custom properties:
 
-- Addition mint appearance: `color-mix(in hsl, var(--color-cue-bright) 68%, var(--color-hold-bright))`. The theme has no standalone mint property, so this existing-token mix is the shared addition ink; its 10% transparent mix is the row wash. It does not introduce a mint/aqua custom property or literal replacement color.
-- Deletion: `--color-mark` for the 10% row wash and `--color-mark-bright` for small marker text.
-- Hunk headers and focus: `--color-cue-bright`, with `--color-ground` beneath hunk text.
+- Addition and deletion rows use the existing raised/band grounds and distinct solid/dashed rules, so their meaning survives grayscale and forced-colors modes.
+- Hunk headers and focus use `--color-cue-bright`; errors use the text-safe `--color-mark-bright` with a `--color-mark` rule.
 - Rules and gutters: `--color-rule`, `--color-rule-strong`, `--color-ink-label`, and `--color-ink-faint`.
 - Code: `--font-mono` with tabular figures.
 
-The existing small breakpoint begins at 640px, so the diff metadata stack applies below it.
+The existing small breakpoint begins at 640px. Below it, summary metadata stacks, file controls reflow, and the line-number tracks shrink without a conflicting minimum width.
 
 ### CSS class contract
 
 - File shell: `.diff-file`
-- Sticky header outside the horizontal scroller: `.diff-file-header`
-- File header layout and control: `.diff-file-row`, `.diff-file-disclosure`, `.diff-file-path`, `.diff-file-meta`
-- Horizontal scroll container and code block: `.diff-scroll`, `.diff-code`
-- Code row and cells: `.diff-row`, `.diff-line-number`, `.diff-line-marker`, `.diff-line-content`
-- Row states: `.diff-row-addition`, `.diff-row-deletion`, `.diff-row-hunk`
+- Non-sticky file control: `.diff-file-header`, with `.diff-disclosure`, `.diff-file-path`, `.diff-file-status`, and `.diff-file-counts`
+- File index and actions: `.diff-index`, `.diff-index-row`, `.diff-actions`, `.diff-action`
+- Horizontal code scroller: `.diff-code`
+- Code row and cells: `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`
+- Row states: `.diff-line-addition`, `.diff-line-deletion`, `.diff-line-context`, `.diff-line-meta`
+- Metadata and disclosure: `.diff-file-metadata`, `.diff-hunk`, `.diff-reveal`
+- Load, empty, parse-failure, and raw-content states: `.diff-state`, `.diff-state-error`, `.diff-raw`
 
-The required nesting is `.diff-file > .diff-file-header + .diff-scroll`; `.diff-file-header` must never be placed inside `.diff-scroll`, otherwise the sticky header will move with horizontally scrolled code.
+File content is mounted only while its file is expanded. Opened files initially render at most 400 lines and expose the remainder through `.diff-reveal`.

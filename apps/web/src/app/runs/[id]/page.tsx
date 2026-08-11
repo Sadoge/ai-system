@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { apiGet, type ArtifactDetail, type RunDetail } from '@/lib/api';
 import { resolveGateAction } from '@/lib/actions';
 import { readDiffArtifactContent, type DiffArtifactContent } from '@/lib/diff-artifact';
@@ -19,11 +20,14 @@ import { CodeChanges } from './code-changes';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
-async function fetchDiffArtifact(
-  runId: string,
-  artifactId: string,
-): Promise<{ data: DiffArtifactContent | null; error?: string }> {
+type DiffArtifactResult = { data: DiffArtifactContent | null; error?: string };
+
+async function fetchDiffArtifact(runId: string, artifactId: string): Promise<DiffArtifactResult> {
   try {
+    // Contract verified at apps/api/src/api.controller.ts#getArtifact: this is
+    // GET /runs/:id/artifacts/:artifactId. It returns the full persisted row
+    // from api.service.ts#getArtifact; dto.ts defines request DTOs, not a
+    // response wrapper, so the payload key consumed here is `content`.
     const artifact = await apiGet<ArtifactDetail>(`/runs/${runId}/artifacts/${artifactId}`);
     if (artifact.kind !== 'diff') {
       return { data: null, error: 'The selected artifact is not a diff.' };
@@ -41,13 +45,25 @@ async function fetchDiffArtifact(
   }
 }
 
+async function CodeChangesSection({ runId, artifactId }: { runId: string; artifactId?: string }) {
+  const diffResult: DiffArtifactResult = artifactId
+    ? await fetchDiffArtifact(runId, artifactId)
+    : { data: null };
+
+  return (
+    <CodeChanges
+      runId={runId}
+      artifactId={artifactId}
+      content={diffResult.data}
+      error={diffResult.error}
+    />
+  );
+}
+
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
   const diffArtifact = (run.artifacts ?? []).filter((artifact) => artifact.kind === 'diff').at(-1);
-  const diffResult = diffArtifact
-    ? await fetchDiffArtifact(run.id, diffArtifact.id)
-    : { data: null as DiffArtifactContent | null };
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
@@ -71,18 +87,21 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </p>
       </div>
 
-      <CodeChanges
-        runId={run.id}
-        artifactId={diffArtifact?.id}
-        content={diffResult.data}
-        error={diffResult.error}
-      />
-
       {run.error && (
         <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
           {run.error}
         </p>
       )}
+
+      <Suspense
+        fallback={
+          <System mark="Δ" title="Code changes">
+            <p className="diff-state annot text-sm text-ink-label">Loading code changes…</p>
+          </System>
+        }
+      >
+        <CodeChangesSection runId={run.id} artifactId={diffArtifact?.id} />
+      </Suspense>
 
       {/* The hold. Every voice waits here until a human marks it. */}
       {pendingGates.map((gate) => (

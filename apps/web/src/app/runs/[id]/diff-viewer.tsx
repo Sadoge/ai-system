@@ -33,7 +33,10 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
     });
     if (opening) {
       requestAnimationFrame(() => {
-        document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        document
+          .getElementById(id)
+          ?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
       });
     }
   };
@@ -98,7 +101,7 @@ export function DiffViewer({ files, children }: { files: DiffFileIndex[]; childr
                 </span>
               </button>
               <div id={`${file.id}-content`} hidden={!open}>
-                {fileContents[index]}
+                {open ? fileContents[index] : null}
               </div>
             </article>
           );
@@ -116,9 +119,9 @@ export function RevealLines({ count, children }: { count: number; children: Reac
       type="button"
       className={`diff-reveal ${focus}`}
       onClick={() => setVisible(true)}
-      aria-label={`Show remaining ${count} unchanged lines`}
+      aria-label={`Show remaining ${count} lines`}
     >
-      Show remaining lines <span aria-hidden>({count})</span>
+      Show remaining {count} lines
     </button>
   );
 }

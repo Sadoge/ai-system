@@ -133,7 +133,7 @@ export function SeverityMark({ severity }: { severity: string }) {
   const heavy = severity === 'blocker' || severity === 'major';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-mono text-xs ${heavy ? 'text-mark-bright' : 'text-ink-faint'}`}
+      className={`inline-flex items-center gap-1.5 font-mono text-xs ${heavy ? 'text-mark' : 'text-ink-faint'}`}
     >
       <Notehead head={heavy ? 'cross' : 'filled'} className="shrink-0" />
       {severity}

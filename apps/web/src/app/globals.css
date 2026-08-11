@@ -34,7 +34,8 @@
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --font-annot: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
 
   /* The micro step. Rehearsal marks and stage labels are engraver's small
@@ -198,158 +199,8 @@ body {
   font-style: italic;
 }
 
-/* ── Structured diffs ────────────────────────────────────────────────
-   Class contract: diff-file > diff-file-header + diff-scroll; headers
-   stay outside the horizontal scroller. File controls use diff-file-row,
-   diff-file-disclosure, diff-file-path and diff-file-meta. Code uses
-   diff-code > diff-row with diff-line-number, diff-line-marker and
-   diff-line-content; row states are diff-row-addition, diff-row-deletion
-   and diff-row-hunk. Keep these names aligned with the diff viewer. */
-.diff-file {
-  scroll-margin-block-start: 3rem;
-  border-bottom: 1px solid var(--color-rule);
-}
-
-.diff-file-header {
-  position: sticky;
-  z-index: 10;
-  top: 0;
-  border-top: 1px solid var(--color-rule-strong);
-  border-bottom: 1px solid var(--color-rule);
-  background-color: var(--color-ground);
-}
-
-.diff-file-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-}
-
-.diff-file-disclosure {
-  width: 100%;
-  min-height: 2.75rem;
-  cursor: pointer;
-  color: var(--color-ink);
-  text-align: start;
-}
-
-.diff-file-disclosure:focus-visible {
-  outline: 2px solid var(--color-cue-bright);
-  outline-offset: 2px;
-}
-
-.diff-file-path {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-}
-
-.diff-file-meta {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.75rem;
-  margin-inline-start: auto;
-  color: var(--color-ink-muted);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.diff-scroll {
-  overflow-x: auto;
-}
-
-.diff-code {
-  width: max-content;
-  min-width: 100%;
-  color: var(--color-ink-secondary);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.5;
-  white-space: pre;
-}
-
-.diff-row {
-  display: grid;
-  min-height: 1.5rem;
-  grid-template-columns:
-    minmax(3rem, auto) minmax(3rem, auto) 1.5rem minmax(max-content, 1fr);
-}
-
-.diff-line-number {
-  min-width: 3rem;
-  padding-inline: 0.5rem;
-  color: var(--color-ink-faint);
-  text-align: right;
-  user-select: none;
-}
-
-.diff-line-marker {
-  color: var(--color-ink-label);
-  text-align: center;
-  user-select: none;
-}
-
-.diff-line-content {
-  padding-inline-end: 1rem;
-}
-
-.diff-row-addition {
-  background-color: color-mix(
-    in srgb,
-    color-mix(in hsl, var(--color-cue-bright) 68%, var(--color-hold-bright)) 10%,
-    transparent
-  );
-}
-
-.diff-row-addition .diff-line-marker {
-  color: color-mix(in hsl, var(--color-cue-bright) 68%, var(--color-hold-bright));
-}
-
-.diff-row-deletion {
-  background-color: color-mix(in srgb, var(--color-mark) 10%, transparent);
-}
-
-.diff-row-deletion .diff-line-marker {
-  color: var(--color-mark-bright);
-}
-
-.diff-row-hunk {
-  border-top: 1px solid var(--color-rule-strong);
-  background-color: var(--color-ground);
-  color: var(--color-cue-bright);
-}
-
-@media (max-width: 639px) {
-  .diff-file-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
-
-  .diff-file-meta {
-    margin-inline-start: 0;
-  }
-
-  .diff-file-disclosure {
-    min-height: 2.75rem;
-  }
-}
-
 /* Reduced motion: the running voice stops pulsing. */
 @media (prefers-reduced-motion: reduce) {
-  .diff-file,
-  .diff-file-disclosure,
-  .diff-scroll {
-    scroll-behavior: auto;
-    transition: none;
-  }
-
   .pulse-live {
     animation: none;
   }
@@ -515,7 +366,7 @@ body {
   display: grid;
   width: max-content;
   min-width: 100%;
-  grid-template-columns: 3.25rem 3.25rem 4.75rem minmax(max-content, 1fr);
+  grid-template-columns: 3.25rem 3.25rem 4.75rem 1.25rem minmax(max-content, 1fr);
   border-top: 1px solid transparent;
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -549,10 +400,9 @@ body {
   color: var(--color-ink-secondary);
 }
 .diff-prefix {
-  display: inline-block;
-  width: 1.25rem;
   color: var(--color-ink);
   text-align: center;
+  user-select: none;
 }
 .diff-reveal {
   display: block;
@@ -565,6 +415,21 @@ body {
 }
 .diff-reveal:hover {
   background-color: var(--color-ground-raised);
+}
+.diff-raw {
+  max-height: 32rem;
+  overflow: auto;
+  border-block: 1px solid var(--color-rule);
+  padding: 0.75rem;
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre;
+}
+.diff-raw:focus-visible {
+  outline: 2px solid var(--color-cue-bright);
+  outline-offset: 2px;
 }
 
 @media (max-width: 639px) {
@@ -589,7 +454,7 @@ body {
     grid-row: 1 / span 2;
   }
   .diff-line {
-    grid-template-columns: 2.75rem 2.75rem 4.25rem minmax(max-content, 1fr);
+    grid-template-columns: 2.75rem 2.75rem 4.25rem 1.25rem minmax(max-content, 1fr);
   }
 }
 

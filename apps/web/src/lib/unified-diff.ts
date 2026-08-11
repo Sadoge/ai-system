@@ -34,20 +34,44 @@ export interface ParsedDiff {
   files: DiffFile[];
   additions: number;
   deletions: number;
+  state: 'empty' | 'parsed' | 'unparseable';
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+function decodeGitPath(value: string): string {
+  const unquoted = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return unquoted.replace(/\\([0-7]{3}|[abfnrtv\\"])/g, (_match, escape: string) => {
+    if (/^[0-7]{3}$/.test(escape)) return String.fromCharCode(Number.parseInt(escape, 8));
+    const escapedCharacters: Record<string, string> = {
+      a: '\x07',
+      b: '\b',
+      f: '\f',
+      n: '\n',
+      r: '\r',
+      t: '\t',
+      v: '\v',
+      '\\': '\\',
+      '"': '"',
+    };
+    return escapedCharacters[escape] ?? escape;
+  });
+}
+
 function cleanPath(value: string): string | null {
-  const token = value.split('\t', 1)[0]!.trim().replace(/^"|"$/g, '');
+  const token = value.split('\t', 1)[0]!.trim();
   if (token === '/dev/null') return null;
-  return token.replace(/^[ab]\//, '');
+  return decodeGitPath(token).replace(/^[ab]\//, '');
 }
 
 function pathsFromGitHeader(line: string): [string | null, string | null] {
-  const match = /^diff --git (?:"a\/(.*)"|a\/(.*)) (?:"b\/(.*)"|b\/(.*))$/.exec(line);
-  if (!match) return [null, null];
-  return [match[1] ?? match[2] ?? null, match[3] ?? match[4] ?? null];
+  const body = line.slice('diff --git '.length);
+  const quoted = /^((?:"(?:\\.|[^"])*")) ((?:"(?:\\.|[^"])*"))$/.exec(body);
+  if (quoted) return [cleanPath(quoted[1]!), cleanPath(quoted[2]!)];
+
+  const separator = body.lastIndexOf(' b/');
+  if (!body.startsWith('a/') || separator < 0) return [null, null];
+  return [cleanPath(body.slice(0, separator)), cleanPath(body.slice(separator + 1))];
 }
 
 function fileId(path: string, index: number): string {
@@ -56,7 +80,7 @@ function fileId(path: string, index: number): string {
 
 /** Parse the git-style unified patch emitted by the worker. Malformed sections
  * are retained as metadata where possible instead of taking down the run page. */
-export function parseUnifiedDiff(patch: string): ParsedDiff {
+export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   const files: DiffFile[] = [];
   let current: DiffFile | null = null;
   let hunk: DiffHunk | null = null;
@@ -80,6 +104,13 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     return file;
   };
 
+  if (!patch?.trim()) return { files, additions: 0, deletions: 0, state: 'empty' };
+
+  const hunkComplete = () =>
+    hunk !== null &&
+    oldLine >= hunk.oldStart + hunk.oldCount &&
+    newLine >= hunk.newStart + hunk.newCount;
+
   const lines = patch.replace(/\r\n?/g, '\n').split('\n');
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
@@ -88,6 +119,51 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       const [oldPath, newPath] = pathsFromGitHeader(line);
       current = startFile(oldPath, newPath);
       hunk = null;
+      continue;
+    }
+
+    const header = HUNK_HEADER.exec(line);
+    if (current && header) {
+      oldLine = Number(header[1]);
+      newLine = Number(header[3]);
+      hunk = {
+        header: line,
+        oldStart: oldLine,
+        oldCount: Number(header[2] ?? 1),
+        newStart: newLine,
+        newCount: Number(header[4] ?? 1),
+        lines: [],
+      };
+      current.hunks.push(hunk);
+      continue;
+    }
+
+    // A no-newline marker belongs to the preceding hunk even when that hunk's
+    // declared line counts have just been satisfied.
+    if (current && hunk && line.startsWith('\\')) {
+      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
+      continue;
+    }
+    if (hunkComplete()) hunk = null;
+
+    // Hunk bodies must win over file-header detection: a deleted SQL comment
+    // such as "-- note" is encoded as "--- note" in a patch.
+    if (current && hunk && line.startsWith('+')) {
+      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
+      current.additions++;
+      newLine++;
+      continue;
+    }
+    if (current && hunk && line.startsWith('-')) {
+      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
+      current.deletions++;
+      oldLine++;
+      continue;
+    }
+    if (current && hunk && (line.startsWith(' ') || line === '')) {
+      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
+      oldLine++;
+      newLine++;
       continue;
     }
 
@@ -108,13 +184,13 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
     if (line.startsWith('rename from ')) {
-      current.oldPath = line.slice('rename from '.length);
+      current.oldPath = decodeGitPath(line.slice('rename from '.length));
       current.status = 'renamed';
       current.metadata.push(line);
       continue;
     }
     if (line.startsWith('rename to ')) {
-      current.newPath = line.slice('rename to '.length);
+      current.newPath = decodeGitPath(line.slice('rename to '.length));
       current.path = current.newPath;
       current.status = 'renamed';
       current.metadata.push(line);
@@ -127,47 +203,13 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue;
     }
 
-    const header = HUNK_HEADER.exec(line);
-    if (header) {
-      oldLine = Number(header[1]);
-      newLine = Number(header[3]);
-      hunk = {
-        header: line,
-        oldStart: oldLine,
-        oldCount: Number(header[2] ?? 1),
-        newStart: newLine,
-        newCount: Number(header[4] ?? 1),
-        lines: [],
-      };
-      current.hunks.push(hunk);
-      continue;
-    }
-
-    if (!hunk) {
-      if (line) current.metadata.push(line);
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      hunk.lines.push({ kind: 'addition', content: line.slice(1), oldLine: null, newLine });
-      current.additions++;
-      newLine++;
-    } else if (line.startsWith('-')) {
-      hunk.lines.push({ kind: 'deletion', content: line.slice(1), oldLine, newLine: null });
-      current.deletions++;
-      oldLine++;
-    } else if (line.startsWith(' ')) {
-      hunk.lines.push({ kind: 'context', content: line.slice(1), oldLine, newLine });
-      oldLine++;
-      newLine++;
-    } else if (line.startsWith('\\')) {
-      hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
-    }
+    if (line) current.metadata.push(line);
   }
 
   return {
     files,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    state: files.length > 0 ? 'parsed' : 'unparseable',
   };
 }

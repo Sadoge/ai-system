@@ -121,13 +121,13 @@ Plus cross-cutting terminal/paused states: `failed`, `cancelled`, `paused` (budg
 
 ### 3.2 Task status
 
-`pending → ready → running → completed | failed`
+`pending → ready → running → completed | failed | cancelled`
 `failed` tasks retry up to a per-task attempt budget, then fail the stage (which parks the run, not the process).
 
 ### 3.3 AgentRun status
 
-`queued → preparing (context assembly) → running → validating → succeeded | failed(reason)`
-Failure reasons are typed: `invalid_output`, `sandbox_error`, `model_error`, `timeout`, `budget_denied` — the engine's retry policy branches on them deterministically.
+`queued → preparing (context assembly) → running → validating → succeeded | failed(reason) | cancelled`
+Failure reasons are typed: `invalid_output`, `sandbox_error`, `model_error`, `timeout`, `budget_denied`, `cancelled` — the engine's retry policy branches on them deterministically.
 
 ## 4. Complexity → policy mapping
 

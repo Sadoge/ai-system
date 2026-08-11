@@ -114,6 +114,13 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
   ) {}
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
+    if (input.signal?.aborted) {
+      return {
+        status: 'failed',
+        failureReason: 'cancelled',
+        transcript: 'Stopped by the operator.',
+      };
+    }
     const root = resolve(input.worktreeDir);
     const allowedCommands = input.allowedCommands ?? [];
     const transcript: string[] = [];
@@ -146,6 +153,7 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
         // the model as errors rather than thrown, so containment holds no
         // matter who drives the loop, and the model can correct itself.
         executeTool: async (call) => {
+          if (input.signal?.aborted) throw new Error('run cancelled by operator');
           const args = call.arguments as {
             path?: string;
             content?: string;
@@ -229,6 +237,7 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
                   const { stdout, stderr } = await exec('bash', ['-c', command], {
                     cwd: root,
                     timeout: COMMAND_TIMEOUT_MS,
+                    signal: input.signal,
                     maxBuffer: 16 * 1024 * 1024,
                     env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
                   });
@@ -255,6 +264,14 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
         },
       });
 
+      if (input.signal?.aborted) {
+        return {
+          status: 'failed',
+          failureReason: 'cancelled',
+          transcript: `${transcript.join('\n')}\nStopped by the operator.`.trim(),
+        };
+      }
+
       transcript.push(result.text);
       await input
         .onActivity?.({ kind: 'message', message: result.text.replace(/\s+/g, ' ').slice(0, 240) })
@@ -265,7 +282,12 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
       transcript.push(`ERROR: ${message}`);
       return {
         status: 'failed',
-        failureReason: message.includes('budget') ? 'budget_denied' : 'model_error',
+        failureReason:
+          input.signal?.aborted || /\bcancelled\b/i.test(message)
+            ? 'cancelled'
+            : message.includes('budget')
+              ? 'budget_denied'
+              : 'model_error',
         transcript: transcript.join('\n'),
       };
     }

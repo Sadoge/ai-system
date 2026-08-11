@@ -244,5 +244,7 @@ export const buttonCls = `border-2 border-mint bg-mint px-3 py-1.5 font-mono tex
 /** The other decision. Quieter at rest; it reaches for the pencil on hover. */
 export const buttonDangerCls = `border border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
 
+export const buttonQuietCls = `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-cue hover:text-ink ${FOCUS}`;
+
 export const linkCls =
   'text-aqua-bright underline decoration-aqua underline-offset-2 hover:text-ink hover:decoration-aqua-bright';

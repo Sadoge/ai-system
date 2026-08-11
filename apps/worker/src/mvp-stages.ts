@@ -328,6 +328,10 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
 }
 
 export async function reviewStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  // Corrective passes intentionally reuse the one authoritative review. This
+  // is a worker-side guard for commands produced by an older/stale engine.
+  if (run.iterationCount > 0) return { artifactIds: [] };
+
   const { db } = services;
   const ticket = TicketSnapshot.parse(run.ticket);
   const repo = run.repositoryId ? await requireRepo(db, run) : null;
@@ -408,6 +412,12 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
   const { worktreeDir } = repoPaths(services, repo.id, run.id);
   const settings = (repo.settings ?? {}) as { testCommand?: string };
 
+  // The correction is the terminal disposition of the single review. Clear
+  // its findings again here as a repair boundary in case a stale worker ran a
+  // forbidden second review, or this test is a manual retry of an earlier
+  // post-correction test attempt.
+  await resolveCorrectedFindings(db, run);
+
   // Only the repository's allowlisted command runs — never anything an agent chose (docs/06 §4).
   let testsPassed = true;
   let output = '(no test command configured for this repository)';
@@ -428,10 +438,12 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
   }
 
   // The command result is deterministic; the assigned testing agent explains
-  // failures and turns them into actionable fix inputs. No command means no
-  // model call, because there is no evidence for an agent to interpret.
+  // failures and turns them into actionable fix inputs. A successful command
+  // is authoritative and must not be overturned by another judgment pass.
   let analysis = {
-    summary: 'No test command configured.',
+    summary: settings.testCommand
+      ? 'Repository test command passed.'
+      : 'No test command configured.',
     findings: [] as Array<{
       severity: 'blocker' | 'major' | 'minor' | 'info';
       category: string;
@@ -440,7 +452,7 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
       filePath: string | null;
     }>,
   };
-  if (settings.testCommand) {
+  if (shouldAnalyzeTestFailure(settings.testCommand, testsPassed)) {
     const diffArtifact = await latestArtifact(db, run.id, 'diff');
     const diff = (diffArtifact?.content as { diff?: string } | undefined)?.diff ?? '';
     const agents = await services.agents(run);
@@ -504,6 +516,13 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
     payload: { runId: run.id, blockingFindingIds: blocking.map((f) => f.id), testsPassed },
   });
   return { artifactIds: [artifactId], suppressCompletion: true };
+}
+
+export function shouldAnalyzeTestFailure(
+  testCommand: string | undefined,
+  testsPassed: boolean,
+): testCommand is string {
+  return Boolean(testCommand) && !testsPassed;
 }
 
 export async function packageStage(services: StageServices, run: RunRow): Promise<StageOutcome> {

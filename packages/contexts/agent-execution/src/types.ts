@@ -27,6 +27,8 @@ export interface AgentExecutionInput {
   /** Existing provider session to continue after a timeout/cancellation. */
   resumeSessionId?: string;
   limits: { timeoutMs: number };
+  /** Aborted when an operator stops the parent pipeline run. */
+  signal?: AbortSignal;
   /**
    * Commands the repository has declared safe to run in its sandbox
    * (docs/06 §4). The api_loop run_command tool accepts EXACTLY these

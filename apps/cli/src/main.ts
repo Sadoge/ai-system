@@ -76,6 +76,7 @@ import {
   setEndpointActive,
 } from '@ai-system/webhooks';
 import {
+  cancelRun,
   compareEvalRun,
   listTasks,
   resolveGate,
@@ -504,6 +505,20 @@ runCmd
       if (result.outcome === 'ignored') throw new Error(result.reason);
       if (result.outcome !== 'transitioned') throw new Error('retry did not transition the run');
       console.log(`run retried: ${runId} (status: ${result.status})`);
+    }),
+  );
+
+runCmd
+  .command('stop <run-id>')
+  .alias('cancel')
+  .description('stop a non-terminal run and cancel its queued or active work')
+  .option('--reason <text>', 'record why the run was stopped')
+  .action(
+    withDb(async (db, runId: string, opts: { reason?: string }) => {
+      const result = await cancelRun(db, runId, opts.reason ?? 'Stopped from the CLI');
+      if (result.outcome === 'ignored') throw new Error(result.reason);
+      if (result.outcome !== 'transitioned') throw new Error('stop did not cancel the run');
+      console.log(`run stopped: ${runId} (status: ${result.status})`);
     }),
   );
 

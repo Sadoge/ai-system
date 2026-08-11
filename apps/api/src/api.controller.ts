@@ -20,6 +20,7 @@ import {
   AddKnowledgeBody,
   AddModelProfileBody,
   AssignGateBody,
+  CancelRunBody,
   CatalogEntryBody,
   CreateApiKeyBody,
   CreateWebhookBody,
@@ -168,6 +169,15 @@ export class ApiController {
   @Post('runs/:id/retry')
   retryRun(@CurrentPrincipal() principal: Principal, @Param('id') id: string) {
     return this.service.retryRun(principal, id);
+  }
+
+  @Post('runs/:id/cancel')
+  cancelRun(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.service.cancelRun(principal, id, parse(CancelRunBody, body));
   }
 
   @Get('runs/:id/artifacts/:artifactId')

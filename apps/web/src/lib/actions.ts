@@ -25,6 +25,12 @@ export async function retryRunAction(formData: FormData): Promise<void> {
   revalidatePath('/');
 }
 
+export async function stopRunAction(runId: string): Promise<void> {
+  await apiPost(`/runs/${runId}/cancel`, { reason: 'Stopped from the run view' });
+  revalidatePath(`/runs/${runId}`);
+  revalidatePath('/');
+}
+
 export async function resolveGateAction(formData: FormData): Promise<void> {
   const gateId = String(formData.get('gateId'));
   const decision = String(formData.get('decision'));

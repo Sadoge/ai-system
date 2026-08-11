@@ -29,6 +29,10 @@ export const StartRunBody = z
     message: 'either ticket or jiraKey is required',
   });
 
+export const CancelRunBody = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+
 export const ResolveGateBody = z.object({
   decision: GateDecisionKind,
   comment: z.string().optional(),

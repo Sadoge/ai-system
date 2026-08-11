@@ -1,25 +1,41 @@
 import { eq } from 'drizzle-orm';
-import { gateDecisions, gateRequests, type Db } from '@ai-system/db';
-import { GateDecisionKind, GateKind, uuidv7 } from '@ai-system/domain';
-import { applyEvent } from './runtime.js';
+import { gateDecisions, gateRequests, pipelineRuns, type Db } from '@ai-system/db';
+import {
+  GateDecisionKind,
+  GateKind,
+  RunStatus,
+  TERMINAL_RUN_STATUSES,
+  uuidv7,
+} from '@ai-system/domain';
+import { applyEvent, applyEventTx } from './runtime.js';
 
 /** Handler for the `gate.request` job: materialize the pending approval item. */
 export async function createGateRequest(
   db: Db,
   input: { runId: string; gate: GateKind; payload?: Record<string, unknown> },
-): Promise<{ gateRequestId: string }> {
+): Promise<{ gateRequestId: string } | null> {
   const gateRequestId = uuidv7();
-  await db.insert(gateRequests).values({
-    id: gateRequestId,
-    runId: input.runId,
-    gate: input.gate,
-    payload: input.payload ?? {},
+  return db.transaction(async (tx) => {
+    const runs = await tx
+      .select({ status: pipelineRuns.status })
+      .from(pipelineRuns)
+      .where(eq(pipelineRuns.id, input.runId))
+      .for('update');
+    const status = runs[0] ? RunStatus.parse(runs[0].status) : null;
+    if (!status || TERMINAL_RUN_STATUSES.includes(status)) return null;
+
+    await tx.insert(gateRequests).values({
+      id: gateRequestId,
+      runId: input.runId,
+      gate: input.gate,
+      payload: input.payload ?? {},
+    });
+    await applyEventTx(tx, {
+      name: 'run.gate.requested',
+      payload: { runId: input.runId, gateRequestId, gate: input.gate },
+    });
+    return { gateRequestId };
   });
-  await applyEvent(db, {
-    name: 'run.gate.requested',
-    payload: { runId: input.runId, gateRequestId, gate: input.gate },
-  });
-  return { gateRequestId };
 }
 
 /** Human decision entry point (API/CLI): record the decision, then let the engine resume the run. */

@@ -45,7 +45,15 @@ export function advance(run: RunSnapshot, event: EngineEvent): AdvanceResult {
     case 'run.gate.resolved':
       return onGateResolved(run, event.payload.gate, event.payload.decision);
     case 'run.cancelled':
-      return transitioned('cancelled', null, []);
+      return {
+        outcome: 'transitioned',
+        status: 'cancelled',
+        currentStage: null,
+        commands: [],
+        taskUpdates: run.tasks
+          .filter((task) => task.status !== 'completed')
+          .map((task) => ({ taskId: task.id, status: 'cancelled' as TaskStatus })),
+      };
     case 'run.paused':
       if (isAwaiting(run.status)) return ignored('cannot pause a run parked at a gate');
       return transitioned('paused', run.currentStage, []);
@@ -282,6 +290,12 @@ function afterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): Ad
 
 /** Entering the task stage fans out over the DAG; every other stage runs once. */
 function enterStage(run: RunSnapshot, def: PipelineDefinition, stage: Stage): AdvanceResult {
+  // A corrective pass gets exactly one deterministic validation step. This
+  // guard also repairs legacy/stale transitions that try to enter review after
+  // the correction even though nextStageAfter() normally bypasses it.
+  if (run.iterationCount > 0 && stage === 'review' && def.correctionExitStage) {
+    return enterStage(run, def, def.correctionExitStage);
+  }
   if (def.taskStage === stage) return dispatchOrAdvance(run, def, stage, run.tasks);
   return transitioned(def.statusDuring(stage), stage, [executeStage(run.runId, stage)]);
 }

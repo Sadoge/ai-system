@@ -325,6 +325,28 @@ describe('mvp_linear pipeline gates', () => {
     });
   });
 
+  it('repairs a legacy failed second-review state by retrying at test', () => {
+    const staleSecondReview: RunSnapshot = {
+      ...initialRun(mvpPolicy('autonomous')),
+      status: 'failed',
+      currentStage: 'review',
+      iterationCount: 1,
+    };
+
+    expect(
+      advance(staleSecondReview, {
+        name: 'run.retry.requested',
+        payload: { runId: RUN_ID },
+      }),
+    ).toMatchObject({
+      outcome: 'transitioned',
+      status: 'testing',
+      currentStage: 'test',
+      clearError: true,
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'test' }],
+    });
+  });
+
   it('does not let a historical iteration-extension gate reopen coding', () => {
     const parked: RunSnapshot = {
       ...initialRun({ ...mvpPolicy('autonomous'), iterationBudget: 4 }),

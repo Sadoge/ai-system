@@ -14,6 +14,13 @@ export class ScriptedAgentExecutor implements AgentExecutor {
   readonly executorKind = 'scripted' as const;
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
+    if (input.signal?.aborted) {
+      return {
+        status: 'failed',
+        failureReason: 'cancelled',
+        transcript: 'Stopped by the operator.',
+      };
+    }
     const spec = input.taskSpec;
     await input.onActivity?.({ kind: 'agent', message: 'Scripted agent started' }).catch(() => {});
 
@@ -43,6 +50,13 @@ export class ScriptedAgentExecutor implements AgentExecutor {
       spec.steps.flatMap((s) => s.files)[0] ?? `${slug(spec.taskTitle ?? spec.ticketTitle)}.md`;
     const path = join(input.worktreeDir, targetFile);
     await input.onActivity?.({ kind: 'tool', message: `Writing ${targetFile}` }).catch(() => {});
+    if (input.signal?.aborted) {
+      return {
+        status: 'failed',
+        failureReason: 'cancelled',
+        transcript: 'Stopped by the operator.',
+      };
+    }
 
     if (spec.findings.length === 0) {
       await writeFile(

@@ -77,6 +77,7 @@ export async function executeStage(
 
   try {
     const outcome = await runStage(services, stage, run);
+    if (await runWasCancelled(db, run.id)) return;
     await db
       .update(stageExecutions)
       .set({ status: 'completed', finishedAt: new Date() })
@@ -88,6 +89,7 @@ export async function executeStage(
       });
     }
   } catch (err) {
+    if (await runWasCancelled(db, run.id)) return;
     const reason = err instanceof Error ? err.message : String(err);
     await db
       .update(stageExecutions)
@@ -98,6 +100,15 @@ export async function executeStage(
       payload: { runId: run.id, stageExecutionId, stage, reason },
     });
   }
+}
+
+async function runWasCancelled(db: Db, runId: string): Promise<boolean> {
+  const rows = await db
+    .select({ status: pipelineRuns.status })
+    .from(pipelineRuns)
+    .where(eq(pipelineRuns.id, runId))
+    .limit(1);
+  return rows[0]?.status === 'cancelled';
 }
 
 const STAGE_ACTIVITY: Record<StageKind, string> = {

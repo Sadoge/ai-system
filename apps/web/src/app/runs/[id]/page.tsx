@@ -15,15 +15,16 @@ import {
 import { LiveRefresh } from './live-refresh';
 import { RunSystem } from './system';
 import { ExecutionMonitor } from './execution-monitor';
+import { StopRunControl } from './stop-run-control';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
-  const pendingGates = run.gates.filter((g) => g.status === 'pending');
-  const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
+  const pendingGates = terminal ? [] : run.gates.filter((g) => g.status === 'pending');
+  const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const activeProcessCount = terminal
     ? 0
     : run.stages.filter((stage) => stage.status === 'running').length +
@@ -41,6 +42,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             {run.ticket.title}
           </h1>
           <StatusMark status={run.status} />
+          {!terminal && <StopRunControl runId={run.id} />}
         </div>
         <p className="mt-2 font-mono text-xs text-ink-faint tnum">
           {run.policySnapshot.pipeline} · {run.policySnapshot.automationLevel}

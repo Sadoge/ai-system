@@ -152,6 +152,7 @@ pnpm --filter @ai-system/worker start &                   # builds first; or use
 echo '# My first ticket' > ticket.md
 node apps/cli/dist/main.js run start ticket.md            # trivial pipeline
 node apps/cli/dist/main.js run status <run-id>
+node apps/cli/dist/main.js run stop <run-id>        # stop active and queued work
 node apps/cli/dist/main.js run retry <run-id>      # retry only the failed stage/tasks
 
 # Full MVP pipeline against a real repository using the signed-in Codex CLI

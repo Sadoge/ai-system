@@ -115,6 +115,27 @@ exit 1`);
     });
   });
 
+  it('kills an active CLI process when the parent run is stopped', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-stopped-'));
+    const binary = fakeCli(`cat > /dev/null\nsleep 10`);
+    const controller = new AbortController();
+
+    const execution = new CliAgentExecutor({ preset: 'claude_code', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      limits: { timeoutMs: 20_000 },
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(execution).resolves.toMatchObject({
+      status: 'failed',
+      failureReason: 'cancelled',
+    });
+  });
+
   it('streams CLI warnings while a successful Codex run is still active', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-warning-'));
     const binary = fakeCli(`cat > /dev/null

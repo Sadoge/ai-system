@@ -1,8 +1,11 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
+  agentRuns,
   domainEvents,
+  gateRequests,
   outbox,
   pipelineRuns,
+  stageExecutions,
   taskDependencies,
   tasks as tasksTable,
   type Db,
@@ -162,6 +165,47 @@ export async function startRun(db: Db, input: StartRunInput): Promise<{ runId: s
 /** Retry a failed run in place, preserving completed stages, artifacts, and tasks. */
 export async function retryRun(db: Db, runId: string): Promise<ApplyOutcome> {
   return applyEvent(db, { name: 'run.retry.requested', payload: { runId } });
+}
+
+/**
+ * Stop a non-terminal run and settle its visible in-flight records in the
+ * same transaction. Workers observe the cancelled run and cooperatively
+ * interrupt long-running agent processes.
+ */
+export async function cancelRun(db: Db, runId: string, reason?: string): Promise<ApplyOutcome> {
+  return db.transaction(async (tx) => {
+    const result = await applyEventTx(tx, {
+      name: 'run.cancelled',
+      payload: { runId, ...(reason ? { reason } : {}) },
+    });
+    if (result.outcome !== 'transitioned' || result.status !== 'cancelled') return result;
+
+    const finishedAt = new Date();
+    await tx
+      .update(stageExecutions)
+      .set({ status: 'cancelled', finishedAt })
+      .where(
+        and(
+          eq(stageExecutions.runId, runId),
+          inArray(stageExecutions.status, ['queued', 'running']),
+        ),
+      );
+    await tx
+      .update(agentRuns)
+      .set({ status: 'cancelled', failureReason: 'cancelled', finishedAt })
+      .where(
+        and(
+          eq(agentRuns.runId, runId),
+          inArray(agentRuns.status, ['queued', 'preparing', 'running', 'validating']),
+        ),
+      );
+    await tx
+      .update(gateRequests)
+      .set({ status: 'cancelled', resolvedAt: finishedAt })
+      .where(and(eq(gateRequests.runId, runId), eq(gateRequests.status, 'pending')));
+
+    return result;
+  });
 }
 
 async function loadTasks(tx: Executor, runId: string): Promise<TaskSnapshot[]> {

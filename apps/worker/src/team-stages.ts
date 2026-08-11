@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { gateDecisions, gateRequests, tasks as tasksTable } from '@ai-system/db';
+import { gateDecisions, gateRequests, pipelineRuns, tasks as tasksTable } from '@ai-system/db';
 import { PolicySnapshot, TicketSnapshot } from '@ai-system/domain';
 import { applyEvent, createTasks, listTasks, type TaskDraft } from '@ai-system/orchestration';
 import { ImplementationPlan } from '@ai-system/agents';
@@ -228,6 +228,12 @@ async function failTask(
   taskId: string,
   reason: string,
 ): Promise<void> {
+  const runs = await services.db
+    .select({ status: pipelineRuns.status })
+    .from(pipelineRuns)
+    .where(eq(pipelineRuns.id, runId))
+    .limit(1);
+  if (runs[0]?.status === 'cancelled') return;
   await services.db.update(tasksTable).set({ error: reason }).where(eq(tasksTable.id, taskId));
   await applyEvent(services.db, { name: 'task.failed', payload: { runId, taskId, reason } });
 }

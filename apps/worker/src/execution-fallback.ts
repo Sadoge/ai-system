@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { agentRuns, type Db } from '@ai-system/db';
+import { agentRuns, pipelineRuns, type Db } from '@ai-system/db';
 import {
   CliAgentExecutor,
   renderCodingContinuationPrompt,
@@ -68,6 +68,18 @@ export function shouldTryExecutorFallback(reason: AgentFailureReason): boolean {
 export async function executeWithFallbacks(
   input: FallbackExecutionInput,
 ): Promise<FallbackExecutionResult> {
+  const cancellation = watchRunCancellation(input.db, input.runId);
+  try {
+    return await executeWithCancellation(input, cancellation.signal);
+  } finally {
+    cancellation.stop();
+  }
+}
+
+async function executeWithCancellation(
+  input: FallbackExecutionInput,
+  cancellationSignal: AbortSignal,
+): Promise<FallbackExecutionResult> {
   const candidates = input.candidates.slice(0, Math.max(1, input.maxAttempts));
   if (candidates.length === 0) throw new Error('no coding executor candidates are configured');
 
@@ -76,6 +88,10 @@ export async function executeWithFallbacks(
   let attempted = 0;
 
   for (const [index, candidate] of candidates.entries()) {
+    if (cancellationSignal.aborted) {
+      lastFailure = cancelledExecution();
+      break;
+    }
     const attempt = index + 1;
     attempted = attempt;
     const agentRunId = uuidv7();
@@ -150,6 +166,7 @@ export async function executeWithFallbacks(
         taskSpec: input.taskSpec,
         ...(resumeSessionId ? { resumeSessionId } : {}),
         limits: { timeoutMs: input.timeoutMs },
+        signal: cancellationSignal,
         ...(input.allowedCommands ? { allowedCommands: input.allowedCommands } : {}),
         onActivity: agentActivityReporter(input.db, {
           runId: input.runId,
@@ -173,6 +190,10 @@ export async function executeWithFallbacks(
         transcript: `Executor crashed before returning a result: ${message}`,
         ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
       };
+    }
+
+    if (cancellationSignal.aborted) {
+      result = cancelledExecution(result.sessionId, result.transcript);
     }
 
     if (result.status === 'succeeded' && input.validate) {
@@ -218,7 +239,12 @@ export async function executeWithFallbacks(
     await input.db
       .update(agentRuns)
       .set({
-        status: result.status === 'succeeded' ? 'succeeded' : 'failed',
+        status:
+          result.status === 'succeeded'
+            ? 'succeeded'
+            : result.failureReason === 'cancelled'
+              ? 'cancelled'
+              : 'failed',
         ...(result.status === 'failed' ? { failureReason: result.failureReason } : {}),
         sessionId: result.sessionId ?? resumeSessionId,
         finishedAt: new Date(),
@@ -249,4 +275,38 @@ export async function executeWithFallbacks(
 
   if (!lastFailure) throw new Error('executor fallback chain ended without a result');
   return { status: 'failed', result: lastFailure, artifactIds, attempts: attempted };
+}
+
+function cancelledExecution(sessionId?: string, transcript = ''): FailedExecution {
+  return {
+    status: 'failed',
+    failureReason: 'cancelled',
+    transcript: transcript || 'Stopped by the operator.',
+    ...(sessionId ? { sessionId } : {}),
+  };
+}
+
+function watchRunCancellation(db: Db, runId: string): { signal: AbortSignal; stop: () => void } {
+  const controller = new AbortController();
+  let polling = false;
+  const poll = async () => {
+    if (polling || controller.signal.aborted) return;
+    polling = true;
+    try {
+      const rows = await db
+        .select({ status: pipelineRuns.status })
+        .from(pipelineRuns)
+        .where(eq(pipelineRuns.id, runId))
+        .limit(1);
+      if (rows[0]?.status === 'cancelled') controller.abort();
+    } catch {
+      // A transient status-poll failure must not alter the executor result;
+      // the next poll can still observe cancellation.
+    } finally {
+      polling = false;
+    }
+  };
+  const timer = setInterval(() => void poll(), 500);
+  void poll();
+  return { signal: controller.signal, stop: () => clearInterval(timer) };
 }

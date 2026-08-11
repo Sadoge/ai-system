@@ -37,6 +37,7 @@ import {
 } from '@ai-system/domain';
 import {
   applyEvent,
+  cancelRun as cancelPipelineRun,
   compareEvalRun,
   listTasks,
   resolveGate,
@@ -332,6 +333,7 @@ export class ApiService {
                 'task.failed',
                 'run.gate.requested',
                 'run.gate.resolved',
+                'run.cancelled',
               ]),
             ),
           )
@@ -378,6 +380,25 @@ export class ApiService {
       subjectType: 'pipeline_run',
       subjectId: runId,
       data: { stage: run.currentStage },
+    });
+    return { runId, status: result.status };
+  }
+
+  async cancelRun(principal: Principal, runId: string, input: { reason?: string | undefined }) {
+    assertCan(principal.role, 'run:cancel');
+    await this.requireRun(principal, runId);
+
+    const result = await cancelPipelineRun(this.db, runId, input.reason ?? 'Stopped by operator');
+    if (result.outcome === 'ignored') throw new BadRequestException(result.reason);
+    if (result.outcome !== 'transitioned' || result.status !== 'cancelled') {
+      throw new BadRequestException('stop did not cancel the run');
+    }
+    await recordAudit(this.db, {
+      principal,
+      action: 'run.cancelled',
+      subjectType: 'pipeline_run',
+      subjectId: runId,
+      data: { reason: input.reason ?? 'Stopped by operator' },
     });
     return { runId, status: result.status };
   }

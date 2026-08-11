@@ -60,6 +60,7 @@ export class CliAgentExecutor implements AgentExecutor {
   }
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
+    if (input.signal?.aborted) return cancelledResult();
     const canResume =
       Boolean(input.resumeSessionId) &&
       Boolean(this.preset.buildResumeArgs) &&
@@ -114,6 +115,10 @@ export class CliAgentExecutor implements AgentExecutor {
       let stderrLines = '';
       let sessionId = canResume ? input.resumeSessionId : undefined;
       let settled = false;
+      const clocks: {
+        heartbeat?: ReturnType<typeof setInterval>;
+        timer?: ReturnType<typeof setTimeout>;
+      } = {};
       let activityChain = Promise.resolve();
       const emit = (activity: Parameters<NonNullable<typeof input.onActivity>>[0]) => {
         if (!input.onActivity) return;
@@ -122,10 +127,17 @@ export class CliAgentExecutor implements AgentExecutor {
       const finish = async (result: AgentExecutionResult) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
-        clearInterval(heartbeat);
+        if (clocks.timer) clearTimeout(clocks.timer);
+        if (clocks.heartbeat) clearInterval(clocks.heartbeat);
+        input.signal?.removeEventListener('abort', onAbort);
         await activityChain;
         resolve(result);
+      };
+
+      const onAbort = () => {
+        emit({ kind: 'agent', message: `${this.cliName} was stopped by the operator` });
+        child.kill('SIGKILL');
+        void finish(cancelledResult(sessionId, `${stdout}\n${stderr}`));
       };
 
       emit({ kind: 'agent', message: `${this.cliName} process started` });
@@ -153,11 +165,11 @@ export class CliAgentExecutor implements AgentExecutor {
         }
       });
 
-      const heartbeat = setInterval(() => {
+      clocks.heartbeat = setInterval(() => {
         emit({ kind: 'heartbeat', message: `${this.cliName} is still working` });
       }, 15_000);
 
-      const timer = setTimeout(() => {
+      clocks.timer = setTimeout(() => {
         emit({
           kind: 'agent',
           message: `${this.cliName} exceeded its ${Math.ceil(input.limits.timeoutMs / 60_000)} minute limit and was stopped`,
@@ -238,14 +250,27 @@ export class CliAgentExecutor implements AgentExecutor {
         });
       });
 
-      if (this.preset.promptDelivery === 'stdin') {
+      input.signal?.addEventListener('abort', onAbort, { once: true });
+      if (input.signal?.aborted) onAbort();
+
+      if (!settled && this.preset.promptDelivery === 'stdin') {
         child.stdin.write(prompt);
         child.stdin.end();
-      } else {
+      } else if (!settled) {
         child.stdin.end();
       }
     });
   }
+}
+
+function cancelledResult(sessionId?: string, transcript = ''): AgentExecutionResult {
+  return {
+    status: 'failed',
+    failureReason: 'cancelled',
+    transcript: transcript || 'Stopped by the operator.',
+    usage: {},
+    ...(sessionId ? { sessionId } : {}),
+  };
 }
 
 function isMissingBinary(err: NodeJS.ErrnoException): boolean {

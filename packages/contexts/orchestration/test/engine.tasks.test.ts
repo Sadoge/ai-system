@@ -119,6 +119,29 @@ describe('task DAG fan-out', () => {
 });
 
 describe('task failure handling', () => {
+  it('cancels every incomplete task when the run is stopped', () => {
+    const run = runWithTasks([
+      task(T.a, { status: 'completed' }),
+      task(T.b, { status: 'running' }),
+      task(T.c),
+    ]);
+    const result = advance(run, {
+      name: 'run.cancelled',
+      payload: { runId: RUN_ID, reason: 'operator requested' },
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'cancelled',
+      currentStage: null,
+      commands: [],
+      taskUpdates: [
+        { taskId: T.b, status: 'cancelled' },
+        { taskId: T.c, status: 'cancelled' },
+      ],
+    });
+  });
+
   it('retries a failed task while attempts remain', () => {
     const run = runWithTasks([task(T.a, { status: 'running', attemptCount: 1, maxAttempts: 2 })], 2);
     const result = advance(run, failed(T.a));

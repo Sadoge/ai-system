@@ -89,21 +89,21 @@ This note records the repository contracts that the structured-diff work must us
 
 The web theme is defined in `apps/web/src/app/globals.css`. Diff styling uses only its existing custom properties:
 
-- Addition mint appearance: `color-mix(in hsl, var(--color-cue-bright) 68%, var(--color-hold-bright))`. The theme has no standalone mint property, so this existing-token mix is the shared addition ink; its 10% transparent mix is the row wash. It does not introduce a mint/aqua custom property or literal replacement color.
-- Deletion: `--color-mark` for the 10% row wash and `--color-mark-bright` for small marker text.
-- Hunk headers and focus: `--color-cue-bright`, with `--color-ground` beneath hunk text.
-- Rules and gutters: `--color-rule`, `--color-rule-strong`, `--color-ink-label`, and `--color-ink-faint`.
-- Code: `--font-mono` with tabular figures.
+- Additions use `--color-ground-raised`; deletions use `--color-ground-band`. Prefixes and explicit `added`/`deleted` status text make the distinction independent of colour.
+- Hunk headers use `--color-ground-band` and `--color-cue-bright`.
+- Rules and gutters use `--color-rule`, `--color-rule-strong`, `--color-ink-label`, and `--color-ink-faint`.
+- Code uses `--font-mono` with tabular figures, horizontal overflow containment, and non-selectable line-number, status, and prefix columns.
+- Forced-colour mode adds solid and dashed leading rules to changed rows, and JavaScript smooth scrolling checks `prefers-reduced-motion` at interaction time.
 
 The existing small breakpoint begins at 640px, so the diff metadata stack applies below it.
 
 ### CSS class contract
 
-- File shell: `.diff-file`
-- Sticky header outside the horizontal scroller: `.diff-file-header`
-- File header layout and control: `.diff-file-row`, `.diff-file-disclosure`, `.diff-file-path`, `.diff-file-meta`
-- Horizontal scroll container and code block: `.diff-scroll`, `.diff-code`
-- Code row and cells: `.diff-row`, `.diff-line-number`, `.diff-line-marker`, `.diff-line-content`
-- Row states: `.diff-row-addition`, `.diff-row-deletion`, `.diff-row-hunk`
+- Summary and artifact metadata: `.diff-summary`, `.diff-metadata`
+- File index: `.diff-index`, `.diff-index-row`, `.diff-disclosure`, `.diff-file-path`, `.diff-file-status`, `.diff-file-counts`
+- File shell and disclosure: `.diff-files`, `.diff-file`, `.diff-file-header`
+- Patch content: `.diff-code`, `.diff-file-metadata`, `.diff-hunk`, `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`
+- Row states and progressive reveal: `.diff-line-addition`, `.diff-line-deletion`, `.diff-reveal`
+- Empty, error, and unparseable states: `.diff-state`, `.diff-state-error`, `.diff-raw`
 
-The required nesting is `.diff-file > .diff-file-header + .diff-scroll`; `.diff-file-header` must never be placed inside `.diff-scroll`, otherwise the sticky header will move with horizontally scrolled code.
+The live nesting is `.diff-file > .diff-file-header + [id$="-content"] > .diff-code`. File bodies are mounted only while expanded, and each file initially renders at most 400 patch lines before an explicit reveal control.

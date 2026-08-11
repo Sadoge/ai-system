@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { groupHunkLines } from '@/lib/diff-view-model';
+import { groupHunkLines, LARGE_FILE_LINE_LIMIT, splitDiffHunks } from '@/lib/diff-view-model';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
-import { parseUnifiedDiff, type DiffLine } from '@/lib/unified-diff';
+import { parseUnifiedDiff, type DiffHunk, type DiffLine } from '@/lib/unified-diff';
 import { System, linkCls } from '@/lib/ui';
 import { DiffViewer, RevealLines } from './diff-viewer';
 
@@ -14,23 +14,18 @@ interface CodeChangesProps {
 
 function DiffRow({ line }: { line: DiffLine }) {
   const prefix = line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ' ';
-  const status =
-    line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : line.kind;
+  const status = line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : '';
   return (
     <div className={`diff-line diff-line-${line.kind}`}>
-      <span
-        className="diff-line-number"
-        aria-label={line.oldLine ? `old line ${line.oldLine}` : ''}
-      >
+      <span className="diff-line-number" aria-hidden="true">
         {line.oldLine ?? ''}
       </span>
-      <span
-        className="diff-line-number"
-        aria-label={line.newLine ? `new line ${line.newLine}` : ''}
-      >
+      <span className="diff-line-number" aria-hidden="true">
         {line.newLine ?? ''}
       </span>
-      <span className="diff-line-status">{status}</span>
+      <span className="diff-line-status" aria-hidden={!status || undefined}>
+        {status}
+      </span>
       <code>
         <span className="diff-prefix" aria-hidden>
           {prefix}
@@ -39,6 +34,27 @@ function DiffRow({ line }: { line: DiffLine }) {
       </code>
     </div>
   );
+}
+
+function DiffHunks({ hunks, keyPrefix }: { hunks: readonly DiffHunk[]; keyPrefix: string }) {
+  return hunks.map((hunk, hunkIndex) => (
+    <div key={`${keyPrefix}-${hunk.header}-${hunkIndex}`}>
+      <p className="diff-hunk">{hunk.header}</p>
+      {groupHunkLines(hunk).map((group, groupIndex) =>
+        group.kind === 'collapsed' ? (
+          <RevealLines key={groupIndex} count={group.lines.length}>
+            {group.lines.map((line, lineIndex) => (
+              <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+            ))}
+          </RevealLines>
+        ) : (
+          group.lines.map((line, lineIndex) => (
+            <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+          ))
+        ),
+      )}
+    </div>
+  ));
 }
 
 export function DiffPresentation({ runId, artifactId, content, error }: CodeChangesProps) {
@@ -61,6 +77,17 @@ export function DiffPresentation({ runId, artifactId, content, error }: CodeChan
 
   const parsed = parseUnifiedDiff(content.diff);
   if (parsed.files.length === 0) {
+    if (content.diff.trim()) {
+      return (
+        <div className="diff-state">
+          <p className="annot text-sm text-ink-label">
+            This content could not be parsed as a unified diff. The stored patch is shown below.
+          </p>
+          <pre className="diff-raw mt-3">{content.diff}</pre>
+        </div>
+      );
+    }
+
     return (
       <div className="diff-state">
         <p className="annot text-sm text-ink-label">This artifact contains no file changes.</p>
@@ -128,38 +155,34 @@ export function DiffPresentation({ runId, artifactId, content, error }: CodeChan
       </div>
 
       <DiffViewer files={files}>
-        {parsed.files.map((file) => (
-          <div key={file.id} className="diff-code" role="region" aria-label={`${file.path} patch`}>
-            {file.metadata.length > 0 && (
-              <div className="diff-file-metadata">
-                {file.metadata.map((line, index) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
-              </div>
-            )}
-            {file.hunks.map((hunk, hunkIndex) => (
-              <div key={`${hunk.header}-${hunkIndex}`}>
-                <p className="diff-hunk">{hunk.header}</p>
-                {groupHunkLines(hunk).map((group, groupIndex) =>
-                  group.kind === 'collapsed' ? (
-                    <RevealLines key={groupIndex} count={group.lines.length}>
-                      {group.lines.map((line, lineIndex) => (
-                        <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-                      ))}
-                    </RevealLines>
-                  ) : (
-                    group.lines.map((line, lineIndex) => (
-                      <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-                    ))
-                  ),
-                )}
-              </div>
-            ))}
-            {file.status === 'binary' && file.metadata.length === 0 && (
-              <p className="diff-file-metadata">Binary file changed.</p>
-            )}
-          </div>
-        ))}
+        {parsed.files.map((file) => {
+          const split = splitDiffHunks(file.hunks, LARGE_FILE_LINE_LIMIT);
+          return (
+            <div
+              key={file.id}
+              className="diff-code"
+              role="region"
+              aria-label={`${file.path} patch`}
+            >
+              {file.metadata.length > 0 && (
+                <div className="diff-file-metadata">
+                  {file.metadata.map((line, index) => (
+                    <p key={`${line}-${index}`}>{line}</p>
+                  ))}
+                </div>
+              )}
+              <DiffHunks hunks={split.visible} keyPrefix={`${file.id}-visible`} />
+              {split.remainingLineCount > 0 && (
+                <RevealLines count={split.remainingLineCount} unchanged={false}>
+                  <DiffHunks hunks={split.remaining} keyPrefix={`${file.id}-remaining`} />
+                </RevealLines>
+              )}
+              {file.status === 'binary' && file.metadata.length === 0 && (
+                <p className="diff-file-metadata">Binary file changed.</p>
+              )}
+            </div>
+          );
+        })}
       </DiffViewer>
     </>
   );

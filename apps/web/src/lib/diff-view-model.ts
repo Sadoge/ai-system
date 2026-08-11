@@ -1,7 +1,37 @@
 import type { DiffHunk, DiffLine } from './unified-diff';
 
+export const LARGE_FILE_LINE_LIMIT = 400;
+
 export type DiffLineGroup =
   { kind: 'visible'; lines: DiffLine[] } | { kind: 'collapsed'; lines: DiffLine[] };
+
+export interface SplitDiffHunks {
+  visible: DiffHunk[];
+  remaining: DiffHunk[];
+  remainingLineCount: number;
+}
+
+/** Split a file at a line budget without mutating the parsed patch. A hunk
+ * crossing the boundary is repeated so the revealed tail keeps its context. */
+export function splitDiffHunks(hunks: readonly DiffHunk[], limit: number): SplitDiffHunks {
+  const visible: DiffHunk[] = [];
+  const remaining: DiffHunk[] = [];
+  let budget = Math.max(0, Math.floor(limit));
+
+  for (const hunk of hunks) {
+    const visibleLines = hunk.lines.slice(0, budget);
+    const remainingLines = hunk.lines.slice(visibleLines.length);
+    if (visibleLines.length > 0) visible.push({ ...hunk, lines: visibleLines });
+    if (remainingLines.length > 0) remaining.push({ ...hunk, lines: remainingLines });
+    budget -= visibleLines.length;
+  }
+
+  return {
+    visible,
+    remaining,
+    remainingLineCount: remaining.reduce((total, hunk) => total + hunk.lines.length, 0),
+  };
+}
 
 /** Collapse only long, unchanged runs. Changed lines and their nearby context
  * remain visible, while the complete source stays available on demand. */

@@ -1,8 +1,11 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
+  agentRuns,
   domainEvents,
+  gateRequests,
   outbox,
   pipelineRuns,
+  stageExecutions,
   taskDependencies,
   tasks as tasksTable,
   type Db,
@@ -65,11 +68,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
 
   if (!runId) return { outcome: 'recorded' };
 
-  const rows = await tx
-    .select()
-    .from(pipelineRuns)
-    .where(eq(pipelineRuns.id, runId))
-    .for('update');
+  const rows = await tx.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId)).for('update');
   const row = rows[0];
   if (!row) return { outcome: 'ignored', reason: `unknown run ${runId}` };
 
@@ -93,7 +92,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
     .set({
       status: result.status,
       currentStage: result.currentStage,
-      error: result.error ?? row.error,
+      error: result.error ?? (result.clearError ? null : row.error),
       version: row.version + 1,
       updatedAt: new Date(),
       ...(result.iterationCount !== undefined ? { iterationCount: result.iterationCount } : {}),
@@ -108,6 +107,7 @@ export async function applyEventTx(tx: Executor, event: DomainEvent): Promise<Ap
       .update(tasksTable)
       .set({
         status: update.status,
+        ...(update.status === 'created' || update.status === 'running' ? { error: null } : {}),
         // Attempts are counted at dispatch, so the engine's retry budget is
         // measured in starts, not failures.
         ...(update.status === 'running'
@@ -160,6 +160,52 @@ export async function startRun(db: Db, input: StartRunInput): Promise<{ runId: s
     });
   });
   return { runId };
+}
+
+/** Retry a failed run in place, preserving completed stages, artifacts, and tasks. */
+export async function retryRun(db: Db, runId: string): Promise<ApplyOutcome> {
+  return applyEvent(db, { name: 'run.retry.requested', payload: { runId } });
+}
+
+/**
+ * Stop a non-terminal run and settle its visible in-flight records in the
+ * same transaction. Workers observe the cancelled run and cooperatively
+ * interrupt long-running agent processes.
+ */
+export async function cancelRun(db: Db, runId: string, reason?: string): Promise<ApplyOutcome> {
+  return db.transaction(async (tx) => {
+    const result = await applyEventTx(tx, {
+      name: 'run.cancelled',
+      payload: { runId, ...(reason ? { reason } : {}) },
+    });
+    if (result.outcome !== 'transitioned' || result.status !== 'cancelled') return result;
+
+    const finishedAt = new Date();
+    await tx
+      .update(stageExecutions)
+      .set({ status: 'cancelled', finishedAt })
+      .where(
+        and(
+          eq(stageExecutions.runId, runId),
+          inArray(stageExecutions.status, ['queued', 'running']),
+        ),
+      );
+    await tx
+      .update(agentRuns)
+      .set({ status: 'cancelled', failureReason: 'cancelled', finishedAt })
+      .where(
+        and(
+          eq(agentRuns.runId, runId),
+          inArray(agentRuns.status, ['queued', 'preparing', 'running', 'validating']),
+        ),
+      );
+    await tx
+      .update(gateRequests)
+      .set({ status: 'cancelled', resolvedAt: finishedAt })
+      .where(and(eq(gateRequests.runId, runId), eq(gateRequests.status, 'pending')));
+
+    return result;
+  });
 }
 
 async function loadTasks(tx: Executor, runId: string): Promise<TaskSnapshot[]> {

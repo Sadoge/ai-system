@@ -42,6 +42,8 @@ export type AdvanceResult =
       currentStage: StageKind | null;
       commands: Command[];
       error?: string;
+      /** Explicitly clear a previously persisted run error (for example on manual retry). */
+      clearError?: boolean;
       /** Set when the transition consumed or granted an iteration (docs/05 §5). */
       iterationCount?: number;
       /**

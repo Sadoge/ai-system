@@ -27,16 +27,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div hidden dangerouslySetInnerHTML={{ __html: DIRECTION_CONTRACT }} />
         <div className="mx-auto max-w-6xl px-5 py-7 sm:px-8">
-          <header className="mb-10">
+          <header className="programme-head mb-10 px-4 py-4 sm:px-5">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <Link href="/" className="font-mono text-xl font-bold tracking-tight text-ink">
-                ai-system
+              <Link
+                href="/"
+                className="font-mono text-xl font-bold tracking-tight"
+                aria-label="ai-system home"
+              >
+                <span className="wordmark-ai" aria-hidden>ai</span>
+                <span className="wordmark-punctuation" aria-hidden>-</span>
+                <span className="wordmark-system" aria-hidden>system</span>
               </Link>
-              <p className="annot text-sm text-ink-label">
+              <p className="annot text-sm text-violet-bright">
                 deterministic orchestration, read as a score
               </p>
             </div>
-            <div className="mt-4 border-t border-rule pt-3">
+            <div className="mt-4 border-t border-rule-strong pt-3">
               <Movements />
             </div>
           </header>

@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "tsc -p tsconfig.json && node dist/main.js"
   },
   "dependencies": {
     "@ai-system/agent-execution": "workspace:*",

@@ -8,4 +8,5 @@ export * from './adapters/openai.js';
 export * from './adapters/embeddings.js';
 export * from './adapters/google.js';
 export * from './adapters/openai-compatible.js';
+export * from './adapters/subscription-cli.js';
 export * from './catalog.js';

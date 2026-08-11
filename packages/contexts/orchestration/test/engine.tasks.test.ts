@@ -119,6 +119,29 @@ describe('task DAG fan-out', () => {
 });
 
 describe('task failure handling', () => {
+  it('cancels every incomplete task when the run is stopped', () => {
+    const run = runWithTasks([
+      task(T.a, { status: 'completed' }),
+      task(T.b, { status: 'running' }),
+      task(T.c),
+    ]);
+    const result = advance(run, {
+      name: 'run.cancelled',
+      payload: { runId: RUN_ID, reason: 'operator requested' },
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'cancelled',
+      currentStage: null,
+      commands: [],
+      taskUpdates: [
+        { taskId: T.b, status: 'cancelled' },
+        { taskId: T.c, status: 'cancelled' },
+      ],
+    });
+  });
+
   it('retries a failed task while attempts remain', () => {
     const run = runWithTasks([task(T.a, { status: 'running', attemptCount: 1, maxAttempts: 2 })], 2);
     const result = advance(run, failed(T.a));
@@ -142,6 +165,37 @@ describe('task failure handling', () => {
       taskUpdates: [{ taskId: T.a, status: 'failed' }],
     });
     expect(result.outcome === 'transitioned' && result.error).toContain('agent crashed');
+  });
+
+  it('manually retries incomplete tasks while preserving completed task work', () => {
+    const run: RunSnapshot = {
+      ...runWithTasks(
+        [
+          task(T.a, { status: 'failed', attemptCount: 2, maxAttempts: 2 }),
+          task(T.b, { status: 'completed', attemptCount: 1 }),
+          task(T.c, { status: 'created', dependsOn: [T.a, T.b] }),
+        ],
+        2,
+      ),
+      status: 'failed',
+    };
+
+    const result = advance(run, {
+      name: 'run.retry.requested',
+      payload: { runId: RUN_ID },
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'executing',
+      currentStage: 'code',
+      clearError: true,
+      commands: [{ kind: 'execute_task', runId: RUN_ID, taskId: T.a }],
+      taskUpdates: [
+        { taskId: T.a, status: 'created' },
+        { taskId: T.a, status: 'running' },
+      ],
+    });
   });
 
   it('ignores a failure for an unknown task', () => {
@@ -179,6 +233,25 @@ describe('team pipeline iteration', () => {
       currentStage: 'decompose',
       iterationCount: 1,
       commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'decompose' }],
+    });
+  });
+
+  it('skips a second review after corrective tasks are integrated', () => {
+    const corrected: RunSnapshot = {
+      ...runWithTasks([task(T.a, { status: 'completed' })]),
+      status: 'integrating',
+      currentStage: 'integrate',
+      iterationCount: 1,
+    };
+    const result = advance(corrected, {
+      name: 'run.stage.completed',
+      payload: { runId: RUN_ID, stageExecutionId: RUN_ID, stage: 'integrate', artifactIds: [] },
+    });
+    expect(result).toMatchObject({
+      outcome: 'transitioned',
+      status: 'testing',
+      currentStage: 'test',
+      commands: [{ kind: 'execute_stage', runId: RUN_ID, stage: 'test' }],
     });
   });
 

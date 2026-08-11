@@ -56,7 +56,13 @@ export class ModelGateway {
    */
   async embed(profile: ResolvedProfile, req: EmbedRequest): Promise<EmbedResult> {
     if (req.texts.length === 0) {
-      return { vectors: [], provider: profile.primary.provider, model: profile.primary.model, inputTokens: 0, costUsd: 0 };
+      return {
+        vectors: [],
+        provider: profile.primary.provider,
+        model: profile.primary.model,
+        inputTokens: 0,
+        costUsd: 0,
+      };
     }
     await this.enforceBudget({ ...req, messages: [], meta: req.meta } as CompleteRequest);
 
@@ -137,10 +143,7 @@ export class ModelGateway {
     const target = profile.primary;
     const adapter = this.adapters.get(target.provider);
     if (!adapter?.completeWithTools) {
-      throw new GatewayError(
-        'no_adapter',
-        `provider ${target.provider} does not support tool use`,
-      );
+      throw new GatewayError('no_adapter', `provider ${target.provider} does not support tool use`);
     }
 
     const turns: ToolTurn[] = [];
@@ -171,7 +174,11 @@ export class ModelGateway {
         provider: target.provider,
         model: target.model,
         purpose: req.meta.purpose,
-        promptHash: hashPrompt({ messages: req.messages, meta: req.meta, ...(req.system !== undefined ? { system: req.system } : {}) }),
+        promptHash: hashPrompt({
+          messages: req.messages,
+          meta: req.meta,
+          ...(req.system !== undefined ? { system: req.system } : {}),
+        }),
         inputTokens: completion.inputTokens,
         outputTokens: completion.outputTokens,
         costUsd: callCost,
@@ -231,6 +238,9 @@ export class ModelGateway {
             messages: req.messages,
             maxTokens: req.maxTokens ?? target.params?.maxTokens ?? DEFAULT_MAX_TOKENS,
             ...(temperature !== undefined ? { temperature } : {}),
+            ...(target.params?.reasoningEffort
+              ? { reasoningEffort: target.params.reasoningEffort }
+              : {}),
           });
           const costUsd = computeCostUsd(
             target.model,

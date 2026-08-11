@@ -17,6 +17,11 @@ worker). Phase 1 delivers:
 - **Project Brain v1** — structural repo index + curated rules, always injected into agent context
 - **Typed agents** (classifier/research/planner/reviewer) with invalid-output retry; deterministic
   mock roster via `MOCK_MODELS=true` (no API key needed — one planted finding exercises iteration)
+- **Subscription-backed stage assignments** — classifier, research, planning, decomposition,
+  review, test analysis, documentation, and distillation can each use an authenticated Codex or
+  Claude CLI with their own model and low/medium/high effort setting. Coding and merge-conflict
+  resolution translate the same assignment into the corresponding worktree-editing CLI. No
+  provider API key is required.
 - **Pluggable coding executor** — `cli` wraps a headless agent CLI (Claude Code by default) in a
   worktree; credentials never enter the sandbox
 - **Jira read integration** — `run start --jira KEY`, webhook trigger, PR-link comment write-back
@@ -24,7 +29,8 @@ worker). Phase 1 delivers:
 - **Control plane API** (NestJS/Fastify) — REST + SSE live run streams, bearer-token single-user auth
 - **Web UI** (Next.js) — runs list, run detail with live updates, gate approval screens, knowledge
   editor, model profile settings, per-run cost
-- **Per-project model profiles** — resolution cascade project → org → platform default
+- **Per-project agent profiles** — stage → subscription agent + model + effort, resolved project
+  → organization → platform default and held stable for the run
 
 **Phase 2 — the team, and a Brain that learns.** A third pipeline, `team`, turns one agent into
 several, and the Project Brain starts compounding:
@@ -51,6 +57,7 @@ several, and the Project Brain starts compounding:
   ai-system repo check-agents                          # what's installed here
   ai-system repo register <url> --executor codex       # per repository
   ```
+
 - **Also** — documentation stage, optional pre-merge gate, Jira status transitions, and UI for the
   task graph, findings dashboard, knowledge approval inbox, and brain inspector.
 
@@ -90,10 +97,10 @@ ai-system org bootstrap --name "Acme" --key-name founder   # org + owner key + p
 ai-system org quotas --org <id> --max-concurrent-runs 5
 ```
 
-**Phase 4 — the moat.** What makes the platform measurably better at *your*
+**Phase 4 — the moat.** What makes the platform measurably better at _your_
 projects than any generic agent:
 
-- **Evaluation harness** — replay a historical ticket through the pipeline as configured *today*
+- **Evaluation harness** — replay a historical ticket through the pipeline as configured _today_
   (current prompts, models, approved rules) and diff the outcome: iterations, findings, cost,
   duration. Eval runs never feed analytics or the learning loop, so measuring the platform
   cannot change it.
@@ -109,7 +116,7 @@ projects than any generic agent:
   settled outcomes turn that into a bounded ranking prior: a sample floor of three runs, clamped
   to ±0.05 on a cosine scale, applied after nearest-neighbour search and never to approved rules.
   It reorders what similarity retrieved; it cannot conjure what similarity rejected. Reported as
-  correlation, with the sample size, because material is retrieved *because* it looks relevant and
+  correlation, with the sample size, because material is retrieved _because_ it looks relevant and
   the hardest tickets attract the most of it.
 - **Every forge, every tracker** — GitHub, GitLab, and Bitbucket behind one git-host port;
   Jira, Linear, and Azure DevOps behind one intake port. A recognized remote with no credentials
@@ -126,7 +133,6 @@ ai-system brain effectiveness          # which context correlates with first-pas
 ai-system webhook add https://example.com/hooks --events 'run.*'
 ```
 
-
 ### Quickstart
 
 ```bash
@@ -136,22 +142,52 @@ cp .env.example .env
 
 node apps/cli/dist/main.js db migrate
 node apps/cli/dist/main.js seed
-node apps/worker/dist/main.js &                            # or: pnpm --filter @ai-system/worker dev
+
+# Sign into at least one subscription CLI. The worker auto-detects it.
+codex login                                                # ChatGPT subscription
+# or: claude auth login                                    # Claude subscription
+
+pnpm --filter @ai-system/worker start &                   # builds first; or use: pnpm --filter @ai-system/worker dev
 
 echo '# My first ticket' > ticket.md
 node apps/cli/dist/main.js run start ticket.md            # trivial pipeline
 node apps/cli/dist/main.js run status <run-id>
+node apps/cli/dist/main.js run stop <run-id>        # stop active and queued work
+node apps/cli/dist/main.js run retry <run-id>      # retry only the failed stage/tasks
 
-# Full MVP pipeline against a real repository (mock mode needs no API key):
-node apps/cli/dist/main.js repo register /path/to/repo --test-command 'npm test'
-MOCK_MODELS=true node apps/worker/dist/main.js &
+# Full MVP pipeline against a real repository using the signed-in Codex CLI
+# for both reasoning and code (no provider API key required):
+node apps/cli/dist/main.js repo register /path/to/repo \
+  --test-command 'npm test' --executor codex --executor-model default --executor-effort low
 node apps/cli/dist/main.js run start ticket.md --pipeline mvp
 node apps/cli/dist/main.js gate list                      # approve the plan, then the final PR
+
+# For a local repository, packaging publishes ai/run-<run-suffix> directly
+# into /path/to/repo. Inspect it there after the package stage succeeds:
+git branch --list 'ai/run-*'
+git switch ai/run-<run-suffix>
+
+# Deterministic offline pipeline test instead of real reasoning:
+# MOCK_MODELS=true pnpm --filter @ai-system/worker start
 
 # Or drive everything from the API + web UI:
 node apps/api/dist/main.js &                              # control plane on :3001
 pnpm --filter @ai-system/web start &                      # UI on :3000
 ```
+
+Open `http://localhost:3000/settings/models` to assign every stage independently. For example:
+
+| Stage responsibility             | Subscription agent | Model     | Effort |
+| -------------------------------- | ------------------ | --------- | ------ |
+| Write code (`coding`)            | Claude             | `sonnet`  | medium |
+| Analyze test results (`testing`) | Codex              | `default` | low    |
+| Review code (`review`)           | Codex              | `default` | high   |
+
+`default` means “use the model selected by that CLI.” A specific value is passed directly through
+`claude --model` or `codex exec --model`; effort is passed through as the CLI's native setting.
+The test command itself is still an allowlisted deterministic command. The testing assignment only
+interprets its output and creates fix findings. Saving a project-scoped assignment overrides the
+organization-wide assignment for new runs.
 
 `pnpm test` runs the engine replay tests and gateway tests; no database or API key required.
 

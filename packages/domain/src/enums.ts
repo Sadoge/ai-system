@@ -82,6 +82,7 @@ export const AgentRunStatus = z.enum([
   'validating',
   'succeeded',
   'failed',
+  'cancelled',
 ]);
 export type AgentRunStatus = z.infer<typeof AgentRunStatus>;
 
@@ -96,7 +97,7 @@ export const AgentFailureReason = z.enum([
 ]);
 export type AgentFailureReason = z.infer<typeof AgentFailureReason>;
 
-export const TaskStatus = z.enum(['created', 'running', 'completed', 'failed']);
+export const TaskStatus = z.enum(['created', 'running', 'completed', 'failed', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 export const TaskOrigin = z.enum(['decomposition', 'fix_iteration']);

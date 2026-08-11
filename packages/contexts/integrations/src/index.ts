@@ -4,3 +4,4 @@ export * from './gitlab.js';
 export * from './bitbucket.js';
 export * from './linear.js';
 export * from './azure-devops.js';
+export * from './local-git.js';

@@ -4,12 +4,14 @@ import { detectGitHost, gitHostFor } from '../src/git-host.js';
 const GITHUB = 'https://github.com/owner/repo.git';
 const GITLAB = 'https://gitlab.com/group/sub/project.git';
 const BITBUCKET = 'git@bitbucket.org:team/app.git';
+const LOCAL = '/Users/example/project';
 
 describe('detectGitHost', () => {
   it('identifies each supported forge from the remote alone', () => {
     expect(detectGitHost(GITHUB, {} as NodeJS.ProcessEnv)).toBe('github');
     expect(detectGitHost(GITLAB, {} as NodeJS.ProcessEnv)).toBe('gitlab');
     expect(detectGitHost(BITBUCKET, {} as NodeJS.ProcessEnv)).toBe('bitbucket');
+    expect(detectGitHost(LOCAL, {} as NodeJS.ProcessEnv)).toBe('local');
     expect(detectGitHost('https://example.com/x/y.git', {} as NodeJS.ProcessEnv)).toBeNull();
   });
 
@@ -42,5 +44,11 @@ describe('gitHostFor', () => {
     // A GitHub token present in the environment must not make a Bitbucket
     // remote look publishable.
     expect(gitHostFor(BITBUCKET, { githubToken: 'ghp', env: {} as NodeJS.ProcessEnv })).toBeNull();
+  });
+
+  it('publishes local repositories without requiring forge credentials', () => {
+    const host = gitHostFor(LOCAL, { env: {} as NodeJS.ProcessEnv });
+    expect(host?.name).toBe('local');
+    expect(host?.openChangeRequest).toBeUndefined();
   });
 });

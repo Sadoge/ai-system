@@ -13,13 +13,23 @@ export interface CliParseResult {
   /** The CLI ran but reported a failure of its own (not a crash). */
   isError: boolean;
   errorMessage?: string;
+  sessionId?: string;
 }
 
 export interface AgentCliPreset {
   name: AgentCliName;
   binary: string;
   /** Argv after the binary. Built per invocation so the model can be injected. */
-  buildArgs(input: { model?: string | undefined }): string[];
+  buildArgs(input: {
+    model?: string | undefined;
+    effort?: 'low' | 'medium' | 'high' | undefined;
+  }): string[];
+  /** Build argv for continuing a provider session, when supported. */
+  buildResumeArgs?(input: {
+    sessionId: string;
+    model?: string | undefined;
+    effort?: 'low' | 'medium' | 'high' | undefined;
+  }): string[];
   /**
    * Prompts are long and contain arbitrary text, so `stdin` is the default:
    * it avoids shell quoting entirely and cannot hit ARG_MAX.
@@ -28,6 +38,10 @@ export interface AgentCliPreset {
   /** Cheap liveness probe, e.g. `claude --version`. */
   versionArgs: string[];
   parse(stdout: string, stderr: string): CliParseResult;
+  /** Parse one complete stdout line into safe live operator feedback. */
+  activity?(line: string): { kind: 'agent' | 'tool' | 'message'; message: string } | null;
+  /** Extract a resumable provider session id from one stdout line. */
+  sessionId?(line: string): string | undefined;
   /** Env vars forwarded into the sandbox, beyond PATH/HOME. Never repository credentials. */
   envAllowlist: string[];
 }
@@ -40,7 +54,7 @@ export interface AgentCliPreset {
 export const CLAUDE_CODE_PRESET: AgentCliPreset = {
   name: 'claude_code',
   binary: 'claude',
-  buildArgs: ({ model }) => [
+  buildArgs: ({ model, effort }) => [
     '-p',
     '--output-format',
     'json',
@@ -48,10 +62,12 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
     '--permission-mode',
     'acceptEdits',
     ...(model ? ['--model', model] : []),
+    ...(effort ? ['--effort', effort] : []),
   ],
   promptDelivery: 'stdin',
   versionArgs: ['--version'],
-  envAllowlist: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'LANG', 'TERM'],
+  // OAuth is subscription-backed; API keys are deliberately not forwarded.
+  envAllowlist: ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'LANG', 'TERM'],
   parse(stdout, stderr) {
     try {
       const data = JSON.parse(stdout.trim()) as {
@@ -68,7 +84,9 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
         ...(data.is_error === true ? { errorMessage: data.result ?? 'CLI reported an error' } : {}),
         usage: {
           ...(data.total_cost_usd !== undefined ? { costUsd: data.total_cost_usd } : {}),
-          ...(data.usage?.input_tokens !== undefined ? { inputTokens: data.usage.input_tokens } : {}),
+          ...(data.usage?.input_tokens !== undefined
+            ? { inputTokens: data.usage.input_tokens }
+            : {}),
           ...(data.usage?.output_tokens !== undefined
             ? { outputTokens: data.usage.output_tokens }
             : {}),
@@ -98,18 +116,44 @@ export const CLAUDE_CODE_PRESET: AgentCliPreset = {
 export const CODEX_PRESET: AgentCliPreset = {
   name: 'codex',
   binary: 'codex',
-  buildArgs: ({ model }) => [
+  buildArgs: ({ model, effort }) => [
     'exec',
-    // Let the agent edit files in the worktree without prompting.
-    '--full-auto',
+    '--sandbox',
+    'workspace-write',
+    '--config',
+    'approval_policy="never"',
+    // Dependency installation is part of coding work. Credentials are still
+    // excluded from the child environment, but registry traffic is allowed.
+    '--config',
+    'sandbox_workspace_write.network_access=true',
+    // JSONL exposes structured progress while the process is still running.
+    '--json',
     ...(model ? ['--model', model] : []),
+    ...(effort ? ['--config', `model_reasoning_effort="${effort}"`] : []),
+  ],
+  buildResumeArgs: ({ sessionId, model, effort }) => [
+    'exec',
+    'resume',
+    '--config',
+    'approval_policy="never"',
+    '--config',
+    'sandbox_workspace_write.network_access=true',
+    '--json',
+    ...(model ? ['--model', model] : []),
+    ...(effort ? ['--config', `model_reasoning_effort="${effort}"`] : []),
+    sessionId,
+    '-',
   ],
   promptDelivery: 'stdin',
   versionArgs: ['--version'],
-  envAllowlist: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'LANG', 'TERM'],
+  // Saved Codex login is read through HOME/CODEX_HOME; API keys stay outside.
+  envAllowlist: ['CODEX_HOME', 'LANG', 'TERM'],
   parse(stdout, stderr) {
-    const lines = stdout.split('\n').filter((l) => l.trim().startsWith('{'));
-    for (const line of lines.reverse()) {
+    let text = '';
+    let errorMessage = '';
+    const usage: CliUsage = {};
+    const lines = stdout.split('\n').filter((line) => line.trim().startsWith('{'));
+    for (const line of lines) {
       try {
         const data = JSON.parse(line) as {
           type?: string;
@@ -117,29 +161,108 @@ export const CODEX_PRESET: AgentCliPreset = {
           message?: string;
           usage?: { input_tokens?: number; output_tokens?: number };
           total_cost_usd?: number;
+          item?: { type?: string; text?: string };
         };
-        if (data.text || data.message) {
-          return {
-            text: data.text ?? data.message ?? '',
-            isError: false,
-            usage: {
-              ...(data.total_cost_usd !== undefined ? { costUsd: data.total_cost_usd } : {}),
-              ...(data.usage?.input_tokens !== undefined
-                ? { inputTokens: data.usage.input_tokens }
-                : {}),
-              ...(data.usage?.output_tokens !== undefined
-                ? { outputTokens: data.usage.output_tokens }
-                : {}),
-            },
-          };
+        if (data.item?.type === 'agent_message' && data.item.text) text = data.item.text;
+        else if (data.text || (data.type !== 'error' && data.message)) {
+          text = data.text ?? data.message ?? text;
         }
+        if (data.type === 'error' && data.message) errorMessage = data.message;
+        if (data.total_cost_usd !== undefined) usage.costUsd = data.total_cost_usd;
+        if (data.usage?.input_tokens !== undefined) usage.inputTokens = data.usage.input_tokens;
+        if (data.usage?.output_tokens !== undefined) usage.outputTokens = data.usage.output_tokens;
       } catch {
         // Not a JSON line — fall through to the raw-text path.
       }
     }
+    if (text || errorMessage || Object.keys(usage).length > 0) {
+      return {
+        text: text || errorMessage,
+        isError: Boolean(errorMessage),
+        ...(errorMessage ? { errorMessage } : {}),
+        usage,
+      };
+    }
     return { text: stdout || stderr, isError: false, usage: {} };
   },
+  activity(line) {
+    try {
+      const event = JSON.parse(line) as {
+        type?: string;
+        message?: string;
+        item?: {
+          type?: string;
+          text?: string;
+          command?: string;
+          server?: string;
+          tool?: string;
+          query?: string;
+        };
+      };
+      if (event.type === 'thread.started') {
+        return { kind: 'agent', message: 'Codex session started' };
+      }
+      if (event.type === 'turn.started') {
+        return { kind: 'agent', message: 'Analyzing the task' };
+      }
+      if (event.type === 'turn.completed') {
+        return { kind: 'agent', message: 'Finishing the agent run' };
+      }
+      if (event.type === 'error' && event.message) {
+        return { kind: 'message', message: safeSummary(event.message) };
+      }
+      const item = event.item;
+      if (!item) return null;
+      if (item.type === 'agent_message' && item.text) {
+        return { kind: 'message', message: safeSummary(item.text) };
+      }
+      if (item.type === 'command_execution' && event.type === 'item.started') {
+        return {
+          kind: 'tool',
+          message: item.command
+            ? `Running ${safeCommand(item.command)}`
+            : 'Running a workspace command',
+        };
+      }
+      if (item.type === 'mcp_tool_call' && event.type === 'item.started') {
+        const target = [item.server, item.tool].filter(Boolean).join(' / ');
+        return { kind: 'tool', message: target ? `Calling ${target}` : 'Calling a connected tool' };
+      }
+      if (item.type === 'web_search' && event.type === 'item.started') {
+        return {
+          kind: 'tool',
+          message: item.query ? `Searching for ${safeSummary(item.query)}` : 'Searching the web',
+        };
+      }
+      if (item.type === 'file_change') {
+        return { kind: 'tool', message: 'Editing workspace files' };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+  sessionId(line) {
+    try {
+      const event = JSON.parse(line) as { type?: string; thread_id?: string };
+      return event.type === 'thread.started' ? event.thread_id : undefined;
+    } catch {
+      return undefined;
+    }
+  },
 };
+
+function safeSummary(value: string, limit = 240): string {
+  const firstLine = value.replace(/\s+/g, ' ').trim();
+  return firstLine.length > limit ? `${firstLine.slice(0, limit - 1)}…` : firstLine;
+}
+
+function safeCommand(value: string): string {
+  const redacted = value
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|KEY|PASSWORD|SECRET)[A-Z0-9_]*)=\S+/gi, '$1=[redacted]')
+    .replace(/(?:Bearer\s+)[A-Za-z0-9._~+/-]+/gi, 'Bearer [redacted]');
+  return safeSummary(redacted, 180);
+}
 
 function pickCostliestModel(modelUsage: Record<string, unknown>): string {
   let best = '';

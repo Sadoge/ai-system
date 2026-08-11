@@ -26,15 +26,14 @@ stateDiagram-v2
     testing --> decideIteration
     state decideIteration <<choice>>
     decideIteration --> documenting : no blocking findings, tests green
-    decideIteration --> executing : fix tasks created, budget remaining
-    decideIteration --> awaiting_iteration_gate : iteration budget exhausted
-    awaiting_iteration_gate --> executing : human grants more iterations
-    awaiting_iteration_gate --> packaging : human accepts as-is
-    awaiting_iteration_gate --> [*] : human cancels
+    decideIteration --> executing : first failure, create one correction
+    integrating --> testing : corrective pass skips review
+    decideIteration --> failed : correction still fails
     documenting --> packaging
     packaging --> awaiting_final_approval
     awaiting_final_approval --> completed : PR approved and created
-    awaiting_final_approval --> executing : changes requested
+    awaiting_final_approval --> executing : changes requested, correction unused
+    awaiting_final_approval --> failed : changes requested, correction used
     completed --> [*]
     failed --> [*]
 ```
@@ -111,8 +110,8 @@ sequenceDiagram
     O->>W: job: integrate (merge task branches → run branch)
     O->>W: job: review
     W->>G: review agent → findings (1 major)
-    O->>O: iteration 1: create fix task from finding
-    O->>W: job: fix task → integrate → review → test
+    O->>O: correction 1: create fix task from finding
+    O->>W: job: fix task → integrate → test (no second review)
     W-->>O: tests green, no blocking findings
     O->>W: job: document, then package
     W-->>O: pr_package artifact
@@ -128,25 +127,26 @@ After `testing`, the engine evaluates — deterministically:
 
 1. Collect open `blocker`/`major` findings and failing tests.
 2. If none → `documenting`.
-3. Else, if `iteration_count < iteration_budget`:
-   - increment `iteration_count`;
+3. Else, if `iteration_count = 0`:
+   - set `iteration_count` to `1`;
    - ask the planning agent to turn findings/failures into **fix task specs** (bounded LLM step, validated output);
    - create tasks with `origin = fix_iteration`, link each finding to its fix task (`fix_task_created`);
-   - re-enter `executing` with only the new tasks.
-4. Else → `awaiting_iteration_gate`: a human decides — grant more iterations, accept as-is (waiving remaining findings explicitly), or cancel.
+   - re-enter `executing` with only the new tasks;
+   - after coding/integration, mark the supplied findings resolved and go directly to `testing`, without another review.
+4. Else → `failed` with a correction-limit error and no command that can reopen coding.
 
-Findings are the unit of iteration accounting: a finding that survives two fix attempts is flagged in the gate payload so the human sees *what the system could not fix*, not just that it failed.
+The hard ceiling is one even for historical policy snapshots that stored a larger budget. A final-PR or pre-merge rejection consumes the same single correction allowance; another rejection stops the run.
 
 ## 6. Failure semantics
 
 | Failure | Deterministic response |
 |---|---|
 | Agent run `invalid_output` | Retry same agent with validation errors appended (max 2), then fail the stage |
-| Agent run `model_error` / `rate_limited` | Gateway retries → fallback models (see [07](07-model-management.md)); if all exhausted, stage fails |
+| Editing agent `timeout` / `model_error` / `rate_limited` / `sandbox_error` | Continue through the configured model targets, then the alternate authenticated Codex/Claude CLI in the same worktree; if all are exhausted, the stage fails |
 | Task fails after `max_attempts` | Stage `executing` fails → run `failed` with full diagnostics (never silent partial merge) |
 | Worker dies mid-job | pg-boss redelivers; handlers are idempotent on `(id, attempt)`; a fresh worktree is cut for redelivered coding tasks |
 | Budget exhausted | Run → `paused` + gate request; human tops up or cancels |
-| Gate rejected | Engine routes per gate kind: plan rejection → back to `planning` with the reviewer's feedback as input; final-PR rejection → new fix iteration |
+| Gate rejected | Engine routes per gate kind: plan rejection → back to `planning`; final-PR/pre-merge rejection → the one correction if unused, otherwise run `failed` |
 | Merge conflict in `integrating` | Integration agent attempts resolution in a scratch worktree; unresolvable conflicts fail the stage → gate, never auto-forced |
 
 ## 7. Why this is deterministic

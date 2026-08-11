@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { apiGet, type RunDetail } from '@/lib/api';
-import { resolveGateAction } from '@/lib/actions';
+import { resolveGateAction, retryRunAction } from '@/lib/actions';
 import {
   Caesura,
   Fermata,
@@ -14,15 +14,22 @@ import {
 } from '@/lib/ui';
 import { LiveRefresh } from './live-refresh';
 import { RunSystem } from './system';
+import { ExecutionMonitor } from './execution-monitor';
+import { StopRunControl } from './stop-run-control';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
-  const pendingGates = run.gates.filter((g) => g.status === 'pending');
-  const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
+  const pendingGates = terminal ? [] : run.gates.filter((g) => g.status === 'pending');
+  const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
+  const activeProcessCount = terminal
+    ? 0
+    : run.stages.filter((stage) => stage.status === 'running').length +
+      run.tasks.filter((task) => task.status === 'running').length +
+      (run.agents ?? []).filter((agent) => agent.status === 'running').length;
 
   return (
     <main>
@@ -35,6 +42,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             {run.ticket.title}
           </h1>
           <StatusMark status={run.status} />
+          {!terminal && <StopRunControl runId={run.id} />}
         </div>
         <p className="mt-2 font-mono text-xs text-ink-faint tnum">
           {run.policySnapshot.pipeline} · {run.policySnapshot.automationLevel}
@@ -47,6 +55,28 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <p className="mb-8 border-l-2 border-mark py-1 pl-4 font-mono text-sm text-mark-bright">
           {run.error}
         </p>
+      )}
+
+      {run.status === 'failed' && (
+        <div className="mb-8">
+          <Caesura>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="annot text-base text-ink">Retry from the failure</p>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-label">
+                  Completed stages, artifacts, and completed task branches stay in place. Only the
+                  failed stage or incomplete team tasks are queued again.
+                </p>
+              </div>
+              <form action={retryRunAction}>
+                <input type="hidden" name="runId" value={run.id} />
+                <button type="submit" className={buttonCls}>
+                  Retry{run.currentStage ? ` ${run.currentStage}` : ''}
+                </button>
+              </form>
+            </div>
+          </Caesura>
+        </div>
       )}
 
       {/* The hold. Every voice waits here until a human marks it. */}
@@ -99,9 +129,21 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <RunSystem run={run} />
       </System>
 
+      <System
+        mark="B"
+        title="Execution ledger"
+        aside={
+          terminal && activeProcessCount === 0
+            ? 'settled'
+            : `${activeProcessCount} active processes`
+        }
+      >
+        <ExecutionMonitor run={run} />
+      </System>
+
       {/* Editorial marks: what the reviewer wrote in the margin. */}
       {run.findings.length > 0 && (
-        <System mark="B" title="Editorial marks" aside={`${run.findings.length}`}>
+        <System mark="C" title="Editorial marks" aside={`${run.findings.length}`}>
           <ul className="space-y-5">
             {run.findings.map((f) => (
               <li
@@ -122,7 +164,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </System>
       )}
 
-      <System mark="C" title="Parts" aside={`${run.artifacts.length}`}>
+      <System mark="D" title="Parts" aside={`${run.artifacts.length}`}>
         {run.artifacts.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">
             No parts written yet. They appear as the run produces them.

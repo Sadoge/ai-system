@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { agentRuns, pipelineRuns, stageExecutions, type Db } from '@ai-system/db';
-import { StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
-import { applyEvent } from '@ai-system/orchestration';
+import { PolicySnapshot, StageKind, TicketSnapshot, uuidv7 } from '@ai-system/domain';
+import { applyEvent, pipelineFor } from '@ai-system/orchestration';
 import { createArtifact } from './artifacts.js';
 import {
   classifyStage,
@@ -14,6 +14,7 @@ import {
 } from './mvp-stages.js';
 import { decomposeStage, documentStage, executeTask, integrateStage } from './team-stages.js';
 import type { StageServices } from './services.js';
+import { reportActivity } from './activity.js';
 
 export interface StageOutcome {
   artifactIds: string[];
@@ -26,6 +27,14 @@ export interface StageOutcome {
 
 export type RunRow = typeof pipelineRuns.$inferSelect;
 
+type StageGuardRun = Pick<RunRow, 'currentStage' | 'status' | 'policySnapshot'>;
+
+export function shouldExecuteStage(run: StageGuardRun, stage: StageKind): boolean {
+  if (run.currentStage !== stage) return false;
+  const policy = PolicySnapshot.parse(run.policySnapshot);
+  return run.status === pipelineFor(policy).statusDuring(stage);
+}
+
 export async function executeStage(
   services: StageServices,
   input: { runId: string; stage: string },
@@ -36,24 +45,39 @@ export async function executeStage(
   const run = runRows[0];
   if (!run) throw new Error(`unknown run ${input.runId}`);
 
-  // Idempotency guard: a redelivered job for a stage the run has moved past is a no-op.
-  if (run.currentStage !== stage) return;
+  // A completed/failed/gated run retains its last currentStage. Require the
+  // matching active status too, or pg-boss redelivery restarts terminal work.
+  if (!shouldExecuteStage(run, stage)) return;
 
+  const previousAttempts = await db
+    .select({ attempt: stageExecutions.attempt })
+    .from(stageExecutions)
+    .where(and(eq(stageExecutions.runId, run.id), eq(stageExecutions.stage, stage)))
+    .orderBy(desc(stageExecutions.createdAt))
+    .limit(1);
+  const attempt = (previousAttempts[0]?.attempt ?? 0) + 1;
   const stageExecutionId = uuidv7();
   await db.insert(stageExecutions).values({
     id: stageExecutionId,
     runId: run.id,
     stage,
     status: 'running',
+    attempt,
     startedAt: new Date(),
   });
   await applyEvent(db, {
     name: 'run.stage.started',
     payload: { runId: run.id, stageExecutionId, stage },
   });
+  await reportActivity(
+    db,
+    { runId: run.id, stage, stageExecutionId },
+    { kind: 'stage', message: STAGE_ACTIVITY[stage] },
+  );
 
   try {
     const outcome = await runStage(services, stage, run);
+    if (await runWasCancelled(db, run.id)) return;
     await db
       .update(stageExecutions)
       .set({ status: 'completed', finishedAt: new Date() })
@@ -65,6 +89,7 @@ export async function executeStage(
       });
     }
   } catch (err) {
+    if (await runWasCancelled(db, run.id)) return;
     const reason = err instanceof Error ? err.message : String(err);
     await db
       .update(stageExecutions)
@@ -76,6 +101,30 @@ export async function executeStage(
     });
   }
 }
+
+async function runWasCancelled(db: Db, runId: string): Promise<boolean> {
+  const rows = await db
+    .select({ status: pipelineRuns.status })
+    .from(pipelineRuns)
+    .where(eq(pipelineRuns.id, runId))
+    .limit(1);
+  return rows[0]?.status === 'cancelled';
+}
+
+const STAGE_ACTIVITY: Record<StageKind, string> = {
+  intake: 'Capturing the ticket snapshot',
+  echo_agent: 'Running the echo agent',
+  classify: 'Classifying ticket complexity',
+  research: 'Gathering repository and Project Brain context',
+  plan: 'Drafting the implementation plan',
+  decompose: 'Building the task dependency graph',
+  code: 'Preparing the coding worktree and agent',
+  integrate: 'Merging completed task branches',
+  review: 'Reviewing the implementation for findings',
+  test: 'Running repository validation and tests',
+  document: 'Writing implementation documentation',
+  package: 'Preparing the pull-request package',
+};
 
 async function runStage(
   services: StageServices,

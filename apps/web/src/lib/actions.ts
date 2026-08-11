@@ -1,23 +1,70 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { apiPost } from './api';
+import { redirect } from 'next/navigation';
+import { apiGet, apiPost } from './api';
+import {
+  buildRunPayload,
+  validateRunForm,
+  type RunFormInput,
+  type RunFormProject,
+  type TicketSource,
+} from './run-form';
 
-export async function startRunAction(formData: FormData): Promise<void> {
-  const title = String(formData.get('title') ?? '').trim();
-  const description = String(formData.get('description') ?? '').trim();
-  const pipeline = String(formData.get('pipeline') ?? 'mvp');
-  const automation = String(formData.get('automation') ?? 'plan_gated');
-  const jiraKey = String(formData.get('jiraKey') ?? '').trim();
+export type StartRunState = {
+  status: 'idle' | 'error';
+  fieldErrors?: Record<string, string>;
+  formError?: string;
+};
 
-  await apiPost('/runs', {
-    ...(jiraKey
-      ? { jiraKey }
-      : { ticket: { source: 'manual', title, description } }),
-    pipeline,
-    automation,
-  });
+function readTicketSource(value: FormDataEntryValue | null): TicketSource {
+  return value === 'jira' ? 'jira' : 'manual';
+}
+
+export async function startRun(
+  _prevState: StartRunState,
+  formData: FormData,
+): Promise<StartRunState> {
+  const input: RunFormInput = {
+    source: readTicketSource(formData.get('source')),
+    title: String(formData.get('title') ?? ''),
+    description: String(formData.get('description') ?? ''),
+    jiraKey: String(formData.get('jiraKey') ?? ''),
+    projectId: String(formData.get('projectId') ?? ''),
+    repositoryId: String(formData.get('repositoryId') ?? ''),
+    pipeline: String(formData.get('pipeline') ?? 'mvp'),
+    automation: String(formData.get('automation') ?? 'plan_gated'),
+  };
+
+  let projects: RunFormProject[];
+  try {
+    projects = await apiGet<RunFormProject[]>('/projects');
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : 'The projects list is unavailable';
+    return {
+      status: 'error',
+      formError: `The run could not be started: ${detail}. Check the API connection and try again.`,
+    };
+  }
+
+  const { fieldErrors } = validateRunForm(input, { projects });
+  if (Object.keys(fieldErrors).length > 0) {
+    return { status: 'error', fieldErrors };
+  }
+
+  let result: { runId: string };
+  try {
+    result = await apiPost<{ runId: string }>('/runs', buildRunPayload(input));
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : 'The API returned an unknown error';
+    return {
+      status: 'error',
+      formError: `The run could not be started: ${detail}. Check the API connection and try again.`,
+    };
+  }
+
   revalidatePath('/');
+  redirect(`/runs/${result.runId}`);
 }
 
 export async function resolveGateAction(formData: FormData): Promise<void> {

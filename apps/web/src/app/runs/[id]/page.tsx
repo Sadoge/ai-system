@@ -24,14 +24,15 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const pendingGates = run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
   const terminal = TERMINAL.includes(run.status);
-  const activeProcessCount =
-    run.stages.filter((stage) => stage.status === 'running').length +
-    run.tasks.filter((task) => task.status === 'running').length +
-    (run.agents ?? []).filter((agent) => agent.status === 'running').length;
+  const activeProcessCount = terminal
+    ? 0
+    : run.stages.filter((stage) => stage.status === 'running').length +
+      run.tasks.filter((task) => task.status === 'running').length +
+      (run.agents ?? []).filter((agent) => agent.status === 'running').length;
 
   return (
     <main>
-      <LiveRefresh runId={id} active={!terminal || activeProcessCount > 0} />
+      <LiveRefresh runId={id} active={!terminal} />
 
       {/* Programme head */}
       <div className="mb-8">

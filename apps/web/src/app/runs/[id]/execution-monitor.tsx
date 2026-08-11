@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RunDetail } from '@/lib/api';
 import { StatusMark } from '@/lib/ui';
-import { stageFailureDetail } from './execution-monitor-copy';
+import { displayedAgentStatus, stageFailureDetail } from './execution-monitor-copy';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -127,11 +127,12 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
   // new web build is already live. Keep the ledger useful during that rollout.
   const events = run.events ?? [];
   const agentsForRun = run.agents ?? [];
+  const terminal = TERMINAL.has(run.status);
   const active =
-    !TERMINAL.has(run.status) ||
-    run.stages.some((stage) => stage.status === 'running') ||
-    run.tasks.some((task) => task.status === 'running') ||
-    agentsForRun.some((agent) => agent.status === 'running');
+    !terminal &&
+    (run.stages.some((stage) => stage.status === 'running') ||
+      run.tasks.some((task) => task.status === 'running') ||
+      agentsForRun.some((agent) => agent.status === 'running'));
   const stageOrder =
     run.stageOrder ??
     PIPELINE_STAGES[run.policySnapshot.pipeline] ??
@@ -311,23 +312,31 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
                       activities,
                       (event) => event.payload.agentRunId === agent.id,
                     );
+                    const agentStatus = displayedAgentStatus(run.status, agent.status);
+                    const stale = agentStatus === 'stale record';
                     return (
                       <li
                         key={agent.id}
                         className="agent-progress-row border-b border-rule px-2 py-2 last:border-b-0"
                       >
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <StatusMark status={agent.status} />
+                          <StatusMark status={agentStatus} />
                           <span className="text-sm text-ink-secondary">
                             {agent.agentKind} agent
                           </span>
                           <span className="ml-auto font-mono text-micro text-ink-faint">
                             {agent.executorKind} ·{' '}
-                            {duration(agent.startedAt, agent.finishedAt, now)}
+                              {duration(
+                                agent.startedAt,
+                                agent.finishedAt ?? (stale ? run.updatedAt : null),
+                                now,
+                              )}
                           </span>
                         </div>
                         <p className="ml-5 mt-1 text-xs text-ink-muted">
-                          {activity?.payload.message ?? 'Agent process recorded'}
+                          {stale
+                            ? 'No longer active; the run has already stopped'
+                            : (activity?.payload.message ?? 'Agent process recorded')}
                         </p>
                       </li>
                     );

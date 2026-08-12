@@ -116,11 +116,12 @@ The existing small breakpoint begins at 640px. Below it, summary metadata stacks
 
 ### CSS class contract
 
-- Summary and artifact metadata: `.diff-summary`, `.diff-metadata`, `.diff-state`, `.diff-raw`
-- Actions: `.diff-actions`, `.diff-action`
-- File index: `.diff-index`, `.diff-index-row`, `.diff-disclosure`, `.diff-file-path`, `.diff-file-status`, `.diff-file-counts`
-- File shell: `.diff-files`, `.diff-file`, `.diff-file-header`, `.diff-code`, `.diff-file-metadata`
-- Patch content: `.diff-hunk`, `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`, `.diff-reveal`
-- Row states: `.diff-line-addition`, `.diff-line-deletion`, `.diff-line-context`, `.diff-line-meta`
+These names were verified against the class names rendered by `code-changes.tsx` and `runs/[id]/diff-viewer.tsx`, rather than copied from the removed artifact-route viewer:
 
-File headers are intentionally non-sticky. Collapsed file bodies are not mounted, and expanded files initially render at most 400 parsed lines with an explicit control for the remainder. JavaScript scrolling checks `prefers-reduced-motion` before requesting smooth motion.
+- Summary and states: `.diff-summary`, `.diff-metadata`, `.diff-state`, `.diff-state-error`, `.diff-state-unparseable`, and `.diff-raw`.
+- Viewer controls and file index: `.diff-viewer`, `.diff-actions`, `.diff-action`, `.diff-index`, `.diff-index-row`, and `.diff-disclosure`.
+- File shell: `.diff-files`, `.diff-file`, `.diff-file-header`, `.diff-file-path`, `.diff-file-status`, and `.diff-file-counts`.
+- Patch content: `.diff-code`, `.diff-file-metadata`, `.diff-hunk`, `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`, and `.diff-reveal`.
+- Dynamic row states: `.diff-line-addition`, `.diff-line-deletion`, `.diff-line-context`, and `.diff-line-meta`.
+
+The file header is a normal, non-sticky button. An expanded file conditionally mounts patch content inside its `#<file-id>-content` container; collapsed file contents are not rendered. Patch content scrolls horizontally within `.diff-code`, and each file initially renders at most 400 lines before `.diff-reveal` exposes the remainder. JavaScript scrolling checks `prefers-reduced-motion` before requesting smooth motion.

@@ -388,6 +388,10 @@ body {
   line-height: 1.625;
   white-space: pre;
 }
+.diff-line-context,
+.diff-line-meta {
+  grid-template-columns: 3.25rem 3.25rem minmax(max-content, 1fr);
+}
 .diff-line-addition {
   border-top-color: var(--color-rule);
   background-color: var(--color-ground-raised);
@@ -470,6 +474,10 @@ body {
   }
   .diff-line {
     grid-template-columns: 2.75rem 2.75rem 4.25rem 1.25rem minmax(max-content, 1fr);
+  }
+  .diff-line-context,
+  .diff-line-meta {
+    grid-template-columns: 2.75rem 2.75rem minmax(max-content, 1fr);
   }
 }
 

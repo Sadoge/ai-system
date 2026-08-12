@@ -67,3 +67,17 @@ describe('capHunkLines', () => {
     expect(capHunkLines([first], 10)).toMatchObject({ remaining: 0 });
   });
 });
+
+describe('capHunkLines', () => {
+  it('caps lines across hunk boundaries and reports the remainder', () => {
+    const hunks = [
+      { header: '@@ first @@', lines: [context(1), context(2)] },
+      { header: '@@ second @@', lines: [context(10), context(11), context(12)] },
+    ] as DiffHunk[];
+
+    expect(capHunkLines(hunks, 4)).toMatchObject({
+      remaining: 1,
+      hunks: [{ lines: [context(1), context(2)] }, { lines: [context(10), context(11)] }],
+    });
+  });
+});

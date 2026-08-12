@@ -1,30 +1,35 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { capHunkLines, groupHunkLines, LARGE_FILE_LINE_LIMIT } from '@/lib/diff-view-model';
+import { capHunkLines, groupHunkLines } from '@/lib/diff-view-model';
 import type { DiffFile, DiffLine } from '@/lib/unified-diff';
 
 const focus =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
 
 function DiffRow({ line }: { line: DiffLine }) {
-  const prefix = line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ' ';
-  const status = line.kind === 'addition' ? 'added' : line.kind === 'deletion' ? 'deleted' : '';
+  const changed = line.kind === 'addition' || line.kind === 'deletion';
+  const prefix = line.kind === 'addition' ? '+' : '−';
+  const status = line.kind === 'addition' ? 'added' : 'deleted';
 
   return (
     <div className={`diff-line diff-line-${line.kind}`}>
-      <span className="diff-line-number" aria-hidden>
+      <span className="diff-line-number" aria-hidden="true">
         {line.oldLine ?? ''}
       </span>
-      <span className="diff-line-number" aria-hidden>
+      <span className="diff-line-number" aria-hidden="true">
         {line.newLine ?? ''}
       </span>
-      <span className="diff-line-status" aria-hidden={!status}>
-        {status}
-      </span>
-      <span className="diff-prefix" aria-hidden>
-        {prefix}
-      </span>
+      {changed && (
+        <>
+          <span className="diff-line-status" aria-hidden="true">
+            {status}
+          </span>
+          <span className="diff-prefix" aria-hidden="true">
+            {prefix}
+          </span>
+        </>
+      )}
       <code>{line.content || ' '}</code>
     </div>
   );
@@ -40,14 +45,14 @@ function RevealLines({ count, children }: { count: number; children: ReactNode }
       onClick={() => setVisible(true)}
       aria-label={`Show remaining ${count} unchanged lines`}
     >
-      Show remaining lines <span aria-hidden>({count})</span>
+      Show remaining lines <span aria-hidden="true">({count})</span>
     </button>
   );
 }
 
 function FileContent({ file }: { file: DiffFile }) {
   const [showAll, setShowAll] = useState(false);
-  const capped = capHunkLines(file.hunks, LARGE_FILE_LINE_LIMIT);
+  const capped = capHunkLines(file.hunks);
   const hunks = showAll ? file.hunks : capped.hunks;
 
   return (
@@ -62,18 +67,19 @@ function FileContent({ file }: { file: DiffFile }) {
       {hunks.map((hunk, hunkIndex) => (
         <div key={`${hunk.header}-${hunkIndex}`}>
           <p className="diff-hunk">{hunk.header}</p>
-          {groupHunkLines(hunk).map((group, groupIndex) =>
-            group.kind === 'collapsed' ? (
-              <RevealLines key={groupIndex} count={group.lines.length}>
-                {group.lines.map((line, lineIndex) => (
+          {(showAll ? [{ kind: 'visible' as const, lines: hunk.lines }] : groupHunkLines(hunk)).map(
+            (group, groupIndex) =>
+              group.kind === 'collapsed' ? (
+                <RevealLines key={groupIndex} count={group.lines.length}>
+                  {group.lines.map((line, lineIndex) => (
+                    <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
+                  ))}
+                </RevealLines>
+              ) : (
+                group.lines.map((line, lineIndex) => (
                   <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-                ))}
-              </RevealLines>
-            ) : (
-              group.lines.map((line, lineIndex) => (
-                <DiffRow key={`${groupIndex}-${lineIndex}`} line={line} />
-              ))
-            ),
+                ))
+              ),
           )}
         </div>
       ))}
@@ -98,6 +104,7 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(files.length <= 3 ? files.map((file) => file.id) : []),
   );
+
   const setAll = (open: boolean) => {
     setExpanded(new Set(open ? files.map((file) => file.id) : []));
   };
@@ -141,7 +148,7 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 type="button"
                 className={`diff-index-row ${focus}`}
                 aria-expanded={open}
-                aria-controls={open ? `${file.id}-content` : undefined}
+                aria-controls={`${file.id}-content`}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden="true">
@@ -168,7 +175,7 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 type="button"
                 className={`diff-file-header ${focus}`}
                 aria-expanded={open}
-                aria-controls={open ? `${file.id}-content` : undefined}
+                aria-controls={`${file.id}-content`}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden="true">

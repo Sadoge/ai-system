@@ -35,6 +35,7 @@ export interface ParsedDiff {
   additions: number;
   deletions: number;
   state: 'empty' | 'parsed' | 'unparseable';
+  valid: boolean;
 }
 
 interface PendingHunk extends DiffHunk {
@@ -97,7 +98,6 @@ function decodeGitPath(value: string): string {
       index++;
       continue;
     }
-
     if (/[0-7]/.test(escaped)) {
       let octal = escaped;
       while (octal.length < 3 && index + 1 + octal.length < unquoted.length) {
@@ -109,7 +109,6 @@ function decodeGitPath(value: string): string {
       index += octal.length;
       continue;
     }
-
     bytes.push(...encoder.encode(escaped));
     index++;
   }
@@ -152,7 +151,8 @@ function tokenizeGitHeader(value: string): string[] {
     }
     token += character;
     if (character === '"' && !escaped) quoted = !quoted;
-    escaped = quoted && character === '\\' && !escaped;
+    if (quoted && character === '\\' && !escaped) escaped = true;
+    else escaped = false;
   }
   if (token) tokens.push(token);
   return tokens;
@@ -163,6 +163,8 @@ function pathsFromGitHeader(line: string): [string | null, string | null] {
   const tokens = tokenizeGitHeader(value);
   if (tokens.length === 2) return [cleanPath(tokens[0]!), cleanPath(tokens[1]!)];
 
+  // Unquoted paths containing spaces are ambiguous. The final b/ marker is
+  // the best available boundary; the ---/+++ markers refine it later.
   const separator = value.lastIndexOf(' b/');
   if (separator < 0) return [null, null];
   return [cleanPath(value.slice(0, separator)), cleanPath(value.slice(separator + 1))];
@@ -188,18 +190,21 @@ function newPendingFile(header?: string): PendingFile {
   };
 }
 
+function hunkIsComplete(hunk: PendingHunk): boolean {
+  return (
+    hunk.nextOldLine >= hunk.oldStart + hunk.oldCount &&
+    hunk.nextNewLine >= hunk.newStart + hunk.newCount
+  );
+}
+
 function appendHunkLine(file: PendingFile, line: string): boolean {
   const hunk = file.activeHunk;
   if (!hunk) return false;
-
   if (line === '\\ No newline at end of file') {
     hunk.lines.push({ kind: 'meta', content: line, oldLine: null, newLine: null });
     return true;
   }
-  const complete =
-    hunk.nextOldLine >= hunk.oldStart + hunk.oldCount &&
-    hunk.nextNewLine >= hunk.newStart + hunk.newCount;
-  if (complete) {
+  if (hunkIsComplete(hunk)) {
     file.activeHunk = null;
     return false;
   }
@@ -233,16 +238,21 @@ function appendHunkLine(file: PendingFile, line: string): boolean {
 }
 
 /** Parse the git-style unified patch emitted by the worker. Malformed sections
- * are retained as metadata where possible instead of taking down the run page. */
+ * are retained where possible, but marked unparseable so callers can show the
+ * original stored patch instead of presenting partial output as complete. */
 export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   const files: DiffFile[] = [];
-  if (!patch?.trim()) return { files, additions: 0, deletions: 0, state: 'empty' };
+  if (!patch?.trim()) {
+    return { files, additions: 0, deletions: 0, state: 'empty', valid: true };
+  }
 
   const idCounts = new Map<string, number>();
   let current: PendingFile | null = null;
+  let valid = true;
 
   const finishFile = () => {
     if (!current) return;
+    if (current.activeHunk && !hunkIsComplete(current.activeHunk)) valid = false;
     const oldPath =
       current.renameFrom ??
       (current.sawOldMarker ? current.markerOldPath : current.fallbackOldPath);
@@ -286,13 +296,12 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
       current = newPendingFile(line);
       continue;
     }
-    if (!current && (line.startsWith('--- ') || HUNK_HEADER.test(line))) {
-      current = newPendingFile();
-    }
+    if (!current && (line.startsWith('--- ') || HUNK_HEADER.test(line))) current = newPendingFile();
     if (!current) continue;
 
     const hunkHeader = HUNK_HEADER.exec(line);
     if (hunkHeader) {
+      if (current.activeHunk && !hunkIsComplete(current.activeHunk)) valid = false;
       const oldStart = Number(hunkHeader[1]);
       const newStart = Number(hunkHeader[3]);
       const hunk: PendingHunk = {
@@ -310,11 +319,14 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
       continue;
     }
 
-    // Hunk content must win over file-header lookalikes such as a deleted SQL
+    // Hunk content wins over file-header lookalikes such as a deleted SQL
     // comment (`--- comment` in patch form).
     if (appendHunkLine(current, line)) continue;
 
-    if (line.startsWith('--- ')) {
+    if (line.startsWith('@@')) {
+      valid = false;
+      current.metadata.push(line);
+    } else if (line.startsWith('--- ')) {
       current.markerOldPath = cleanPath(line.slice(4));
       current.sawOldMarker = true;
     } else if (line.startsWith('+++ ')) {
@@ -346,10 +358,12 @@ export function parseUnifiedDiff(patch: string | null | undefined): ParsedDiff {
   }
 
   finishFile();
+  if (files.length === 0) valid = false;
   return {
     files,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-    state: files.length > 0 ? 'parsed' : 'unparseable',
+    state: valid ? 'parsed' : 'unparseable',
+    valid,
   };
 }

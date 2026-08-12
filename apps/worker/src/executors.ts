@@ -202,9 +202,21 @@ export async function resumableCodexSession(
 }
 
 /**
- * CLI agents spend money outside the Model Gateway, so their self-reported
- * usage is written into the same ledger. Without this the cost views and
+ * CLI agents consume budget outside the Model Gateway, so their self-reported
+ * usage is written into the same ledger. Without this the usage views and the
  * budget guard would silently under-count every CLI-driven run.
+ *
+ * Two things this must get right, because a subscription has no price:
+ *
+ * - **Tokens alone are enough to record.** Codex on a ChatGPT subscription
+ *   reports input/output tokens and no `total_cost_usd`, because nothing was
+ *   charged. Requiring a dollar figure here threw the entire row away and made
+ *   the most expensive stage of a run invisible.
+ * - **A CLI's dollar figure is notional.** No preset forwards an API key into
+ *   the sandbox (see `envAllowlist` in cli-presets.ts), so every CLI agent runs
+ *   on a subscription login and any cost it reports is API-equivalent pricing,
+ *   not money that left an account. It is recorded, but as `subscription`, so
+ *   it never reads as spend.
  */
 export async function recordExecutorUsage(
   db: Db,
@@ -220,26 +232,33 @@ export async function recordExecutorUsage(
   },
 ): Promise<void> {
   const usage = input.usage;
-  if (!usage || usage.costUsd === undefined) return;
+  if (!usage) return;
+  const reported =
+    usage.costUsd !== undefined ||
+    usage.inputTokens !== undefined ||
+    usage.outputTokens !== undefined;
+  if (!reported) return;
 
+  const costUsd = usage.costUsd ?? 0;
   await db.insert(modelCalls).values({
     id: uuidv7(),
     runId: input.runId,
     agentRunId: input.agentRunId,
-    // Namespaced so cost dashboards can separate gateway spend from CLI spend.
+    // Namespaced so usage dashboards can separate gateway calls from CLI calls.
     provider: `cli:${input.cliName ?? input.executorKind}`,
     model: usage.model ?? 'unknown',
     purpose: input.purpose ?? 'coding',
     promptHash: 'n/a-cli',
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
-    costUsd: usage.costUsd.toFixed(6),
+    costUsd: costUsd.toFixed(6),
+    billing: 'subscription',
     latencyMs: input.latencyMs,
     status: input.status,
   });
 
   await db
     .update(agentRuns)
-    .set({ costUsd: sql`${agentRuns.costUsd} + ${usage.costUsd.toFixed(6)}` })
+    .set({ costUsd: sql`${agentRuns.costUsd} + ${costUsd.toFixed(6)}` })
     .where(eq(agentRuns.id, input.agentRunId));
 }

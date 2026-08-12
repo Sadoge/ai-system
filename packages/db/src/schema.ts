@@ -319,6 +319,42 @@ export const reviewFindings = pgTable(
   (t) => [index('review_findings_run_idx').on(t.runId, t.status)],
 );
 
+// ── Evaluation ────────────────────────────────────────────────────────
+
+/**
+ * A golden suite is a named set of runs whose outcome a human was happy with —
+ * the only honest ground truth available, and already the input `startEvalReplay`
+ * needs. Replaying the whole suite after a prompt, model, or rule change is how
+ * "did that help?" stops being a guess (docs/10 Phase 4).
+ *
+ * Suites are implicit: adding the first member creates one, removing the last
+ * retires it. There is no separate suite row to keep in step.
+ */
+export const evalSuiteMembers = pgTable(
+  'eval_suite_members',
+  {
+    id: id(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    suiteName: text('suite_name').notNull(),
+    sourceRunId: uuid('source_run_id')
+      .notNull()
+      .references(() => pipelineRuns.id),
+    // Why this run is golden — the thing you will have forgotten in a month.
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('eval_suite_members_unique_idx').on(
+      t.organizationId,
+      t.suiteName,
+      t.sourceRunId,
+    ),
+    index('eval_suite_members_suite_idx').on(t.organizationId, t.suiteName),
+  ],
+);
+
 // ── Project Brain ─────────────────────────────────────────────────────
 
 export const knowledgeItems = pgTable(

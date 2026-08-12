@@ -57,6 +57,13 @@
       "when": 1786350378795,
       "tag": "0007_sharp_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786520972252,
+      "tag": "0008_puzzling_carlie_cooper",
+      "breakpoints": true
     }
   ]
 }

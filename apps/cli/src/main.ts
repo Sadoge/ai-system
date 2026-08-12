@@ -76,13 +76,19 @@ import {
   setEndpointActive,
 } from '@ai-system/webhooks';
 import {
+  addSuiteMember,
   cancelRun,
   compareEvalRun,
+  listSuiteMembers,
   listTasks,
+  removeSuiteMember,
+  reportSuite,
   resolveGate,
   retryRun,
   startEvalReplay,
   startRun,
+  startSuiteReplay,
+  SUITE_METRICS,
 } from '@ai-system/orchestration';
 
 // Phase 0: the CLI is the UI before the UI (docs/10). It talks to the same
@@ -705,6 +711,153 @@ function fmt(n: number, digits = 0): string {
   const v = digits ? n.toFixed(digits) : String(n);
   return n > 0 ? `+${v}` : v;
 }
+
+/**
+ * Golden suites. One replay tells you how one ticket went; a suite is how you
+ * find out whether a prompt, model, or rule change helped in general.
+ */
+const suiteCmd = evalCmd
+  .command('suite')
+  .description('golden suites — replay a set of known-good runs and compare in aggregate');
+
+const SUITE_OPT = ['--suite <name>', 'suite name', 'default'] as const;
+/** Digits each metric is worth printing; cost and minutes are not integers. */
+const METRIC_DIGITS: Record<(typeof SUITE_METRICS)[number], number> = {
+  iterations: 0,
+  findingsTotal: 0,
+  findingsBlocking: 0,
+  taskCount: 0,
+  costUsd: 4,
+  durationMinutes: 1,
+};
+
+suiteCmd
+  .command('add <run-id>')
+  .description('mark a run as golden — a baseline worth measuring future changes against')
+  .option(...SUITE_OPT)
+  .option('--note <text>', 'why this run is golden')
+  .action(
+    withDb(async (db, runId: string, opts: { suite: string; note?: string }) => {
+      const rows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId));
+      if (!rows[0]) throw new Error(`unknown run ${runId}`);
+      await addSuiteMember(db, {
+        organizationId: rows[0].organizationId,
+        suiteName: opts.suite,
+        sourceRunId: runId,
+        ...(opts.note ? { note: opts.note } : {}),
+      });
+      console.log(`added ${runId} to suite "${opts.suite}"`);
+    }),
+  );
+
+suiteCmd
+  .command('list')
+  .description('list golden runs, in every suite or just one')
+  .option('--suite <name>', 'limit to one suite')
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite?: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const members = await listSuiteMembers(db, {
+        organizationId: org.id,
+        ...(opts.suite ? { suiteName: opts.suite } : {}),
+      });
+      if (members.length === 0) {
+        console.log('no golden runs yet — add one with: ai-system eval suite add <run-id>');
+        return;
+      }
+      for (const m of members) {
+        console.log(`${m.suiteName.padEnd(16)} ${m.sourceRunId}  ${m.note ?? ''}`);
+      }
+    }),
+  );
+
+suiteCmd
+  .command('rm <run-id>')
+  .description('drop a run from a suite')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, runId: string, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const removed = await removeSuiteMember(db, {
+        organizationId: org.id,
+        suiteName: opts.suite,
+        sourceRunId: runId,
+      });
+      console.log(removed ? `removed ${runId} from "${opts.suite}"` : `${runId} was not in "${opts.suite}"`);
+    }),
+  );
+
+suiteCmd
+  .command('run')
+  .description('replay every run in the suite through the pipeline as configured today')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const started = await startSuiteReplay(db, {
+        organizationId: org.id,
+        suiteName: opts.suite,
+      });
+      if (started.length === 0) {
+        console.log(`suite "${opts.suite}" is empty — add runs with: ai-system eval suite add <run-id>`);
+        return;
+      }
+      for (const s of started) {
+        console.log(s.evalRunId ? `${s.sourceRunId} → ${s.evalRunId}` : `${s.sourceRunId} → skipped: ${s.error}`);
+      }
+      const ok = started.filter((s) => s.evalRunId).length;
+      console.log(`\n${ok}/${started.length} replays started`);
+      console.log(`compare with: ai-system eval suite report --suite ${opts.suite}`);
+    }),
+  );
+
+suiteCmd
+  .command('report')
+  .description('aggregate each golden run against its most recent replay')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const report = await reportSuite(db, { organizationId: org.id, suiteName: opts.suite });
+      if (report.entries.length === 0) {
+        console.log(`suite "${opts.suite}" is empty — add runs with: ai-system eval suite add <run-id>`);
+        return;
+      }
+
+      for (const entry of report.entries) {
+        const label = entry.sourceRunId.slice(-8);
+        if (!entry.comparison) {
+          console.log(`${label}  never replayed`);
+          continue;
+        }
+        const { comparison } = entry;
+        const deltas = SUITE_METRICS.map(
+          (m) => `${m} ${fmt(comparison.deltas[m] ?? 0, METRIC_DIGITS[m])}`,
+        ).join('  ');
+        console.log(`${label}  ${comparison.ready ? 'ready  ' : 'pending'}  ${deltas}`);
+      }
+
+      const { summary } = report;
+      console.log(
+        `\n${summary.readyCount} settled, ${summary.pendingCount} in flight, ${summary.missingCount} never replayed`,
+      );
+      if (summary.readyCount === 0) {
+        console.log('nothing settled yet — totals need at least one finished replay');
+        return;
+      }
+      console.log(`\n${'metric'.padEnd(18)} ${'total'.padEnd(12)} mean`);
+      for (const metric of SUITE_METRICS) {
+        const digits = METRIC_DIGITS[metric];
+        console.log(
+          `${metric.padEnd(18)} ${fmt(summary.totals[metric], digits).padEnd(12)} ${fmt(summary.means[metric], Math.max(digits, 2))}`,
+        );
+      }
+    }),
+  );
 
 knowledgeCmd
   .command('promote <knowledge-item-id>')

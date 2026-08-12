@@ -9,6 +9,7 @@ import {
   System,
   buttonCls,
   buttonDangerCls,
+  formatTokens,
   inputCls,
   linkCls,
 } from '@/lib/ui';
@@ -48,8 +49,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         </div>
         <p className="mt-2 font-mono text-xs text-ink-faint tnum">
           {run.policySnapshot.pipeline} · {run.policySnapshot.automationLevel}
-          {run.complexity ? ` · ${run.complexity}` : ''} · iteration {run.iterationCount} · $
-          {run.costUsd.toFixed(4)}
+          {run.complexity ? ` · ${run.complexity}` : ''} · iteration {run.iterationCount} ·{' '}
+          {formatTokens(run.usage.inputTokens)} in / {formatTokens(run.usage.outputTokens)} out
+          {/* Real spend only when there is any; on a subscription the run cost
+              nothing and saying "$0.00" would read as "this was free" rather
+              than "this consumed your plan". */}
+          {run.usage.meteredUsd > 0 && ` · $${run.usage.meteredUsd.toFixed(4)}`}
+          {run.usage.meteredUsd === 0 && run.usage.subscription.calls > 0 && ' · subscription'}
         </p>
       </div>
 

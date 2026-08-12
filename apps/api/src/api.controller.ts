@@ -369,6 +369,16 @@ export class ApiController {
     return this.service.runAnalytics(principal, days ? Number(days) : undefined);
   }
 
+  /**
+   * Consumption over the rolling windows subscription plans are enforced over.
+   * Answers "how much did I burn recently", which a USD total cannot when the
+   * agents run on a Codex or Claude subscription.
+   */
+  @Get('analytics/usage')
+  usageWindows(@CurrentPrincipal() principal: Principal) {
+    return this.service.usageWindows(principal);
+  }
+
   // ── webhooks ────────────────────────────────────────────────────────
 
   /** Jira automation trigger: an issue webhook starts a run for its organization. */

@@ -75,6 +75,11 @@ import {
   ModelGateway,
   OpenAiEmbeddingAdapter,
   PLATFORM_DEFAULT_PROFILES,
+  USAGE_WINDOWS,
+  summarizeUsage,
+  type BillingMode,
+  type UsageRow,
+  type UsageWindow,
 } from '@ai-system/model-gateway';
 import {
   QuotaExceededError,
@@ -278,7 +283,7 @@ export class ApiService {
 
   async getRun(principal: Principal, runId: string) {
     const run = await this.requireRun(principal, runId);
-    const [stages, arts, findings, gates, cost, taskRows, agents, recentEvents] = await Promise.all(
+    const [stages, arts, findings, gates, usage, taskRows, agents, recentEvents] = await Promise.all(
       [
         this.db
           .select()
@@ -305,7 +310,7 @@ export class ApiService {
           .from(gateRequests)
           .where(eq(gateRequests.runId, runId))
           .orderBy(asc(gateRequests.createdAt)),
-        this.runCostUsd(runId),
+        this.runUsage(runId),
         listTasks(this.db, runId),
         this.db
           .select()
@@ -350,7 +355,11 @@ export class ApiService {
       artifacts: arts,
       findings,
       gates,
-      costUsd: cost,
+      // costUsd stays for compatibility, but it now means *money actually
+      // spent*. A subscription-only run reports 0 here and its real
+      // consumption in `usage`.
+      costUsd: usage.metered.meteredUsd,
+      usage,
       tasks: taskRows,
       agents,
       events: recentEvents.reverse(),
@@ -428,12 +437,25 @@ export class ApiService {
       .limit(500);
   }
 
-  async runCostUsd(runId: string): Promise<number> {
+  /**
+   * What a run consumed, split by how it was paid for. Callers must scope the
+   * run first — this takes no principal and does no tenant filtering of its
+   * own, so it is only ever reached after requireRun().
+   */
+  private async runUsage(runId: string) {
     const rows = await this.db
-      .select({ total: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)` })
+      .select({
+        provider: modelCalls.provider,
+        billing: modelCalls.billing,
+        calls: sql<string>`count(*)`,
+        inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
+        costUsd: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)`,
+      })
       .from(modelCalls)
-      .where(eq(modelCalls.runId, runId));
-    return Number(rows[0]?.total ?? 0);
+      .where(eq(modelCalls.runId, runId))
+      .groupBy(modelCalls.provider, modelCalls.billing);
+    return summarizeUsage(rows.map(toUsageRow));
   }
 
   // ── evaluation harness ──────────────────────────────────────────────
@@ -962,7 +984,10 @@ export class ApiService {
       .select({
         day: sql<string>`date_trunc('day', ${modelCalls.createdAt})::date::text`,
         provider: modelCalls.provider,
+        billing: modelCalls.billing,
         costUsd: sql<string>`sum(${modelCalls.costUsd})`,
+        inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
         calls: sql<string>`count(*)`,
       })
       .from(modelCalls)
@@ -974,14 +999,65 @@ export class ApiService {
           isNull(pipelineRuns.evalOfRunId),
         ),
       )
-      .groupBy(sql`1`, modelCalls.provider)
+      .groupBy(sql`1`, modelCalls.provider, modelCalls.billing)
       .orderBy(sql`1`);
     return rows.map((r) => ({
       day: r.day,
       provider: r.provider,
+      billing: r.billing as BillingMode,
       costUsd: Number(r.costUsd),
+      inputTokens: Number(r.inputTokens),
+      outputTokens: Number(r.outputTokens),
       calls: Number(r.calls),
     }));
+  }
+
+  /**
+   * Consumption over the windows subscription plans are actually enforced
+   * over. Reports what was used, never what is left: no provider exposes
+   * remaining quota, so a percentage here would be fabricated.
+   *
+   * Scoped through pipeline_runs, which is the only thing that ties a call to
+   * an organization. Calls made outside a run — background indexing and
+   * knowledge embeddings — therefore do not appear. Including them would mean
+   * reporting rows this tenant cannot be shown to own.
+   */
+  async usageWindows(principal: Principal): Promise<UsageWindow[]> {
+    assertCan(principal.role, 'run:read');
+    const now = Date.now();
+    return Promise.all(
+      USAGE_WINDOWS.map(async ({ label, ms }) => {
+        const since = new Date(now - ms);
+        const rows = await this.db
+          .select({
+            provider: modelCalls.provider,
+            billing: modelCalls.billing,
+            calls: sql<string>`count(*)`,
+            inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+            outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
+            costUsd: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)`,
+          })
+          .from(modelCalls)
+          .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
+          .where(
+            and(
+              eq(pipelineRuns.organizationId, principal.organizationId),
+              gte(modelCalls.createdAt, since),
+              // Measuring the platform must not look like using it.
+              isNull(pipelineRuns.evalOfRunId),
+            ),
+          )
+          .groupBy(modelCalls.provider, modelCalls.billing)
+          .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+        const providers = rows.map(toUsageRow);
+        return {
+          window: label,
+          since: since.toISOString(),
+          providers,
+          totals: summarizeUsage(providers),
+        };
+      }),
+    );
   }
 
   /** Cost split by the purpose each call served (planning, review, coding, ...). */
@@ -991,7 +1067,11 @@ export class ApiService {
     const rows = await this.db
       .select({
         purpose: modelCalls.purpose,
+        billing: modelCalls.billing,
         costUsd: sql<string>`sum(${modelCalls.costUsd})`,
+        inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
+        calls: sql<string>`count(*)`,
       })
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
@@ -1002,9 +1082,17 @@ export class ApiService {
           isNull(pipelineRuns.evalOfRunId),
         ),
       )
-      .groupBy(modelCalls.purpose)
-      .orderBy(desc(sql`sum(${modelCalls.costUsd})`));
-    return rows.map((r) => ({ purpose: r.purpose, costUsd: Number(r.costUsd) }));
+      .groupBy(modelCalls.purpose, modelCalls.billing)
+      // Tokens, not dollars: on a subscription every row would sort as zero.
+      .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+    return rows.map((r) => ({
+      purpose: r.purpose,
+      billing: r.billing as BillingMode,
+      costUsd: Number(r.costUsd),
+      inputTokens: Number(r.inputTokens),
+      outputTokens: Number(r.outputTokens),
+      calls: Number(r.calls),
+    }));
   }
 
   /** Outcome analytics: what fraction of runs land, and what they cost to get there. */
@@ -1283,4 +1371,23 @@ export class ApiService {
     if (rows.length > 1) throw new NotFoundException('multiple projects — pass projectId');
     return rows[0]!;
   }
+}
+
+/** Postgres returns sums and counts as strings; the usage helpers want numbers. */
+function toUsageRow(row: {
+  provider: string;
+  billing: string;
+  calls: string;
+  inputTokens: string;
+  outputTokens: string;
+  costUsd: string;
+}): UsageRow {
+  return {
+    provider: row.provider,
+    billing: row.billing as BillingMode,
+    calls: Number(row.calls),
+    inputTokens: Number(row.inputTokens),
+    outputTokens: Number(row.outputTokens),
+    costUsd: Number(row.costUsd),
+  };
 }

@@ -9,7 +9,7 @@ process.stdout.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 import { Command } from 'commander';
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import {
   artifacts,
   createDb,
@@ -18,6 +18,7 @@ import {
   gateRequests,
   knowledgeItems,
   migrateDb,
+  modelCalls,
   organizations,
   pipelineRuns,
   projects,
@@ -46,6 +47,10 @@ import {
   InMemoryCallLedger,
   LocalHashEmbeddingAdapter,
   ModelGateway,
+  USAGE_WINDOWS,
+  summarizeUsage,
+  type BillingMode,
+  type UsageRow,
 } from '@ai-system/model-gateway';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
 import {
@@ -875,6 +880,113 @@ knowledgeCmd
         localEmbedder(),
       );
       console.log('promoted to organization scope');
+    }),
+  );
+
+/**
+ * What the platform consumed, by billing mode. When the agents run on signed-in
+ * Codex and Claude CLIs there is no bill to read, so tokens are the only honest
+ * measure — and the windows match how those plans are actually enforced.
+ */
+function tok(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+program
+  .command('usage')
+  .description('token and spend consumption, split by subscription vs metered')
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .option('--days <n>', 'window for the per-purpose breakdown', '30')
+  .action(
+    withDb(async (db, opts: { org?: string; days: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const scope = (since: Date) =>
+        and(
+          eq(pipelineRuns.organizationId, org.id),
+          gte(modelCalls.createdAt, since),
+          // Measuring the platform must not look like using it.
+          isNull(pipelineRuns.evalOfRunId),
+        );
+      const sums = {
+        calls: sql<string>`count(*)`,
+        inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
+        costUsd: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)`,
+      };
+      const toRow = (r: {
+        provider: string;
+        billing: string;
+        calls: string;
+        inputTokens: string;
+        outputTokens: string;
+        costUsd: string;
+      }): UsageRow => ({
+        provider: r.provider,
+        billing: r.billing as BillingMode,
+        calls: Number(r.calls),
+        inputTokens: Number(r.inputTokens),
+        outputTokens: Number(r.outputTokens),
+        costUsd: Number(r.costUsd),
+      });
+
+      console.log('Consumption per rolling window. Subscription plans reset on these');
+      console.log('boundaries; how much of the plan remains is not something any');
+      console.log('provider reports, so only what was used is shown.');
+      console.log('Work outside a run (background indexing, embeddings) is not counted.\n');
+
+      for (const { label, ms } of USAGE_WINDOWS) {
+        const rows = await db
+          .select({ provider: modelCalls.provider, billing: modelCalls.billing, ...sums })
+          .from(modelCalls)
+          .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
+          .where(scope(new Date(Date.now() - ms)))
+          .groupBy(modelCalls.provider, modelCalls.billing)
+          .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+        const usage = summarizeUsage(rows.map(toRow));
+        console.log(
+          `last ${label.padEnd(4)} ${tok(usage.inputTokens)} in / ${tok(usage.outputTokens)} out over ${usage.calls} calls` +
+            (usage.metered.meteredUsd > 0 ? `  ($${usage.metered.meteredUsd.toFixed(4)} metered)` : ''),
+        );
+        for (const row of rows.map(toRow)) {
+          const mode = row.billing === 'subscription' ? 'subscription' : 'metered';
+          console.log(
+            `  ${row.provider.padEnd(18)} ${mode.padEnd(13)} ${tok(row.inputTokens).padStart(8)} in ${tok(row.outputTokens).padStart(8)} out  ${String(row.calls).padStart(4)} calls`,
+          );
+        }
+        if (rows.length === 0) console.log('  (nothing)');
+      }
+
+      const days = Number(opts.days) || 30;
+      const purposeRows = await db
+        .select({ purpose: modelCalls.purpose, billing: modelCalls.billing, ...sums })
+        .from(modelCalls)
+        .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
+        .where(scope(new Date(Date.now() - days * 86_400_000)))
+        .groupBy(modelCalls.purpose, modelCalls.billing)
+        .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+      if (purposeRows.length === 0) return;
+
+      console.log(`\nBy purpose, last ${days} days`);
+      for (const r of purposeRows) {
+        const inTok = Number(r.inputTokens);
+        const outTok = Number(r.outputTokens);
+        const usd = Number(r.costUsd);
+        // A subscription's dollar figure is the CLI's own API-equivalent
+        // estimate, never a charge — labelled so it is never read as spend.
+        const money =
+          r.billing === 'metered'
+            ? usd > 0
+              ? `  $${usd.toFixed(4)}`
+              : ''
+            : usd > 0
+              ? `  ~$${usd.toFixed(4)} if metered`
+              : '';
+        console.log(
+          `  ${r.purpose.padEnd(16)} ${(r.billing as string).padEnd(13)} ${tok(inTok).padStart(8)} in ${tok(outTok).padStart(8)} out${money}`,
+        );
+      }
     }),
   );
 

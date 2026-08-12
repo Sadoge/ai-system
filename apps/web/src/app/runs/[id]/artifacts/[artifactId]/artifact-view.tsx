@@ -1,5 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
+import type { ArtifactDetail } from '@/lib/api';
+import { readDiffArtifactContent } from '@/lib/diff-artifact';
 import { Notehead, SeverityMark } from '../../../../../lib/ui';
+import { DiffPresentation } from '../../code-changes';
 
 type RecordValue = Record<string, unknown>;
 
@@ -568,55 +571,19 @@ function TestView({ content }: { content: RecordValue }) {
   );
 }
 
-function DiffView({ content }: { content: RecordValue }) {
-  const diff = asText(content.diff) ?? '';
-  const summary = diffSummary(diff);
+function DiffView({ artifact, runId }: { artifact: ArtifactDetail; runId: string }) {
+  const content =
+    typeof artifact.content === 'string'
+      ? { diff: artifact.content }
+      : readDiffArtifactContent(artifact.content);
   return (
-    <>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-y border-rule py-4 sm:grid-cols-5">
-        <Readout label="base" value={asText(content.baseBranch) ?? 'unknown'} />
-        <Readout
-          label="branch"
-          value={asText(content.branch) ?? 'unknown'}
-          className="col-span-2 sm:col-span-2"
-        />
-        <Readout label="additions" value={`+${summary.additions}`} />
-        <Readout label="deletions" value={`−${summary.deletions}`} />
-      </dl>
-      <SectionTitle aside={summary.files.length}>
-        {summary.files.length === 1 ? 'Changed file' : 'Changed files'}
-      </SectionTitle>
-      <FileList files={summary.files} />
-      <SectionTitle>Patch</SectionTitle>
-      {diff ? (
-        <DiffBlock diff={diff} />
-      ) : (
-        <p className="annot text-sm text-ink-label">The patch is empty.</p>
-      )}
-    </>
-  );
-}
-
-function DiffBlock({ diff }: { diff: string }) {
-  return (
-    <pre className="max-h-[48rem] overflow-auto border-l border-rule-strong bg-ground-raised p-4 font-mono text-xs leading-relaxed">
-      <code>
-        {diff.split('\n').map((line, index) => {
-          const className = line.startsWith('diff --git')
-            ? 'text-cue-bright'
-            : line.startsWith('@@')
-              ? 'text-ink-label'
-              : line.startsWith('-') && !line.startsWith('---')
-                ? 'text-ink-faint'
-                : 'text-ink-secondary';
-          return (
-            <span key={index} className={`block min-w-max ${className}`}>
-              {line || ' '}
-            </span>
-          );
-        })}
-      </code>
-    </pre>
+    <DiffPresentation
+      runId={runId}
+      artifactId={artifact.id}
+      content={content}
+      error={content ? undefined : 'The diff artifact content is unavailable or malformed.'}
+      showArtifactLink={false}
+    />
   );
 }
 
@@ -860,12 +827,14 @@ function Disclosure({ title, children }: { title: string; children: ReactNode })
   );
 }
 
-export function ArtifactView({ kind, content }: { kind: string; content: unknown }) {
-  const record = isRecord(content) ? content : null;
-  let rendered: ReactNode = <GenericValue value={content} />;
+export function ArtifactView({ artifact, runId }: { artifact: ArtifactDetail; runId: string }) {
+  const record = isRecord(artifact.content) ? artifact.content : null;
+  let rendered: ReactNode = <GenericValue value={artifact.content} />;
 
-  if (record) {
-    switch (kind) {
+  if (artifact.kind === 'diff') {
+    rendered = <DiffView artifact={artifact} runId={runId} />;
+  } else if (record) {
+    switch (artifact.kind) {
       case 'ticket_snapshot':
         rendered = <TicketView content={record} />;
         break;
@@ -880,9 +849,6 @@ export function ArtifactView({ kind, content }: { kind: string; content: unknown
         break;
       case 'task_spec':
         rendered = <TaskSpecView content={record} />;
-        break;
-      case 'diff':
-        rendered = <DiffView content={record} />;
         break;
       case 'integration_report':
         rendered = <IntegrationView content={record} />;
@@ -910,7 +876,7 @@ export function ArtifactView({ kind, content }: { kind: string; content: unknown
       {rendered}
       <SectionTitle>Source record</SectionTitle>
       <Disclosure title="Show raw JSON">
-        <CodeBlock text={JSON.stringify(content, null, 2)} />
+        <CodeBlock text={JSON.stringify(artifact.content, null, 2)} />
       </Disclosure>
     </>
   );

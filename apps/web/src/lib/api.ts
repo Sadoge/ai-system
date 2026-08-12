@@ -108,6 +108,17 @@ export interface RunDetail extends RunSummary {
   }[];
 }
 
+export interface ArtifactDetail {
+  id: string;
+  runId: string;
+  kind: string;
+  content: unknown;
+  storageRef: string | null;
+  contentHash: string;
+  createdByAgentRunId: string | null;
+  createdAt: string;
+}
+
 export interface GateRow {
   id: string;
   runId: string;

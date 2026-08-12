@@ -2,8 +2,8 @@
 
 /* Conductor's Score — the world's normative token layer.
    Ground is diazo blueprint blue; rules are engraved bone. A wider family of
-   annotation inks now carries hierarchy as well as state, so dense screens
-   can be parsed before they are read. */
+   annotation inks carries hierarchy as well as state, so dense screens can
+   be parsed before they are read. */
 @theme {
   /* Ground: the blueprint sheet and the one raised system band. */
   --color-ground: #101a33;
@@ -147,9 +147,8 @@ body {
   color: color-mix(in oklab, var(--system-accent) 62%, var(--color-ink-secondary));
 }
 
-/* Controls have a distinct surface at rest; color still intensifies only on
-   interaction, keeping dense forms easy to scan without turning them into a
-   field of boxes. */
+/* Controls have a distinct surface at rest; color intensifies on interaction
+   without turning dense forms into a field of boxes. */
 .field-input {
   background-color: color-mix(in oklab, var(--color-cue) 6%, var(--color-ground-raised));
 }
@@ -356,12 +355,6 @@ table thead {
   font-style: italic;
 }
 
-/* Reduced motion: the running voice stops pulsing. */
-@media (prefers-reduced-motion: reduce) {
-  .pulse-live {
-    animation: none;
-  }
-}
 @keyframes stave-pulse {
   0%,
   100% {
@@ -373,6 +366,299 @@ table thead {
 }
 .pulse-live {
   animation: stave-pulse 1.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-live {
+    animation: none;
+  }
+}
+
+/* ── Code changes ────────────────────────────────────────────────────
+   A patch is another machine score: the file index is its part list and
+   line-number columns keep old and new voices aligned. Structure stays ruled
+   and square; additions and deletions use different neutral washes plus words
+   and prefixes, so the meaning survives grayscale and high-contrast modes. */
+.diff-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+}
+.diff-metadata {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 24rem;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+}
+.diff-metadata div {
+  display: flex;
+  min-width: 0;
+  gap: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.diff-metadata dt {
+  color: var(--color-ink-label);
+}
+.diff-metadata dd {
+  overflow-wrap: anywhere;
+  color: var(--color-ink-secondary);
+}
+.diff-state {
+  border-block: 1px solid var(--color-rule);
+  padding: 1rem 0.75rem;
+}
+.diff-state-error {
+  border-inline-start: 1px solid var(--color-mark);
+  padding-inline-start: 1rem;
+}
+.diff-state-unparseable {
+  border-inline-start: 1px solid var(--color-mark);
+  padding-inline-start: 1rem;
+}
+.diff-raw {
+  max-height: 32rem;
+  margin-top: 0.75rem;
+  overflow: auto;
+  border-inline-start: 1px solid var(--color-rule-strong);
+  padding: 1rem;
+  background-color: var(--color-ground-raised);
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre;
+}
+.diff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+.diff-action {
+  min-height: 2.5rem;
+  border: 1px solid var(--color-rule-strong);
+  padding: 0.375rem 0.75rem;
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.diff-action:hover {
+  border-color: var(--color-cue);
+  color: var(--color-cue-bright);
+}
+.diff-index {
+  border-top: 1px solid var(--color-rule-strong);
+}
+.diff-index li {
+  border-bottom: 1px solid var(--color-rule);
+}
+.diff-index-row,
+.diff-file-header {
+  display: grid;
+  width: 100%;
+  min-height: 2.75rem;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  text-align: start;
+  cursor: pointer;
+}
+.diff-index-row:hover,
+.diff-file-header:hover {
+  background-color: var(--color-ground-raised);
+}
+.diff-disclosure,
+.diff-file-status,
+.diff-file-counts {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.diff-disclosure {
+  color: var(--color-cue-bright);
+}
+.diff-file-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+.diff-file-status {
+  color: var(--color-ink-muted);
+}
+.diff-file-counts {
+  display: flex;
+  gap: 0.5rem;
+  color: var(--color-ink-secondary);
+}
+.diff-file-counts > :first-child {
+  color: var(--color-mint-bright);
+}
+.diff-file-counts > :last-child {
+  color: var(--color-mark-bright);
+}
+.diff-files {
+  margin-top: 1.25rem;
+}
+.diff-file {
+  scroll-margin-top: 1rem;
+  border-top: 1px solid var(--color-rule-strong);
+}
+.diff-file:last-child {
+  border-bottom: 1px solid var(--color-rule-strong);
+}
+.diff-file-header {
+  background-color: var(--color-ground);
+}
+.diff-code {
+  max-width: 100%;
+  overflow-x: auto;
+  border-top: 1px solid var(--color-rule);
+  overscroll-behavior-inline: contain;
+}
+.diff-file-metadata,
+.diff-hunk,
+.diff-reveal {
+  min-width: max-content;
+  padding: 0.5rem 0.75rem;
+  color: var(--color-ink-label);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre;
+}
+.diff-file-metadata {
+  border-bottom: 1px solid var(--color-rule);
+}
+.diff-hunk {
+  background-color: var(--color-ground-band);
+  color: var(--color-cue-bright);
+}
+.diff-line {
+  display: grid;
+  width: max-content;
+  min-width: 100%;
+  grid-template-columns: 3.25rem 3.25rem 4.75rem 1.25rem minmax(max-content, 1fr);
+  border-top: 1px solid transparent;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre;
+}
+.diff-line-context,
+.diff-line-meta {
+  grid-template-columns: 3.25rem 3.25rem minmax(max-content, 1fr);
+}
+.diff-line-addition {
+  border-top-color: color-mix(in oklab, var(--color-mint) 45%, var(--color-rule));
+  background-color: color-mix(in oklab, var(--color-mint) 11%, var(--color-ground));
+}
+.diff-line-deletion {
+  border-top-color: color-mix(in oklab, var(--color-mark) 45%, var(--color-rule));
+  background-color: color-mix(in oklab, var(--color-mark) 10%, var(--color-ground));
+}
+.diff-line-number,
+.diff-line-status {
+  padding: 0 0.5rem;
+  color: var(--color-ink-label);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.diff-line-number {
+  border-inline-end: 1px solid var(--color-rule);
+  text-align: end;
+}
+.diff-line-status {
+  color: var(--color-ink-muted);
+}
+.diff-line-addition .diff-line-status,
+.diff-line-addition .diff-prefix {
+  color: var(--color-mint-bright);
+}
+.diff-line-deletion .diff-line-status,
+.diff-line-deletion .diff-prefix {
+  color: var(--color-mark-bright);
+}
+.diff-line code {
+  padding-inline-end: 1rem;
+  color: var(--color-ink-secondary);
+}
+.diff-prefix {
+  color: var(--color-ink);
+  text-align: center;
+  user-select: none;
+}
+.diff-reveal {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  border-block: 1px dashed var(--color-rule-strong);
+  color: var(--color-cue-bright);
+  text-align: start;
+  cursor: pointer;
+}
+.diff-reveal:hover {
+  background-color: var(--color-ground-raised);
+}
+.diff-raw {
+  max-height: 32rem;
+  overflow: auto;
+  border-block: 1px solid var(--color-rule);
+  padding: 0.75rem;
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre;
+}
+.diff-raw:focus-visible {
+  outline: 2px solid var(--color-cue-bright);
+  outline-offset: 2px;
+}
+
+@media (max-width: 639px) {
+  .diff-summary,
+  .diff-metadata {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .diff-metadata {
+    flex-basis: auto;
+  }
+  .diff-index-row,
+  .diff-file-header {
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    gap: 0.5rem;
+  }
+  .diff-file-status {
+    grid-column: 2;
+  }
+  .diff-file-counts {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+  .diff-line {
+    grid-template-columns: 2.75rem 2.75rem 4.25rem 1.25rem minmax(max-content, 1fr);
+  }
+  .diff-line-context,
+  .diff-line-meta {
+    grid-template-columns: 2.75rem 2.75rem minmax(max-content, 1fr);
+  }
+}
+
+@media (forced-colors: active) {
+  .diff-line-addition {
+    border-inline-start: 2px solid CanvasText;
+  }
+  .diff-line-deletion {
+    border-inline-start: 2px dashed CanvasText;
+  }
 }
 
 /* Runs filtering stays part of the score: one ruled search field and a

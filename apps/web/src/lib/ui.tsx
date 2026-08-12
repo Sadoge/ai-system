@@ -247,4 +247,4 @@ export const buttonDangerCls = `border border-mark bg-transparent px-3 py-1.5 fo
 export const buttonQuietCls = `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-cue hover:text-ink ${FOCUS}`;
 
 export const linkCls =
-  'text-aqua-bright underline decoration-aqua underline-offset-2 hover:text-ink hover:decoration-aqua-bright';
+  'text-aqua-bright underline decoration-aqua underline-offset-2 hover:text-ink hover:decoration-aqua-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';

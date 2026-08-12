@@ -15,6 +15,7 @@ import {
 import { LiveRefresh } from './live-refresh';
 import { RunSystem } from './system';
 import { ExecutionMonitor } from './execution-monitor';
+import { RunCodeChanges } from './run-code-changes';
 import { StopRunControl } from './stop-run-control';
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
@@ -22,6 +23,7 @@ const TERMINAL = ['completed', 'failed', 'cancelled'];
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await apiGet<RunDetail>(`/runs/${id}`);
+  const diffArtifact = run.artifacts.filter((artifact) => artifact.kind === 'diff').at(-1);
   const terminal = TERMINAL.includes(run.status);
   const pendingGates = terminal ? [] : run.gates.filter((g) => g.status === 'pending');
   const doneTasks = run.tasks.filter((t) => t.status === 'completed').length;
@@ -78,6 +80,8 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           </Caesura>
         </div>
       )}
+
+      <RunCodeChanges runId={run.id} artifactId={diffArtifact?.id} />
 
       {/* The hold. Every voice waits here until a human marks it. */}
       {pendingGates.map((gate) => (

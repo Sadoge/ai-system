@@ -26,6 +26,7 @@ import {
   type Db,
 } from '@ai-system/db';
 import {
+  BLOCKING_SEVERITIES,
   PolicySnapshot,
   TicketSnapshot,
   defaultMvpPolicy,
@@ -461,8 +462,29 @@ export class ApiService {
 
   // ── gates ───────────────────────────────────────────────────────────
 
+  /**
+   * The gate queue is where a human actually decides, so it carries the
+   * evidence with it: what the run is about, how far it got, and whether
+   * anything blocking is still open. A queue that shows only a gate name and
+   * two buttons is a rubber stamp.
+   *
+   * The artifact link travels in `payload` (snapshotted when the gate opened);
+   * ticket, status and findings are joined live, because they are the current
+   * state of the run and a stale copy would mislead.
+   */
   async listGates(principal: Principal, status?: string) {
     assertCan(principal.role, 'run:read');
+    const blockingFindings = this.db
+      .$count(
+        reviewFindings,
+        and(
+          eq(reviewFindings.runId, gateRequests.runId),
+          eq(reviewFindings.status, 'open'),
+          inArray(reviewFindings.severity, [...BLOCKING_SEVERITIES]),
+        ),
+      )
+      .as('blocking_findings');
+
     return this.db
       .select({
         id: gateRequests.id,
@@ -472,6 +494,9 @@ export class ApiService {
         payload: gateRequests.payload,
         assignedToUserId: gateRequests.assignedToUserId,
         createdAt: gateRequests.createdAt,
+        ticket: pipelineRuns.ticket,
+        runStatus: pipelineRuns.status,
+        blockingFindings,
       })
       .from(gateRequests)
       .innerJoin(pipelineRuns, eq(gateRequests.runId, pipelineRuns.id))

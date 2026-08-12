@@ -126,6 +126,11 @@ export interface GateRow {
   status: string;
   payload: Record<string, unknown>;
   createdAt: string;
+  // Evidence the queue needs so a decision is not taken blind. `payload` holds
+  // the artifact link snapshotted when the gate opened; these are joined live.
+  ticket: { title: string; source: string; externalKey?: string };
+  runStatus: string;
+  blockingFindings: number;
 }
 
 export interface KnowledgeRow {

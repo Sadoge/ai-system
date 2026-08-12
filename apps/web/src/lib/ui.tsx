@@ -2,9 +2,8 @@
  * Conductor's Score — the shared notation vocabulary.
  *
  * State is read the way a score is read: a notehead says what a voice is
- * doing, and the conductor's vermilion pencil says where a human has to
- * act. Vermilion filled means "you decide"; vermilion stroked means
- * "this failed". Nothing else in the system is allowed to use that colour.
+ * doing, while a stable family of annotation inks separates completed,
+ * live, waiting, paused, failed, and inert voices at a glance.
  */
 
 export type Tone = 'await' | 'fault' | 'live' | 'done' | 'hold' | 'inert';
@@ -21,6 +20,7 @@ export function readState(status: string): StateRead {
   }
   switch (status) {
     case 'completed':
+    case 'succeeded':
     case 'approved':
     case 'active':
       return { tone: 'done', head: 'filled' };
@@ -36,6 +36,8 @@ export function readState(status: string): StateRead {
       return { tone: 'inert', head: 'rest' };
     case 'running':
     case 'in_progress':
+    case 'preparing':
+    case 'validating':
       return { tone: 'live', head: 'hollow' };
     default:
       return { tone: 'inert', head: 'hollow' };
@@ -49,11 +51,11 @@ export function readState(status: string): StateRead {
  * where it is never text.
  */
 const TONE_TEXT: Record<Tone, string> = {
-  await: 'text-mark-bright',
+  await: 'text-hold-bright',
   fault: 'text-mark-bright',
   live: 'text-cue-bright',
-  done: 'text-ink-muted',
-  hold: 'text-hold-bright',
+  done: 'text-mint-bright',
+  hold: 'text-violet-bright',
   inert: 'text-ink-faint',
 };
 
@@ -130,12 +132,18 @@ export function StatusMark({ status, className = '' }: { status: string; classNa
 
 /** Severity of an editorial mark in the margin. */
 export function SeverityMark({ severity }: { severity: string }) {
-  const heavy = severity === 'blocker' || severity === 'major';
+  const tone =
+    severity === 'blocker' || severity === 'major'
+      ? 'text-mark-bright'
+      : severity === 'minor'
+        ? 'text-hold-bright'
+        : 'text-cue-bright';
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 font-mono text-xs ${heavy ? 'text-mark' : 'text-ink-faint'}`}
-    >
-      <Notehead head={heavy ? 'cross' : 'filled'} className="shrink-0" />
+    <span className={`inline-flex items-center gap-1.5 font-mono text-xs ${tone}`}>
+      <Notehead
+        head={severity === 'blocker' || severity === 'major' ? 'cross' : 'filled'}
+        className="shrink-0"
+      />
       {severity}
     </span>
   );
@@ -168,7 +176,7 @@ export function Hairpin({
 /** The boxed letter a conductor calls out to restart from. */
 export function RehearsalMark({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rehearsal shrink-0 px-1.5 py-0.5 font-mono text-micro leading-none text-ink-label">
+    <span className="rehearsal system-mark shrink-0 px-1.5 py-0.5 font-mono text-micro leading-none">
       {children}
     </span>
   );
@@ -191,12 +199,12 @@ export function System({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-10">
-      <header className="mb-4 flex items-center gap-3">
+    <section className="score-system mb-10" data-system-mark={mark}>
+      <header className="system-heading mb-4 flex items-center gap-3 px-3 py-2">
         <RehearsalMark>{mark}</RehearsalMark>
-        <h2 className="annot text-base text-ink-secondary">{title}</h2>
-        <span className="h-px flex-1 bg-rule" />
-        {aside && <span className="shrink-0 font-mono text-xs text-ink-faint tnum">{aside}</span>}
+        <h2 className="system-title annot text-base">{title}</h2>
+        <span className="system-rule h-px flex-1" />
+        {aside && <span className="system-aside shrink-0 font-mono text-xs tnum">{aside}</span>}
       </header>
       {children}
     </section>
@@ -222,20 +230,21 @@ export function Stave({
 const FOCUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
 
-export const inputCls = `border-b border-rule-strong bg-transparent px-1 py-1.5 font-mono text-sm text-ink placeholder:text-ink-faint focus-visible:border-cue ${FOCUS}`;
+export const inputCls = `field-input border border-rule-strong px-2.5 py-2 font-mono text-sm text-ink placeholder:text-ink-muted focus-visible:border-cue ${FOCUS}`;
 
 /** Native selects, with the OS chevron replaced by an engraved one. */
 export const selectCls = `${inputCls} select-chevron cursor-pointer pr-6`;
 
 /**
- * The mark you make. The affirmative action is the conductor's vermilion
- * stroke on the ground — its weight comes from the stroke, not a fill, and
- * committing to it fills the stroke in.
+ * The affirmative mark. Mint separates safe forward motion from the
+ * vermilion destructive/rejection action beside it.
  */
-export const buttonCls = `border-2 border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
+export const buttonCls = `border-2 border-mint bg-mint px-3 py-1.5 font-mono text-sm text-ground hover:border-mint-bright hover:bg-mint-bright ${FOCUS}`;
 
 /** The other decision. Quieter at rest; it reaches for the pencil on hover. */
-export const buttonDangerCls = `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-mark hover:text-mark-bright ${FOCUS}`;
+export const buttonDangerCls = `border border-mark bg-transparent px-3 py-1.5 font-mono text-sm text-mark-bright hover:bg-mark hover:text-ground ${FOCUS}`;
+
+export const buttonQuietCls = `border border-rule-strong bg-transparent px-3 py-1.5 font-mono text-sm text-ink-muted hover:border-cue hover:text-ink ${FOCUS}`;
 
 export const linkCls =
-  'text-cue-bright underline decoration-rule-strong underline-offset-2 hover:decoration-cue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';
+  'text-aqua-bright underline decoration-aqua underline-offset-2 hover:text-ink hover:decoration-aqua-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cue-bright';

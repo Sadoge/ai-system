@@ -88,7 +88,7 @@ CREATE TABLE stage_executions (
 CREATE TABLE tasks (
   id uuid PRIMARY KEY, run_id uuid NOT NULL REFERENCES pipeline_runs,
   title text NOT NULL, spec_artifact_id uuid NOT NULL,
-  status text NOT NULL,                         -- pending|ready|running|completed|failed
+  status text NOT NULL,                         -- pending|ready|running|completed|failed|cancelled
   origin text NOT NULL,                         -- decomposition | fix_iteration
   worktree_branch text, assigned_agent_kind text NOT NULL DEFAULT 'coding',
   attempt int NOT NULL DEFAULT 1, max_attempts int NOT NULL DEFAULT 2
@@ -106,8 +106,8 @@ CREATE TABLE agent_runs (
   id uuid PRIMARY KEY, organization_id uuid NOT NULL, run_id uuid NOT NULL,
   stage_execution_id uuid, task_id uuid,        -- exactly one is set
   agent_kind text NOT NULL, executor_kind text NOT NULL,   -- cli | api_loop
-  status text NOT NULL,                         -- queued|preparing|running|validating|succeeded|failed
-  failure_reason text,                          -- invalid_output|sandbox_error|model_error|timeout|budget_denied
+  status text NOT NULL,                         -- queued|preparing|running|validating|succeeded|failed|cancelled
+  failure_reason text,                          -- invalid_output|sandbox_error|model_error|timeout|budget_denied|cancelled
   model_profile_used jsonb NOT NULL,
   context_bundle_artifact_id uuid,
   result_artifact_id uuid,

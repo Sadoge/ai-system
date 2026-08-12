@@ -36,7 +36,12 @@ export interface CompleteResult {
 export interface ModelTarget {
   provider: string;
   model: string;
-  params?: { maxTokens?: number; temperature?: number };
+  params?: {
+    maxTokens?: number;
+    temperature?: number;
+    /** Provider-neutral reasoning budget. CLI adapters translate this to native flags. */
+    reasoningEffort?: 'low' | 'medium' | 'high';
+  };
 }
 
 export interface ResolvedProfile {
@@ -83,7 +88,13 @@ export interface ProviderAdapter {
   readonly provider: string;
   complete(
     model: string,
-    req: { system?: string; messages: ChatMessage[]; maxTokens: number; temperature?: number },
+    req: {
+      system?: string;
+      messages: ChatMessage[];
+      maxTokens: number;
+      temperature?: number;
+      reasoningEffort?: 'low' | 'medium' | 'high';
+    },
   ): Promise<AdapterCompletion>;
   /** Optional: providers without tool support simply omit this. */
   completeWithTools?(

@@ -1,10 +1,9 @@
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
 import {
   artifacts,
-  agentRuns,
   gateDecisions,
   gateRequests,
   pipelineRuns,
@@ -29,24 +28,19 @@ import {
   saveIndexSnapshot,
   type BrainContext,
 } from '@ai-system/brain';
-import {
-  ImplementationPlan,
-  ResearchReport,
-  type AgentContext,
-} from '@ai-system/agents';
+import { ImplementationPlan, ResearchReport, type AgentContext } from '@ai-system/agents';
 import {
   commitAll,
   diffAgainst,
   ensureCheckout,
   ensureWorktree,
-  renderCodingPrompt,
   type CodingTaskSpec,
 } from '@ai-system/agent-execution';
-import { CliAgentExecutor } from '@ai-system/agent-execution';
 import { createArtifact } from './artifacts.js';
 import { detectGitHost, gitHostFor } from './git-host.js';
 import { notifyTracker } from './trackers.js';
-import { recordExecutorUsage } from './executors.js';
+import { reportActivity } from './activity.js';
+import { executeWithFallbacks } from './execution-fallback.js';
 import type { StageServices } from './services.js';
 import type { RunRow, StageOutcome } from './stages.js';
 
@@ -67,15 +61,16 @@ export function runBranch(run: RunRow): string {
 }
 
 export function repoPaths(services: StageServices, repoId: string, runId: string) {
+  const dataDir = resolve(services.dataDir);
   return {
-    checkoutDir: join(services.dataDir, 'repos', repoId),
+    checkoutDir: join(dataDir, 'repos', repoId),
     // The run branch's worktree. Task worktrees are siblings of it.
-    worktreeDir: join(services.dataDir, 'worktrees', runId, 'run'),
+    worktreeDir: join(dataDir, 'worktrees', runId, 'run'),
   };
 }
 
 export function taskWorktreeDir(services: StageServices, runId: string, taskId: string): string {
-  return join(services.dataDir, 'worktrees', runId, `task-${taskId.slice(-8)}`);
+  return join(resolve(services.dataDir), 'worktrees', runId, `task-${taskId.slice(-8)}`);
 }
 
 export function taskBranch(run: RunRow, taskId: string): string {
@@ -172,6 +167,20 @@ export async function openBlockingFindings(db: Db, runId: string) {
     .where(and(eq(reviewFindings.runId, runId), eq(reviewFindings.status, 'open')));
 }
 
+/**
+ * A successful corrective coding pass is the terminal disposition of the
+ * findings it was given. The following test stage may create fresh findings
+ * from deterministic failures, but the old review must not reopen itself now
+ * that corrective passes intentionally skip a second review.
+ */
+export async function resolveCorrectedFindings(db: Db, run: RunRow): Promise<void> {
+  if (run.iterationCount === 0) return;
+  await db
+    .update(reviewFindings)
+    .set({ status: 'resolved' })
+    .where(and(eq(reviewFindings.runId, run.id), eq(reviewFindings.status, 'open')));
+}
+
 // ── stage handlers (docs/10 Phase 1 pipeline) ─────────────────────────
 
 export async function classifyStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
@@ -248,6 +257,11 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
   if (!planArtifact) throw new Error('no implementation plan to code from');
   const plan = ImplementationPlan.parse(planArtifact.content);
   const findings = await openBlockingFindings(db, run.id);
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code' },
+    { kind: 'stage', message: 'Loading repository context and coding rules' },
+  );
   const brain = await getBrainContext(services, run, repo);
 
   const { checkoutDir, worktreeDir } = repoPaths(services, repo.id, run.id);
@@ -267,77 +281,57 @@ export async function codeStage(services: StageServices, run: RunRow): Promise<S
     rules: brain.rules.map((r) => ({ title: r.title, content: r.content })),
   };
 
-  const agentRunId = uuidv7();
-  // Persist the exact context BEFORE execution — every agent run is reproducible (docs/06 §2).
-  const { artifactId: bundleId } = await createArtifact(db, {
+  const execution = await executeWithFallbacks({
+    db,
+    candidates: await services.executorsFor(run, repo, 'coding'),
+    maxAttempts: services.codingMaxAttempts,
     runId: run.id,
-    kind: 'task_spec',
-    content: { taskSpec, prompt: renderCodingPrompt(taskSpec), iteration: run.iterationCount },
-  });
-  const executor = services.executorFor(repo);
-  await db.insert(agentRuns).values({
-    id: agentRunId,
-    runId: run.id,
+    stage: 'code',
     agentKind: 'coding',
-    executorKind: executor.executorKind,
-    status: 'running',
-    contextBundleArtifactId: bundleId,
-    startedAt: new Date(),
-  });
-
-  const startedAt = Date.now();
-  const result = await executor.execute({
-    runId: run.id,
-    agentRunId,
     worktreeDir,
     taskSpec,
-    limits: { timeoutMs: services.codingTimeoutMs },
+    timeoutMs: services.codingTimeoutMs,
     allowedCommands: allowedCommandsFor(repo),
+    artifactContext: { iteration: run.iterationCount },
   });
-  await recordExecutorUsage(db, {
-    runId: run.id,
-    agentRunId,
-    executorKind: executor.executorKind,
-    ...(executor instanceof CliAgentExecutor ? { cliName: executor.cliName } : {}),
-    usage: result.usage,
-    status: result.status === 'succeeded' ? 'succeeded' : 'failed',
-    latencyMs: Date.now() - startedAt,
-  });
-
-  const { artifactId: transcriptId } = await createArtifact(db, {
-    runId: run.id,
-    kind: 'agent_transcript',
-    content: { transcript: result.transcript.slice(-100_000) },
-    createdByAgentRunId: agentRunId,
-  });
-
-  if (result.status === 'failed') {
-    await db
-      .update(agentRuns)
-      .set({ status: 'failed', failureReason: result.failureReason, finishedAt: new Date() })
-      .where(eq(agentRuns.id, agentRunId));
+  if (execution.status === 'failed') {
+    const { result } = execution;
     throw new Error(
-      `coding agent failed: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
+      `all coding agents failed; last failure: ${result.failureReason}${result.note ? ` — ${result.note}` : ''}`,
     );
   }
 
-  await commitAll(worktreeDir, `ai-system: ${ticket.title} (iteration ${run.iterationCount})`);
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Coding agent succeeded; finalizing its Git changes' },
+  );
+  await commitAll(
+    worktreeDir,
+    `ai-system: ${ticket.title} (iteration ${run.iterationCount})`,
+    repo.defaultBranch,
+  );
+  await reportActivity(
+    db,
+    { runId: run.id, stage: 'code', agentRunId: execution.agentRunId },
+    { kind: 'stage', message: 'Generating the review diff' },
+  );
   const diff = await diffAgainst(worktreeDir, repo.defaultBranch);
   const { artifactId: diffId } = await createArtifact(db, {
     runId: run.id,
     kind: 'diff',
     content: { diff, baseBranch: repo.defaultBranch, branch: runBranch(run) },
-    createdByAgentRunId: agentRunId,
+    createdByAgentRunId: execution.agentRunId,
   });
-
-  await db
-    .update(agentRuns)
-    .set({ status: 'succeeded', finishedAt: new Date() })
-    .where(eq(agentRuns.id, agentRunId));
-  return { artifactIds: [bundleId, transcriptId, diffId] };
+  await resolveCorrectedFindings(db, run);
+  return { artifactIds: [...execution.artifactIds, diffId] };
 }
 
 export async function reviewStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
+  // Corrective passes intentionally reuse the one authoritative review. This
+  // is a worker-side guard for commands produced by an older/stale engine.
+  if (run.iterationCount > 0) return { artifactIds: [] };
+
   const { db } = services;
   const ticket = TicketSnapshot.parse(run.ticket);
   const repo = run.repositoryId ? await requireRepo(db, run) : null;
@@ -413,9 +407,16 @@ export function specializedReviewersFor(repo: RepoRow | null): ReviewSpecialty[]
 
 export async function testStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
   const { db } = services;
+  const ticket = TicketSnapshot.parse(run.ticket);
   const repo = await requireRepo(db, run);
   const { worktreeDir } = repoPaths(services, repo.id, run.id);
   const settings = (repo.settings ?? {}) as { testCommand?: string };
+
+  // The correction is the terminal disposition of the single review. Clear
+  // its findings again here as a repair boundary in case a stale worker ran a
+  // forbidden second review, or this test is a manual retry of an earlier
+  // post-correction test attempt.
+  await resolveCorrectedFindings(db, run);
 
   // Only the repository's allowlisted command runs — never anything an agent chose (docs/06 §4).
   let testsPassed = true;
@@ -436,6 +437,61 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
     }
   }
 
+  // The command result is deterministic; the assigned testing agent explains
+  // failures and turns them into actionable fix inputs. A successful command
+  // is authoritative and must not be overturned by another judgment pass.
+  let analysis = {
+    summary: settings.testCommand
+      ? 'Repository test command passed.'
+      : 'No test command configured.',
+    findings: [] as Array<{
+      severity: 'blocker' | 'major' | 'minor' | 'info';
+      category: string;
+      title: string;
+      detail: string;
+      filePath: string | null;
+    }>,
+  };
+  if (shouldAnalyzeTestFailure(settings.testCommand, testsPassed)) {
+    const diffArtifact = await latestArtifact(db, run.id, 'diff');
+    const diff = (diffArtifact?.content as { diff?: string } | undefined)?.diff ?? '';
+    const agents = await services.agents(run);
+    analysis = await agents.test(
+      {
+        ticket,
+        command: settings.testCommand,
+        passed: testsPassed,
+        output,
+        diff,
+        iterationCount: run.iterationCount,
+      },
+      agentCtx(run),
+    );
+  }
+
+  if (!testsPassed && !analysis.findings.some((f) => ['blocker', 'major'].includes(f.severity))) {
+    analysis.findings.push({
+      severity: 'major',
+      category: 'testing',
+      title: 'Repository test command failed',
+      detail: analysis.summary || output.slice(-2_000),
+      filePath: null,
+    });
+  }
+  for (const finding of analysis.findings) {
+    await db.insert(reviewFindings).values({
+      id: uuidv7(),
+      runId: run.id,
+      severity: finding.severity,
+      category: finding.category.startsWith('testing')
+        ? finding.category
+        : `testing:${finding.category}`,
+      title: finding.title,
+      detail: finding.detail,
+      filePath: finding.filePath,
+    });
+  }
+
   const blocking = (await openBlockingFindings(db, run.id)).filter((f) =>
     ['blocker', 'major'].includes(f.severity),
   );
@@ -445,6 +501,7 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
     content: {
       testsPassed,
       output,
+      analysis,
       blockingFindings: blocking.map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
       iteration: run.iterationCount,
     },
@@ -452,12 +509,20 @@ export async function testStage(services: StageServices, run: RunRow): Promise<S
 
   if (testsPassed && blocking.length === 0) return { artifactIds: [artifactId] };
 
-  // The engine — not this handler — decides between a fix iteration and the gate.
+  // The engine — not this handler — decides between the one correction and a
+  // hard stop when that allowance has already been used.
   await applyEvent(db, {
     name: 'run.iteration.needed',
     payload: { runId: run.id, blockingFindingIds: blocking.map((f) => f.id), testsPassed },
   });
   return { artifactIds: [artifactId], suppressCompletion: true };
+}
+
+export function shouldAnalyzeTestFailure(
+  testCommand: string | undefined,
+  testsPassed: boolean,
+): testCommand is string {
+  return Boolean(testCommand) && !testsPassed;
 }
 
 export async function packageStage(services: StageServices, run: RunRow): Promise<StageOutcome> {
@@ -484,15 +549,32 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     `- Iterations used: ${run.iterationCount}`,
   ].join('\n');
 
-  // Git-host port: the stage speaks "push branch, open change request"; GitHub,
-  // GitLab, and Bitbucket are interchangeable behind that sentence.
+  // Repository publication is mandatory. Hosted forges also open a change
+  // request; a local repository receives the branch directly.
   let prUrl: string | null = null;
   let prError: string | null = null;
   const host = gitHostFor(repo.remoteUrl, { githubToken: services.githubToken });
-  if (host) {
+  if (!host) {
+    const detected = detectGitHost(repo.remoteUrl);
+    if (detected) {
+      throw new Error(
+        `Cannot publish ${branch}: ${detected} credentials are not configured for the worker.`,
+      );
+    }
+    throw new Error(`Cannot publish ${branch}: the repository remote is not supported.`);
+  }
+
+  const { checkoutDir } = repoPaths(services, repo.id, run.id);
+  try {
+    await host.push(checkoutDir, branch);
+  } catch {
+    throw new Error(
+      `Failed to publish ${branch} to the ${host.name} repository; verify the remote and write permissions.`,
+    );
+  }
+
+  if (host.openChangeRequest) {
     try {
-      const { checkoutDir } = repoPaths(services, repo.id, run.id);
-      await host.push(checkoutDir, branch);
       const cr = await host.openChangeRequest({
         title: ticket.title,
         body,
@@ -503,13 +585,12 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
     } catch (err) {
       prError = err instanceof Error ? err.message : String(err);
     }
-  } else {
-    // A recognized forge without credentials is a configuration mistake, not a
-    // silent no-op: say so in the artifact so the gate reviewer sees why the
-    // package has a branch but no link.
-    const detected = detectGitHost(repo.remoteUrl);
-    if (detected) prError = `${detected} remote detected but no credentials are configured`;
   }
+
+  const publicationNote =
+    host.name === 'local'
+      ? `Published to the registered local repository. Run git switch ${branch} there to inspect it.`
+      : `Published to ${host.name}.`;
 
   const trackerResult = prUrl ? await notifyTracker(ticket, prUrl) : null;
 
@@ -525,6 +606,8 @@ export async function packageStage(services: StageServices, run: RunRow): Promis
       prUrl,
       prError,
       gitHost: host?.name ?? null,
+      branchPublished: true,
+      publicationNote,
       tracker: trackerResult,
     },
   });

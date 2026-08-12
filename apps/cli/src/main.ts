@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Exit quietly when output is piped into a pager that closes early (e.g. `| head`).
 process.stdout.on('error', (err: NodeJS.ErrnoException) => {
@@ -60,6 +61,7 @@ import {
   fetchAzureDevOpsTicket,
   fetchJiraTicket,
   fetchLinearTicket,
+  isLocalGitRemote,
   jiraConfigFromEnv,
   linearConfigFromEnv,
 } from '@ai-system/integrations';
@@ -74,9 +76,11 @@ import {
   setEndpointActive,
 } from '@ai-system/webhooks';
 import {
+  cancelRun,
   compareEvalRun,
   listTasks,
   resolveGate,
+  retryRun,
   startEvalReplay,
   startRun,
 } from '@ai-system/orchestration';
@@ -246,6 +250,7 @@ repoCmd
     'coding agent: claude_code | codex | api_loop | scripted (default: claude_code)',
   )
   .option('--executor-model <model>', 'model passed to the coding agent CLI')
+  .option('--executor-effort <level>', 'coding reasoning effort: low | medium | high')
   .option('--reviewers <list>', 'comma-separated specialized review passes: security,performance,migration')
   .action(
     withDb(
@@ -259,22 +264,34 @@ repoCmd
           testCommand?: string;
           executor?: string;
           executorModel?: string;
+          executorEffort?: 'low' | 'medium' | 'high';
           reviewers?: string;
         },
       ) => {
+        if (
+          opts.executorEffort &&
+          !['low', 'medium', 'high'].includes(opts.executorEffort)
+        ) {
+          throw new Error('executor effort must be low, medium, or high');
+        }
         const project = await pickProject(db, opts.project);
+        const normalizedRemoteUrl =
+          isLocalGitRemote(remoteUrl) && !remoteUrl.startsWith('file://')
+            ? resolve(remoteUrl)
+            : remoteUrl;
         const repositoryId = uuidv7();
         await db.insert(repositories).values({
           id: repositoryId,
           organizationId: project.organizationId,
           projectId: project.id,
           name: opts.name ?? remoteUrl.split('/').pop() ?? remoteUrl,
-          remoteUrl,
+          remoteUrl: normalizedRemoteUrl,
           defaultBranch: opts.defaultBranch,
           settings: {
             ...(opts.testCommand ? { testCommand: opts.testCommand } : {}),
             ...(opts.executor ? { executor: opts.executor } : {}),
             ...(opts.executorModel ? { executorModel: opts.executorModel } : {}),
+            ...(opts.executorEffort ? { executorEffort: opts.executorEffort } : {}),
             ...(opts.reviewers
               ? { reviewers: opts.reviewers.split(',').map((r) => r.trim()).filter(Boolean) }
               : {}),
@@ -476,6 +493,32 @@ runCmd
       for (const e of events.reverse()) {
         console.log(`    ${e.createdAt.toISOString()}  ${e.name}`);
       }
+    }),
+  );
+
+runCmd
+  .command('retry <run-id>')
+  .description('retry a failed run from its failed stage, preserving completed work')
+  .action(
+    withDb(async (db, runId: string) => {
+      const result = await retryRun(db, runId);
+      if (result.outcome === 'ignored') throw new Error(result.reason);
+      if (result.outcome !== 'transitioned') throw new Error('retry did not transition the run');
+      console.log(`run retried: ${runId} (status: ${result.status})`);
+    }),
+  );
+
+runCmd
+  .command('stop <run-id>')
+  .alias('cancel')
+  .description('stop a non-terminal run and cancel its queued or active work')
+  .option('--reason <text>', 'record why the run was stopped')
+  .action(
+    withDb(async (db, runId: string, opts: { reason?: string }) => {
+      const result = await cancelRun(db, runId, opts.reason ?? 'Stopped from the CLI');
+      if (result.outcome === 'ignored') throw new Error(result.reason);
+      if (result.outcome !== 'transitioned') throw new Error('stop did not cancel the run');
+      console.log(`run stopped: ${runId} (status: ${result.status})`);
     }),
   );
 

@@ -1,6 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
-import { GateDecisionKind, KnowledgeKind, ReviewSpecialty, TicketSnapshot } from '@ai-system/domain';
+import {
+  GateDecisionKind,
+  KnowledgeKind,
+  ReviewSpecialty,
+  TicketSnapshot,
+} from '@ai-system/domain';
 
 // Zod is the request contract (docs/09 §2); every body is parsed before use.
 export function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.infer<S> {
@@ -23,6 +28,10 @@ export const StartRunBody = z
   .refine((b) => b.ticket !== undefined || b.jiraKey !== undefined, {
     message: 'either ticket or jiraKey is required',
   });
+
+export const CancelRunBody = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+});
 
 export const ResolveGateBody = z.object({
   decision: GateDecisionKind,
@@ -50,6 +59,7 @@ export const RegisterRepoBody = z.object({
   /** Which coding agent runs this repository's tasks. */
   executor: z.enum(['claude_code', 'codex', 'api_loop', 'scripted']).optional(),
   executorModel: z.string().optional(),
+  executorEffort: z.enum(['low', 'medium', 'high']).optional(),
   reviewers: z.array(ReviewSpecialty).optional(),
   projectId: z.string().uuid().optional(),
 });
@@ -58,8 +68,25 @@ export const AddModelProfileBody = z.object({
   purpose: z.string().min(1),
   provider: z.string().min(1),
   model: z.string().min(1),
-  params: z.record(z.unknown()).default({}),
-  fallbacks: z.array(z.object({ provider: z.string(), model: z.string() })).default([]),
+  params: z
+    .object({
+      reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
+      maxTokens: z.number().int().positive().optional(),
+      temperature: z.number().min(0).max(2).optional(),
+    })
+    .passthrough()
+    .default({}),
+  fallbacks: z
+    .array(
+      z.object({
+        provider: z.string(),
+        model: z.string(),
+        params: z
+          .object({ reasoningEffort: z.enum(['low', 'medium', 'high']).optional() })
+          .optional(),
+      }),
+    )
+    .default([]),
   projectId: z.string().uuid().optional(),
 });
 

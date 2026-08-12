@@ -47,11 +47,14 @@ export interface RunSummary {
 
 export interface RunDetail extends RunSummary {
   error: string | null;
+  stageOrder: string[];
   stages: {
     id: string;
     stage: string;
     status: string;
+    attempt: number;
     error: string | null;
+    startedAt: string | null;
     createdAt: string;
     finishedAt: string | null;
   }[];
@@ -64,7 +67,13 @@ export interface RunDetail extends RunSummary {
     detail: string;
     status: string;
   }[];
-  gates: { id: string; gate: string; status: string; payload: Record<string, unknown>; createdAt: string }[];
+  gates: {
+    id: string;
+    gate: string;
+    status: string;
+    payload: Record<string, unknown>;
+    createdAt: string;
+  }[];
   costUsd: number;
   tasks: {
     id: string;
@@ -78,6 +87,24 @@ export interface RunDetail extends RunSummary {
     dependsOn: string[];
     executorKind: string | null;
     agentCostUsd: number;
+  }[];
+  agents: {
+    id: string;
+    stageExecutionId: string | null;
+    taskId: string | null;
+    agentKind: string;
+    executorKind: string;
+    status: string;
+    failureReason: string | null;
+    startedAt: string | null;
+    finishedAt: string | null;
+    createdAt: string;
+  }[];
+  events: {
+    id: string;
+    name: string;
+    payload: Record<string, unknown>;
+    createdAt: string;
   }[];
 }
 
@@ -120,6 +147,7 @@ export interface ModelProfileRow {
   fallbacks: {
     provider: string;
     model: string;
+    params?: { reasoningEffort?: 'low' | 'medium' | 'high' };
   }[];
   projectId: string | null;
   organizationId: string | null;

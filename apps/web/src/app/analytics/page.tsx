@@ -58,10 +58,10 @@ function Dynamic({
 }) {
   const pct = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
   return (
-    <div className="flex items-center gap-4">
+    <div className="dynamic-row flex items-center gap-4">
       <span className="w-36 shrink-0 truncate font-mono text-xs text-ink-muted">{label}</span>
       <span className="h-2.5 flex-1 bg-ground-band">
-        <span className="block h-2.5 bg-ink-muted" style={{ width: `${pct}%` }} />
+        <span className="dynamic-fill block h-2.5" style={{ width: `${pct}%` }} />
       </span>
       <span className="w-24 shrink-0 text-right font-mono text-xs text-ink-muted tnum">{right}</span>
     </div>

@@ -114,6 +114,13 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
   ) {}
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
+    if (input.signal?.aborted) {
+      return {
+        status: 'failed',
+        failureReason: 'cancelled',
+        transcript: 'Stopped by the operator.',
+      };
+    }
     const root = resolve(input.worktreeDir);
     const allowedCommands = input.allowedCommands ?? [];
     const transcript: string[] = [];
@@ -127,6 +134,9 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
     };
 
     try {
+      await input
+        .onActivity?.({ kind: 'agent', message: 'API agent loop started' })
+        .catch(() => {});
       const result = await this.runner.toolLoop(this.profile, {
         system:
           'You are a coding agent working inside an isolated git worktree. Use the tools to inspect and edit files; prefer edit_file for surgical changes to existing files. Run the allowlisted commands to check your work when they exist. Implement exactly what the task asks, nothing more. When finished, reply with a one-paragraph summary of what you changed.',
@@ -143,6 +153,7 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
         // the model as errors rather than thrown, so containment holds no
         // matter who drives the loop, and the model can correct itself.
         executeTool: async (call) => {
+          if (input.signal?.aborted) throw new Error('run cancelled by operator');
           const args = call.arguments as {
             path?: string;
             content?: string;
@@ -151,7 +162,21 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
             command?: string;
           };
           const path = String(args.path ?? '');
-          transcript.push(`> ${call.name} ${call.name === 'run_command' ? String(args.command ?? '') : path}`);
+          const target = call.name === 'run_command' ? '' : path;
+          await input
+            .onActivity?.({
+              kind: 'tool',
+              message:
+                call.name === 'run_command'
+                  ? 'Running an allowlisted repository command'
+                  : target
+                    ? `${call.name}: ${target}`.slice(0, 240)
+                    : call.name,
+            })
+            .catch(() => {});
+          transcript.push(
+            `> ${call.name} ${call.name === 'run_command' ? String(args.command ?? '') : path}`,
+          );
           try {
             switch (call.name) {
               case 'list_files': {
@@ -212,6 +237,7 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
                   const { stdout, stderr } = await exec('bash', ['-c', command], {
                     cwd: root,
                     timeout: COMMAND_TIMEOUT_MS,
+                    signal: input.signal,
                     maxBuffer: 16 * 1024 * 1024,
                     env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
                   });
@@ -219,7 +245,9 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
                 } catch (err) {
                   const e = err as { stdout?: string; stderr?: string; message: string };
                   return {
-                    content: `${e.stdout ?? ''}${e.stderr ?? ''}${e.message}`.slice(-MAX_COMMAND_OUTPUT),
+                    content: `${e.stdout ?? ''}${e.stderr ?? ''}${e.message}`.slice(
+                      -MAX_COMMAND_OUTPUT,
+                    ),
                     isError: true,
                   };
                 }
@@ -236,14 +264,30 @@ export class ApiLoopAgentExecutor implements AgentExecutor {
         },
       });
 
+      if (input.signal?.aborted) {
+        return {
+          status: 'failed',
+          failureReason: 'cancelled',
+          transcript: `${transcript.join('\n')}\nStopped by the operator.`.trim(),
+        };
+      }
+
       transcript.push(result.text);
+      await input
+        .onActivity?.({ kind: 'message', message: result.text.replace(/\s+/g, ' ').slice(0, 240) })
+        .catch(() => {});
       return { status: 'succeeded', transcript: transcript.join('\n') };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       transcript.push(`ERROR: ${message}`);
       return {
         status: 'failed',
-        failureReason: message.includes('budget') ? 'budget_denied' : 'model_error',
+        failureReason:
+          input.signal?.aborted || /\bcancelled\b/i.test(message)
+            ? 'cancelled'
+            : message.includes('budget')
+              ? 'budget_denied'
+              : 'model_error',
         transcript: transcript.join('\n'),
       };
     }

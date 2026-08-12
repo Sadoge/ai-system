@@ -236,6 +236,9 @@ export const agentRuns = pgTable(
     executorKind: text('executor_kind').notNull(),
     status: text('status').notNull().default('queued'),
     failureReason: text('failure_reason'),
+    // Provider conversation id used to continue a timed-out/cancelled agent
+    // without discarding its reasoning and validation context.
+    sessionId: text('session_id'),
     // The exact context bundle is persisted (as an artifact) BEFORE execution
     // so every agent run is reproducible.
     contextBundleArtifactId: uuid('context_bundle_artifact_id'),

@@ -56,7 +56,9 @@ EOF`);
     // The full rendered prompt reached the CLI over stdin.
     expect(readFileSync(join(worktree, 'prompt-received.txt'), 'utf8')).toContain('Add a greeting');
     // ...and is persisted next to the work for a human to inspect.
-    expect(readFileSync(join(worktree, '.ai-system-prompt.md'), 'utf8')).toContain('create greeting.txt');
+    expect(readFileSync(join(worktree, '.ai-system-prompt.md'), 'utf8')).toContain(
+      'create greeting.txt',
+    );
   });
 
   it('treats an agent-reported error as a model failure, not a sandbox failure', async () => {
@@ -91,6 +93,101 @@ echo '{"result":"I could not complete this","is_error":true,"total_cost_usd":0.0
     expect(result.transcript).toContain('exit code 3');
   });
 
+  it('captures a Codex session and classifies an interrupted turn as cancelled', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-interrupted-'));
+    const binary = fakeCli(`cat > /dev/null
+echo '{"type":"thread.started","thread_id":"session-123"}'
+echo 'Turn interrupted' >&2
+exit 1`);
+
+    const result = await new CliAgentExecutor({ preset: 'codex', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      limits: { timeoutMs: 10_000 },
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      failureReason: 'cancelled',
+      sessionId: 'session-123',
+    });
+  });
+
+  it('kills an active CLI process when the parent run is stopped', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-stopped-'));
+    const binary = fakeCli(`cat > /dev/null\nsleep 10`);
+    const controller = new AbortController();
+
+    const execution = new CliAgentExecutor({ preset: 'claude_code', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      limits: { timeoutMs: 20_000 },
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(execution).resolves.toMatchObject({
+      status: 'failed',
+      failureReason: 'cancelled',
+    });
+  });
+
+  it('streams CLI warnings while a successful Codex run is still active', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-warning-'));
+    const binary = fakeCli(`cat > /dev/null
+echo 'ERROR codex_models_manager::cache: missing field base_instructions' >&2
+echo '{"type":"thread.started","thread_id":"session-warning"}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented."}}'
+echo '{"type":"turn.completed"}'`);
+    const activity: string[] = [];
+
+    const result = await new CliAgentExecutor({ preset: 'codex', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      limits: { timeoutMs: 10_000 },
+      onActivity: async (event) => {
+        activity.push(event.message);
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'succeeded', sessionId: 'session-warning' });
+    expect(activity).toContain(
+      'ERROR codex_models_manager::cache: missing field base_instructions',
+    );
+    expect(activity).toContain('Finishing the agent run');
+  });
+
+  it('continues a Codex session with a compact follow-up prompt', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-resume-'));
+    const binary = fakeCli(`printf '%s\\n' "$@" > argv-received.txt
+cat > prompt-received.txt
+echo '{"type":"thread.started","thread_id":"session-123"}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"Finished."}}'
+echo '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}'`);
+
+    const result = await new CliAgentExecutor({ preset: 'codex', binary }).execute({
+      runId: 'r',
+      agentRunId: 'a',
+      worktreeDir: worktree,
+      taskSpec: spec,
+      resumeSessionId: 'session-123',
+      limits: { timeoutMs: 10_000 },
+    });
+
+    expect(result).toMatchObject({ status: 'succeeded', sessionId: 'session-123' });
+    expect(readFileSync(join(worktree, 'argv-received.txt'), 'utf8')).toContain('session-123\n-\n');
+    const prompt = readFileSync(join(worktree, 'prompt-received.txt'), 'utf8');
+    expect(prompt).toContain('Continue the existing task');
+    expect(prompt).toContain('Do not repeat repository discovery');
+    expect(prompt).not.toContain('# Task');
+  });
+
   it('explains a missing binary instead of failing opaquely', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'cli-wt-missing-'));
     const result = await new CliAgentExecutor({
@@ -117,7 +214,7 @@ echo '{"result":"I could not complete this","is_error":true,"total_cost_usd":0.0
 
 describe('presets', () => {
   it('claude_code builds non-interactive JSON args and forwards a model', () => {
-    expect(CLAUDE_CODE_PRESET.buildArgs({ model: 'claude-sonnet-5' })).toEqual([
+    expect(CLAUDE_CODE_PRESET.buildArgs({ model: 'claude-sonnet-5', effort: 'low' })).toEqual([
       '-p',
       '--output-format',
       'json',
@@ -125,21 +222,83 @@ describe('presets', () => {
       'acceptEdits',
       '--model',
       'claude-sonnet-5',
+      '--effort',
+      'low',
     ]);
     expect(CLAUDE_CODE_PRESET.buildArgs({ model: undefined })).not.toContain('--model');
   });
 
   it('codex parses JSONL output and falls back to raw text', () => {
-    const jsonl = CODEX_PRESET.parse('{"type":"item"}\n{"type":"result","text":"done","usage":{"input_tokens":5}}', '');
+    const args = CODEX_PRESET.buildArgs({ model: undefined });
+    expect(args).toContain('--json');
+    expect(args).not.toContain('--full-auto');
+    expect(args).toContain('workspace-write');
+    expect(args).toContain('sandbox_workspace_write.network_access=true');
+    expect(CODEX_PRESET.buildArgs({ model: 'codex-model', effort: 'high' })).toContain(
+      'model_reasoning_effort="high"',
+    );
+    expect(CODEX_PRESET.buildResumeArgs?.({ sessionId: 'session-123', model: undefined })).toEqual(
+      expect.arrayContaining([
+        'exec',
+        'resume',
+        '--json',
+        'sandbox_workspace_write.network_access=true',
+        'session-123',
+        '-',
+      ]),
+    );
+    expect(
+      CODEX_PRESET.sessionId?.(
+        JSON.stringify({ type: 'thread.started', thread_id: 'session-123' }),
+      ),
+    ).toBe('session-123');
+    const jsonl = CODEX_PRESET.parse(
+      '{"type":"item"}\n{"type":"result","text":"done","usage":{"input_tokens":5}}',
+      '',
+    );
     expect(jsonl).toMatchObject({ text: 'done', usage: { inputTokens: 5 } });
+    const currentJsonl = CODEX_PRESET.parse(
+      [
+        JSON.stringify({
+          type: 'item.completed',
+          item: { type: 'agent_message', text: 'Implemented and verified.' },
+        }),
+        JSON.stringify({
+          type: 'turn.completed',
+          usage: { input_tokens: 120, output_tokens: 45 },
+        }),
+      ].join('\n'),
+      '',
+    );
+    expect(currentJsonl).toMatchObject({
+      text: 'Implemented and verified.',
+      usage: { inputTokens: 120, outputTokens: 45 },
+    });
     const plain = CODEX_PRESET.parse('just some output', '');
     expect(plain).toMatchObject({ text: 'just some output', isError: false });
+
+    expect(
+      CODEX_PRESET.activity?.(
+        JSON.stringify({
+          type: 'item.started',
+          item: { type: 'command_execution', command: 'API_TOKEN=secret pnpm test' },
+        }),
+      ),
+    ).toEqual({ kind: 'tool', message: 'Running API_TOKEN=[redacted] pnpm test' });
+    expect(
+      CODEX_PRESET.activity?.(
+        JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Done.' } }),
+      ),
+    ).toEqual({ kind: 'message', message: 'Done.' });
   });
 
   it('never forwards repository credentials into the sandbox', () => {
     for (const preset of [CLAUDE_CODE_PRESET, CODEX_PRESET]) {
       expect(preset.envAllowlist).not.toContain('GITHUB_TOKEN');
       expect(preset.envAllowlist).not.toContain('DATABASE_URL');
+      expect(preset.envAllowlist).not.toContain('ANTHROPIC_API_KEY');
+      expect(preset.envAllowlist).not.toContain('OPENAI_API_KEY');
+      expect(preset.envAllowlist).not.toContain('CODEX_API_KEY');
     }
   });
 });

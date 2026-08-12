@@ -57,7 +57,7 @@ Dotted lines are cross-cutting (tenancy scoping, event/telemetry emission); soli
 
 ### 2.4 Orchestration (core)
 
-**Owns:** pipeline runs, stage executions, the task DAG, the pipeline state machine, complexity classification results, iteration budgets, run scheduling.
+**Owns:** pipeline runs, stage executions, the task DAG, the pipeline state machine, complexity classification results, the single-correction allowance, and run scheduling.
 **Provides:** `startRun(ticket, project, policy)`, `advance(runId, event)` — the single deterministic transition function — plus run queries for the UI (timeline, task graph).
 **Key rule:** this context is pure coordination. It never calls an LLM, never touches a file. It decides *what* should happen; Agent Execution decides *how*.
 

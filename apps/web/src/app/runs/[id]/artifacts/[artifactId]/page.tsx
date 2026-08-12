@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { apiGet, type ArtifactDetail } from '@/lib/api';
 import { System, linkCls } from '@/lib/ui';
-import { ArtifactView } from './artifact-view';
+import { ArtifactView, artifactCopy } from './artifact-view';
 
 export default async function ArtifactPage({
   params,
@@ -10,6 +10,7 @@ export default async function ArtifactPage({
 }) {
   const { id, artifactId } = await params;
   const artifact = await apiGet<ArtifactDetail>(`/runs/${id}/artifacts/${artifactId}`);
+  const copy = artifactCopy(artifact.kind);
 
   return (
     <main>
@@ -19,11 +20,12 @@ export default async function ArtifactPage({
         </Link>
       </p>
 
-      <System mark="A" title={artifact.kind}>
+      <System mark="A" title={copy.title} aside={artifact.kind}>
+        <p className="annot mb-6 max-w-[65ch] text-sm text-ink-label">{copy.description}</p>
         <ArtifactView artifact={artifact} runId={id} />
-        <p className="mt-3 font-mono text-xs text-ink-faint">
-          sha256 {artifact.contentHash}
-          <span className="ml-3 text-ink-faint tnum">
+        <p className="mt-5 flex flex-col gap-1 border-t border-rule pt-3 font-mono text-xs text-ink-faint sm:flex-row sm:items-start">
+          <span className="min-w-0 break-all">sha256 {artifact.contentHash}</span>
+          <span className="shrink-0 text-ink-faint tnum sm:ml-3">
             {new Date(artifact.createdAt).toLocaleString()}
           </span>
         </p>

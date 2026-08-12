@@ -30,6 +30,15 @@ export const EventPayloads = {
     stage: StageKind,
     reason: z.string(),
   }),
+  'run.activity': z.object({
+    runId: z.string().uuid(),
+    stage: StageKind.optional(),
+    stageExecutionId: z.string().uuid().optional(),
+    taskId: z.string().uuid().optional(),
+    agentRunId: z.string().uuid().optional(),
+    kind: z.enum(['stage', 'agent', 'tool', 'message', 'heartbeat']),
+    message: z.string().min(1).max(500),
+  }),
   'run.complexity.classified': z.object({
     runId: z.string().uuid(),
     complexity: Complexity,
@@ -55,6 +64,9 @@ export const EventPayloads = {
     reason: z.string(),
   }),
   'run.resumed': z.object({
+    runId: z.string().uuid(),
+  }),
+  'run.retry.requested': z.object({
     runId: z.string().uuid(),
   }),
   'artifact.created': z.object({

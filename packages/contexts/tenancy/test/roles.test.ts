@@ -17,14 +17,22 @@ describe('roles', () => {
     expect(can('admin', 'knowledge:approve')).toBe(true);
   });
 
-  it('does not let a viewer start or gate a run', () => {
+  it('does not let a viewer start, stop, or gate a run', () => {
     expect(can('viewer', 'run:start')).toBe(false);
+    expect(can('viewer', 'run:cancel')).toBe(false);
     expect(can('viewer', 'gate:decide')).toBe(false);
     expect(() => assertCan('viewer', 'run:start')).toThrow(PermissionDeniedError);
   });
 
   it('is monotonic: a higher role can do everything a lower one can', () => {
-    const permissions = ['run:read', 'run:start', 'gate:decide', 'knowledge:approve', 'settings:write'] as const;
+    const permissions = [
+      'run:read',
+      'run:start',
+      'run:cancel',
+      'gate:decide',
+      'knowledge:approve',
+      'settings:write',
+    ] as const;
     for (const permission of permissions) {
       let seenAllowed = false;
       for (const role of ROLES) {

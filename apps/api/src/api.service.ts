@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, gte, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
+  agentRuns,
   artifacts,
   createDb,
   createPool,
@@ -25,6 +26,7 @@ import {
   type Db,
 } from '@ai-system/db';
 import {
+  PolicySnapshot,
   TicketSnapshot,
   defaultMvpPolicy,
   defaultTeamPolicy,
@@ -35,11 +37,14 @@ import {
 } from '@ai-system/domain';
 import {
   applyEvent,
+  cancelRun as cancelPipelineRun,
   compareEvalRun,
   listTasks,
   resolveGate,
+  retryRun as retryFailedRun,
   startEvalReplay,
   startRun,
+  pipelineFor,
 } from '@ai-system/orchestration';
 import {
   PRIOR_MIN_SAMPLE,
@@ -141,6 +146,7 @@ export class ApiService {
       testCommand?: string | undefined;
       executor?: string | undefined;
       executorModel?: string | undefined;
+      executorEffort?: 'low' | 'medium' | 'high' | undefined;
       reviewers?: string[] | undefined;
       projectId?: string | undefined;
     },
@@ -159,6 +165,7 @@ export class ApiService {
         ...(input.testCommand ? { testCommand: input.testCommand } : {}),
         ...(input.executor ? { executor: input.executor } : {}),
         ...(input.executorModel ? { executorModel: input.executorModel } : {}),
+        ...(input.executorEffort ? { executorEffort: input.executorEffort } : {}),
         ...(input.reviewers?.length ? { reviewers: input.reviewers } : {}),
       },
     });
@@ -216,7 +223,8 @@ export class ApiService {
     let ticket = input.ticket;
     if (!ticket && input.jiraKey) {
       const jira = jiraConfigFromEnv();
-      if (!jira) throw new NotFoundException('Jira is not configured (JIRA_BASE_URL/EMAIL/API_TOKEN)');
+      if (!jira)
+        throw new NotFoundException('Jira is not configured (JIRA_BASE_URL/EMAIL/API_TOKEN)');
       ticket = await fetchJiraTicket(jira, input.jiraKey);
     }
     if (!ticket) throw new NotFoundException('no ticket provided');
@@ -238,7 +246,8 @@ export class ApiService {
           throw new NotFoundException('unknown repository for this organization');
         }
       } else {
-        if (repos.length !== 1) throw new NotFoundException('pass repositoryId (0 or >1 repos registered)');
+        if (repos.length !== 1)
+          throw new NotFoundException('pass repositoryId (0 or >1 repos registered)');
         repositoryId = repos[0]!.id;
       }
     }
@@ -268,36 +277,130 @@ export class ApiService {
 
   async getRun(principal: Principal, runId: string) {
     const run = await this.requireRun(principal, runId);
-    const [stages, arts, findings, gates, cost, taskRows] = await Promise.all([
-      this.db
-        .select()
-        .from(stageExecutions)
-        .where(eq(stageExecutions.runId, runId))
-        .orderBy(asc(stageExecutions.createdAt)),
-      this.db
-        .select({
-          id: artifacts.id,
-          kind: artifacts.kind,
-          contentHash: artifacts.contentHash,
-          createdAt: artifacts.createdAt,
-        })
-        .from(artifacts)
-        .where(eq(artifacts.runId, runId))
-        .orderBy(asc(artifacts.createdAt)),
-      this.db
-        .select()
-        .from(reviewFindings)
-        .where(eq(reviewFindings.runId, runId))
-        .orderBy(asc(reviewFindings.createdAt)),
-      this.db
-        .select()
-        .from(gateRequests)
-        .where(eq(gateRequests.runId, runId))
-        .orderBy(asc(gateRequests.createdAt)),
-      this.runCostUsd(runId),
-      listTasks(this.db, runId),
-    ]);
-    return { ...run, stages, artifacts: arts, findings, gates, costUsd: cost, tasks: taskRows };
+    const [stages, arts, findings, gates, cost, taskRows, agents, recentEvents] = await Promise.all(
+      [
+        this.db
+          .select()
+          .from(stageExecutions)
+          .where(eq(stageExecutions.runId, runId))
+          .orderBy(asc(stageExecutions.createdAt)),
+        this.db
+          .select({
+            id: artifacts.id,
+            kind: artifacts.kind,
+            contentHash: artifacts.contentHash,
+            createdAt: artifacts.createdAt,
+          })
+          .from(artifacts)
+          .where(eq(artifacts.runId, runId))
+          .orderBy(asc(artifacts.createdAt)),
+        this.db
+          .select()
+          .from(reviewFindings)
+          .where(eq(reviewFindings.runId, runId))
+          .orderBy(asc(reviewFindings.createdAt)),
+        this.db
+          .select()
+          .from(gateRequests)
+          .where(eq(gateRequests.runId, runId))
+          .orderBy(asc(gateRequests.createdAt)),
+        this.runCostUsd(runId),
+        listTasks(this.db, runId),
+        this.db
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.runId, runId))
+          .orderBy(asc(agentRuns.createdAt)),
+        this.db
+          .select({
+            id: domainEvents.id,
+            name: domainEvents.name,
+            payload: domainEvents.payload,
+            createdAt: domainEvents.createdAt,
+          })
+          .from(domainEvents)
+          .where(
+            and(
+              eq(domainEvents.runId, runId),
+              inArray(domainEvents.name, [
+                'run.activity',
+                'run.stage.started',
+                'run.stage.completed',
+                'run.stage.failed',
+                'task.created',
+                'task.started',
+                'task.completed',
+                'task.failed',
+                'run.gate.requested',
+                'run.gate.resolved',
+                'run.cancelled',
+              ]),
+            ),
+          )
+          .orderBy(desc(domainEvents.id))
+          .limit(200),
+      ],
+    );
+    const policy = PolicySnapshot.parse(run.policySnapshot);
+    return {
+      ...run,
+      stageOrder: [...pipelineFor(policy).stages],
+      stages,
+      artifacts: arts,
+      findings,
+      gates,
+      costUsd: cost,
+      tasks: taskRows,
+      agents,
+      events: recentEvents.reverse(),
+    };
+  }
+
+  async retryRun(principal: Principal, runId: string) {
+    assertCan(principal.role, 'run:start');
+    const run = await this.requireRun(principal, runId);
+    if (run.status !== 'failed') {
+      throw new BadRequestException(`only failed runs can be retried (status: ${run.status})`);
+    }
+    try {
+      await assertRunAllowed(this.db, principal.organizationId);
+    } catch (err: unknown) {
+      if (err instanceof QuotaExceededError) throw new ForbiddenException(err.message);
+      throw err;
+    }
+
+    const result = await retryFailedRun(this.db, runId);
+    if (result.outcome === 'ignored') throw new BadRequestException(result.reason);
+    if (result.outcome !== 'transitioned') {
+      throw new BadRequestException('retry did not transition the run');
+    }
+    await recordAudit(this.db, {
+      principal,
+      action: 'run.retried',
+      subjectType: 'pipeline_run',
+      subjectId: runId,
+      data: { stage: run.currentStage },
+    });
+    return { runId, status: result.status };
+  }
+
+  async cancelRun(principal: Principal, runId: string, input: { reason?: string | undefined }) {
+    assertCan(principal.role, 'run:cancel');
+    await this.requireRun(principal, runId);
+
+    const result = await cancelPipelineRun(this.db, runId, input.reason ?? 'Stopped by operator');
+    if (result.outcome === 'ignored') throw new BadRequestException(result.reason);
+    if (result.outcome !== 'transitioned' || result.status !== 'cancelled') {
+      throw new BadRequestException('stop did not cancel the run');
+    }
+    await recordAudit(this.db, {
+      principal,
+      action: 'run.cancelled',
+      subjectType: 'pipeline_run',
+      subjectId: runId,
+      data: { reason: input.reason ?? 'Stopped by operator' },
+    });
+    return { runId, status: result.status };
   }
 
   async getArtifact(principal: Principal, runId: string, artifactId: string) {
@@ -701,9 +804,12 @@ export class ApiService {
       .select()
       .from(modelProfiles)
       .where(
-        or(
-          eq(modelProfiles.organizationId, principal.organizationId),
-          isNull(modelProfiles.organizationId),
+        and(
+          eq(modelProfiles.active, true),
+          or(
+            eq(modelProfiles.organizationId, principal.organizationId),
+            isNull(modelProfiles.organizationId),
+          ),
         ),
       )
       .orderBy(desc(modelProfiles.createdAt))
@@ -717,22 +823,51 @@ export class ApiService {
       provider: string;
       model: string;
       params: Record<string, unknown>;
-      fallbacks: { provider: string; model: string }[];
+      fallbacks: {
+        provider: string;
+        model: string;
+        params?: { reasoningEffort?: 'low' | 'medium' | 'high' | undefined } | undefined;
+      }[];
       projectId?: string | undefined;
     },
   ) {
     assertCan(principal.role, 'settings:write');
     if (input.projectId) await this.pickProject(principal, input.projectId);
+    if (
+      ['coding', 'integration'].includes(input.purpose) &&
+      [input.provider, ...input.fallbacks.map((fallback) => fallback.provider)].some(
+        (provider) => !['claude_cli', 'codex_cli', 'scripted', 'api_loop'].includes(provider),
+      )
+    ) {
+      throw new BadRequestException(
+        `${input.purpose} edits a worktree; every primary and fallback provider must be worktree-capable`,
+      );
+    }
     const id = uuidv7();
-    await this.db.insert(modelProfiles).values({
-      id,
-      organizationId: principal.organizationId,
-      projectId: input.projectId ?? null,
-      purpose: input.purpose,
-      provider: input.provider,
-      model: input.model,
-      params: input.params,
-      fallbacks: input.fallbacks,
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(modelProfiles)
+        .set({ active: false })
+        .where(
+          and(
+            eq(modelProfiles.organizationId, principal.organizationId),
+            eq(modelProfiles.purpose, input.purpose),
+            input.projectId
+              ? eq(modelProfiles.projectId, input.projectId)
+              : isNull(modelProfiles.projectId),
+            eq(modelProfiles.active, true),
+          ),
+        );
+      await tx.insert(modelProfiles).values({
+        id,
+        organizationId: principal.organizationId,
+        projectId: input.projectId ?? null,
+        purpose: input.purpose,
+        provider: input.provider,
+        model: input.model,
+        params: input.params,
+        fallbacks: input.fallbacks,
+      });
     });
     await recordAudit(this.db, {
       principal,
@@ -878,7 +1013,9 @@ export class ApiService {
       avgMinutes: Number(r.avgMinutes ?? 0),
     }));
     const finished = byStatus.filter((r) => ['completed', 'failed'].includes(r.status));
-    const completed = finished.filter((r) => r.status === 'completed').reduce((n, r) => n + r.count, 0);
+    const completed = finished
+      .filter((r) => r.status === 'completed')
+      .reduce((n, r) => n + r.count, 0);
     const total = finished.reduce((n, r) => n + r.count, 0);
     return {
       byStatus,
@@ -1012,7 +1149,10 @@ export class ApiService {
     return rotated;
   }
 
-  async listWebhookDeliveries(principal: Principal, input: { endpointId?: string; limit?: number }) {
+  async listWebhookDeliveries(
+    principal: Principal,
+    input: { endpointId?: string; limit?: number },
+  ) {
     assertCan(principal.role, 'org:admin');
     return listDeliveries(this.db, principal.organizationId, input);
   }

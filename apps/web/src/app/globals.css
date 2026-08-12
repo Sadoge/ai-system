@@ -1,9 +1,9 @@
 @import 'tailwindcss';
 
 /* Conductor's Score — the world's normative token layer.
-   Ground is diazo blueprint blue; rules are engraved bone; the conductor's
-   annotation is vermilion. Nothing here is decorative: staff rules carry
-   structure, annotation colour carries state. */
+   Ground is diazo blueprint blue; rules are engraved bone. A wider family of
+   annotation inks carries hierarchy as well as state, so dense screens can
+   be parsed before they are read. */
 @theme {
   /* Ground: the blueprint sheet and the one raised system band. */
   --color-ground: #101a33;
@@ -19,7 +19,7 @@
   --color-ink-secondary: #c3cddf;
   --color-ink-muted: #93a2c0;
   --color-ink-label: #7f90b2;
-  --color-ink-faint: #7286ad;
+  --color-ink-faint: #768bb3;
 
   /* Annotation. Vermilion is the conductor's own pencil: it marks what
      failed and what the human must decide. Cobalt is the cue. Ochre holds. */
@@ -31,6 +31,12 @@
   --color-cue-bright: #8dbdec;
   --color-hold: #d99a2b;
   --color-hold-bright: #f0bf6a;
+  --color-mint: #35a979;
+  --color-mint-bright: #79d7ad;
+  --color-violet: #826bd1;
+  --color-violet-bright: #b9aaf0;
+  --color-aqua: #2da9b8;
+  --color-aqua-bright: #78d4dc;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -50,6 +56,157 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Programme and wayfinding ─────────────────────────────────────── */
+.programme-head {
+  border-top: 2px solid var(--color-aqua);
+  border-bottom: 1px solid var(--color-rule-strong);
+  background-color: var(--color-ground-raised);
+}
+.wordmark-ai {
+  color: var(--color-mint-bright);
+}
+.wordmark-punctuation {
+  color: var(--color-hold-bright);
+}
+.wordmark-system {
+  color: var(--color-cue-bright);
+}
+.movement {
+  --movement-accent: var(--color-cue-bright);
+  color: color-mix(in oklab, var(--movement-accent) 68%, var(--color-ink-secondary));
+  background-color: transparent;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+.movement:hover {
+  color: var(--movement-accent);
+  background-color: color-mix(in oklab, var(--movement-accent) 9%, transparent);
+}
+.movement[aria-current='page'] {
+  color: var(--movement-accent);
+  background-color: color-mix(in oklab, var(--movement-accent) 15%, transparent);
+}
+.movement-cue {
+  --movement-accent: var(--color-cue-bright);
+}
+.movement-mark {
+  --movement-accent: var(--color-mark-bright);
+}
+.movement-hold {
+  --movement-accent: var(--color-hold-bright);
+}
+.movement-mint {
+  --movement-accent: var(--color-mint-bright);
+}
+.movement-violet {
+  --movement-accent: var(--color-violet-bright);
+}
+.movement-aqua {
+  --movement-accent: var(--color-aqua-bright);
+}
+
+/* ── System hierarchy ─────────────────────────────────────────────── */
+.score-system {
+  --system-accent: var(--color-cue-bright);
+}
+.score-system[data-system-mark='B'],
+.score-system[data-system-mark='H'] {
+  --system-accent: var(--color-mint-bright);
+}
+.score-system[data-system-mark='C'],
+.score-system[data-system-mark='I'] {
+  --system-accent: var(--color-violet-bright);
+}
+.score-system[data-system-mark='D'],
+.score-system[data-system-mark='J'] {
+  --system-accent: var(--color-hold-bright);
+}
+.score-system[data-system-mark='E'],
+.score-system[data-system-mark='K'] {
+  --system-accent: var(--color-mark-bright);
+}
+.score-system[data-system-mark='F'],
+.score-system[data-system-mark='L'] {
+  --system-accent: var(--color-aqua-bright);
+}
+.system-heading {
+  border-bottom: 1px solid color-mix(in oklab, var(--system-accent) 42%, var(--color-rule));
+  background-color: color-mix(in oklab, var(--system-accent) 9%, var(--color-ground));
+}
+.system-heading .system-mark,
+.system-heading .system-title {
+  color: var(--system-accent);
+}
+.system-heading .system-rule {
+  background-color: color-mix(in oklab, var(--system-accent) 48%, var(--color-rule));
+}
+.system-heading .system-aside {
+  color: color-mix(in oklab, var(--system-accent) 62%, var(--color-ink-secondary));
+}
+
+/* Controls have a distinct surface at rest; color intensifies on interaction
+   without turning dense forms into a field of boxes. */
+.field-input {
+  background-color: color-mix(in oklab, var(--color-cue) 6%, var(--color-ground-raised));
+}
+.field-input:hover {
+  border-color: color-mix(in oklab, var(--color-cue-bright) 55%, var(--color-rule-strong));
+}
+.field-input:focus {
+  background-color: color-mix(in oklab, var(--color-cue) 11%, var(--color-ground-raised));
+}
+
+/* Dense rows reveal their grouping without relying on a one-pixel divider. */
+.score-row,
+.stage-progress-row,
+.agent-progress-row,
+table tbody tr {
+  transition: background-color 140ms ease-out;
+}
+.score-row:hover,
+.stage-progress-row:hover,
+.agent-progress-row:hover,
+table tbody tr:hover {
+  background-color: color-mix(in oklab, var(--color-cue) 9%, transparent);
+}
+.stage-progress-current {
+  background-color: color-mix(in oklab, var(--color-cue) 13%, transparent);
+}
+.live-callout {
+  background-color: color-mix(in oklab, var(--color-cue) 12%, var(--color-ground));
+}
+table thead {
+  background-color: color-mix(in oklab, var(--color-violet) 10%, var(--color-ground));
+}
+
+/* Quantities gain categorical hue while labels and values keep doing the
+   semantic work. Color is never the only way to distinguish a row. */
+.dynamic-fill,
+.category-fill {
+  background-color: var(--color-cue-bright);
+}
+.dynamic-row:nth-child(6n + 2) .dynamic-fill,
+.category-row:nth-child(6n + 2) .category-fill {
+  background-color: var(--color-mint-bright);
+}
+.dynamic-row:nth-child(6n + 3) .dynamic-fill,
+.category-row:nth-child(6n + 3) .category-fill {
+  background-color: var(--color-violet-bright);
+}
+.dynamic-row:nth-child(6n + 4) .dynamic-fill,
+.category-row:nth-child(6n + 4) .category-fill {
+  background-color: var(--color-hold-bright);
+}
+.dynamic-row:nth-child(6n + 5) .dynamic-fill,
+.category-row:nth-child(6n + 5) .category-fill {
+  background-color: var(--color-mark-bright);
+}
+.dynamic-row:nth-child(6n) .dynamic-fill,
+.category-row:nth-child(6n) .category-fill {
+  background-color: var(--color-aqua-bright);
 }
 
 /* Machine-produced values are set in mono with tabular figures so costs,
@@ -341,6 +498,12 @@ body {
   gap: 0.5rem;
   color: var(--color-ink-secondary);
 }
+.diff-file-counts > :first-child {
+  color: var(--color-mint-bright);
+}
+.diff-file-counts > :last-child {
+  color: var(--color-mark-bright);
+}
 .diff-files {
   margin-top: 1.25rem;
 }
@@ -393,12 +556,12 @@ body {
   grid-template-columns: 3.25rem 3.25rem minmax(max-content, 1fr);
 }
 .diff-line-addition {
-  border-top-color: var(--color-rule);
-  background-color: var(--color-ground-raised);
+  border-top-color: color-mix(in oklab, var(--color-mint) 45%, var(--color-rule));
+  background-color: color-mix(in oklab, var(--color-mint) 11%, var(--color-ground));
 }
 .diff-line-deletion {
-  border-top-color: var(--color-rule-strong);
-  background-color: var(--color-ground-band);
+  border-top-color: color-mix(in oklab, var(--color-mark) 45%, var(--color-rule));
+  background-color: color-mix(in oklab, var(--color-mark) 10%, var(--color-ground));
 }
 .diff-line-number,
 .diff-line-status {
@@ -413,6 +576,14 @@ body {
 }
 .diff-line-status {
   color: var(--color-ink-muted);
+}
+.diff-line-addition .diff-line-status,
+.diff-line-addition .diff-prefix {
+  color: var(--color-mint-bright);
+}
+.diff-line-deletion .diff-line-status,
+.diff-line-deletion .diff-prefix {
+  color: var(--color-mark-bright);
 }
 .diff-line code {
   padding-inline-end: 1rem;

@@ -184,7 +184,8 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 <span className="diff-file-path">{file.path}</span>
                 <span className="diff-file-status">{file.status}</span>
                 <span className="diff-file-counts">
-                  +{file.additions} −{file.deletions}
+                  <span aria-label={`${file.additions} additions`}>+{file.additions}</span>
+                  <span aria-label={`${file.deletions} deletions`}>−{file.deletions}</span>
                 </span>
               </button>
               <div id={`${file.id}-content`} hidden={!open}>

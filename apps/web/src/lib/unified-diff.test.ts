@@ -206,6 +206,10 @@ new mode 100755`);
     const parsed = parseUnifiedDiff(patch);
     expect(Number.isNaN(parsed.additions)).toBe(false);
     expect(Number.isNaN(parsed.deletions)).toBe(false);
+    for (const file of parsed.files) {
+      expect(Number.isNaN(file.additions)).toBe(false);
+      expect(Number.isNaN(file.deletions)).toBe(false);
+    }
   });
 
   it('marks nonempty content with no file structure as unparseable', () => {

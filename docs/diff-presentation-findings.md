@@ -1,6 +1,6 @@
 # Diff presentation contracts
 
-This is the single repository note for the structured diff shown on run and artifact pages.
+This is the single repository note for the contracts and resulting structured-diff implementation on run and artifact pages. Citations identify the files that establish each contract.
 
 ## API and artifact shape
 
@@ -24,6 +24,9 @@ This is the single repository note for the structured diff shown on run and arti
 - The artifact detail route reuses `DiffPresentation`, so parsing and state behavior do not diverge between views.
 - With four or more changed files, file bodies start collapsed and are not mounted. One to three files remain initially open.
 - Each file initially renders at most 400 patch lines. Additional lines are available through an explicit reveal control.
+- `page.tsx` is an App Router server component: it has no client directive, exports an async page, awaits route params, and performs its API read directly (`apps/web/src/app/runs/[id]/page.tsx:1-22`). `system.tsx` likewise has no client directive or client hook and exports a plain render function, so `RunSystem` remains server-renderable (`apps/web/src/app/runs/[id]/system.tsx:1-2`, `apps/web/src/app/runs/[id]/system.tsx:59-63`).
+- The page composes `RunSystem` as the child of the first `System` section, passing the full `RunDetail` as `run` (`apps/web/src/app/runs/[id]/page.tsx:86-100`).
+- The Code changes section sits after the separate run-error block and before the pending-gate map, preserving error prominence while leaving the gate, run-system, findings, and artifact-list surfaces untouched. No navigation surface is defined in this page.
 
 ## Parser and rendering behavior
 
@@ -56,7 +59,7 @@ File headers are normal in-flow controls, `.diff-code` owns horizontal overflow,
 - The package name is exactly `@ai-system/web` (`apps/web/package.json:1-4`).
 - The existing test script is `vitest run --passWithNoTests`, and `vitest` is already declared as `^3.0.0` in `devDependencies` (`apps/web/package.json:5-10`, `apps/web/package.json:17-24`).
 - `@testing-library/react` and `jsdom` are absent from both dependency sections; the declared runtime dependencies are only Next, React, and React DOM, while the listed dev dependencies are Tailwind/PostCSS, React types, TypeScript, and Vitest (`apps/web/package.json:12-24`). Tests should therefore stay pure/Node unless the manifest is intentionally changed.
-- `apps/web/vitest.config.ts` keeps pure `src/**/*.test.ts` and `src/**/*.test.tsx` tests in the Node environment; the parser and view-model coverage uses that existing setup.
+- `apps/web/vitest.config.ts` and the existing test script keep pure `src/**/*.test.ts` and `src/**/*.test.tsx` tests in the Node environment; parser and presentation-helper coverage remains in `apps/web/src/lib`.
 
 ## Test setup and constraints
 
@@ -101,24 +104,23 @@ File headers are normal in-flow controls, `.diff-code` owns horizontal overflow,
 
 ### Styling ground truth
 
-The web theme is defined in `apps/web/src/app/globals.css`. Diff styling uses only its existing custom properties:
+The web theme is defined in `apps/web/src/app/globals.css`. The shipped run and artifact views share the same `DiffPresentation` component and use only existing custom properties:
 
 - Addition and deletion rows use the existing raised/band grounds and distinct solid/dashed rules, so their meaning survives grayscale and forced-colors modes.
 - Hunk headers and focus use `--color-cue-bright`; errors use the text-safe `--color-mark-bright` with a `--color-mark` rule.
 - Rules and gutters: `--color-rule`, `--color-rule-strong`, `--color-ink-label`, and `--color-ink-faint`.
-- Code: `--font-mono` with tabular figures.
+- Code uses `--font-mono` with tabular line numbers. Line numbers and prefixes are excluded from copied source text.
+- The raw fallback for non-empty, unparseable content uses the same ruled, horizontally scrollable code treatment rather than reporting a false empty state.
 
 The existing small breakpoint begins at 640px. Below it, summary metadata stacks, file controls reflow, and the line-number tracks shrink without a conflicting minimum width.
 
 ### CSS class contract
 
-- File shell: `.diff-file`
-- Non-sticky file control: `.diff-file-header`, with `.diff-disclosure`, `.diff-file-path`, `.diff-file-status`, and `.diff-file-counts`
-- File index and actions: `.diff-index`, `.diff-index-row`, `.diff-actions`, `.diff-action`
-- Horizontal code scroller: `.diff-code`
-- Code row and cells: `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`
+- Summary and artifact metadata: `.diff-summary`, `.diff-metadata`, `.diff-state`, `.diff-raw`
+- Actions: `.diff-actions`, `.diff-action`
+- File index: `.diff-index`, `.diff-index-row`, `.diff-disclosure`, `.diff-file-path`, `.diff-file-status`, `.diff-file-counts`
+- File shell: `.diff-files`, `.diff-file`, `.diff-file-header`, `.diff-code`, `.diff-file-metadata`
+- Patch content: `.diff-hunk`, `.diff-line`, `.diff-line-number`, `.diff-line-status`, `.diff-prefix`, `.diff-reveal`
 - Row states: `.diff-line-addition`, `.diff-line-deletion`, `.diff-line-context`, `.diff-line-meta`
-- Metadata and disclosure: `.diff-file-metadata`, `.diff-hunk`, `.diff-reveal`
-- Load, empty, parse-failure, and raw-content states: `.diff-state`, `.diff-state-error`, `.diff-raw`
 
-File content is mounted only while its file is expanded. Opened files initially render at most 400 lines and expose the remainder through `.diff-reveal`.
+File headers are intentionally non-sticky. Collapsed file bodies are not mounted, and expanded files initially render at most 400 parsed lines with an explicit control for the remainder. JavaScript scrolling checks `prefers-reduced-motion` before requesting smooth motion.

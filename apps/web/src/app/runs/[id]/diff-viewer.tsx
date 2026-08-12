@@ -141,7 +141,7 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 type="button"
                 className={`diff-index-row ${focus}`}
                 aria-expanded={open}
-                aria-controls={`${file.id}-content`}
+                aria-controls={open ? `${file.id}-content` : undefined}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden="true">
@@ -168,7 +168,7 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
                 type="button"
                 className={`diff-file-header ${focus}`}
                 aria-expanded={open}
-                aria-controls={`${file.id}-content`}
+                aria-controls={open ? `${file.id}-content` : undefined}
                 onClick={() => toggle(file.id)}
               >
                 <span className="diff-disclosure" aria-hidden="true">

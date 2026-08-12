@@ -112,6 +112,13 @@ function runCli(
       );
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
+    // A CLI that exits before draining its stdin — a crash, an auth failure, a
+    // refusal — makes this write fail with EPIPE. An unhandled 'error' on a
+    // stream is thrown, so without this listener an early exit takes the whole
+    // process down instead of rejecting. The child's own exit is already
+    // diagnosed by the 'close'/'error' handlers above, which carry the exit
+    // code and stderr; the write failure itself says nothing extra.
+    child.stdin.on('error', () => {});
     child.stdin.end(stdin);
   });
 }

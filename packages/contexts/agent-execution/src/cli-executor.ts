@@ -253,6 +253,12 @@ export class CliAgentExecutor implements AgentExecutor {
       input.signal?.addEventListener('abort', onAbort, { once: true });
       if (input.signal?.aborted) onAbort();
 
+      // Coding prompts are large, and a CLI that exits early — bad flags, an
+      // expired login, an immediate refusal — closes stdin mid-write. That
+      // surfaces as EPIPE, and an unhandled stream 'error' is thrown rather
+      // than caught, which would kill the worker instead of failing the run.
+      // The 'close'/'error' handlers above already report why the child left.
+      child.stdin.on('error', () => {});
       if (!settled && this.preset.promptDelivery === 'stdin') {
         child.stdin.write(prompt);
         child.stdin.end();

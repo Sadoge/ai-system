@@ -65,6 +65,32 @@ echo '{"type":"turn.completed","usage":{"input_tokens":42,"output_tokens":7}}'`,
     await expect(adapter.complete('default', request)).rejects.toThrow(/codex login/i);
     expect(await adapter.status()).toMatchObject({ available: false, authenticated: false });
   });
+
+  it('rejects rather than throwing EPIPE when the CLI exits without reading stdin', async () => {
+    // The prompt is written to the child's stdin. A CLI that exits first — a
+    // crash, an expired login — closes the pipe mid-write, and an unhandled
+    // stream error would take the worker down instead of failing the call.
+    const dir = mkdtempSync(join(tmpdir(), 'codex-epipe-'));
+    const binary = executable(
+      dir,
+      `if [ "$1" = "login" ]; then
+  echo "Logged in using ChatGPT"
+  exit 0
+fi
+echo "boom" >&2
+exit 3`,
+    );
+    const adapter = new CodexSubscriptionAdapter({ binary, cwd: dir });
+    // Large enough that the write cannot complete before the child is gone.
+    const big = 'x'.repeat(2_000_000);
+
+    await expect(
+      adapter.complete('default', {
+        ...request,
+        messages: [{ role: 'user' as const, content: big }],
+      }),
+    ).rejects.toThrow(/exited with code 3/);
+  });
 });
 
 describe('ClaudeSubscriptionAdapter', () => {

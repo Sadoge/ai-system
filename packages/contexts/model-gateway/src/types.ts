@@ -86,6 +86,12 @@ export interface AdapterToolCompletion {
 
 export interface ProviderAdapter {
   readonly provider: string;
+  /**
+   * How calls through this adapter are paid for. Omitted means `metered` — an
+   * adapter has to declare itself free, so a new provider is never silently
+   * excluded from spend. Subscription-backed CLIs set `subscription`.
+   */
+  readonly billing?: 'metered' | 'subscription';
   complete(
     model: string,
     req: {

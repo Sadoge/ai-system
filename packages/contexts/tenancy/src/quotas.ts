@@ -56,12 +56,21 @@ export async function assertRunAllowed(db: Db, organizationId: string): Promise<
     const since = new Date();
     since.setUTCDate(1);
     since.setUTCHours(0, 0, 0, 0);
+    // Metered calls only. A subscription-backed CLI spends plan quota, not
+    // money, and the USD it self-reports is an API-equivalent estimate — a
+    // dollar budget must not refuse a run over a charge nobody will receive.
+    // On a subscription-only deployment this budget therefore never binds and
+    // maxConcurrentRuns is the effective limit.
     const rows = await db
       .select({ total: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)` })
       .from(modelCalls)
       .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
       .where(
-        and(eq(pipelineRuns.organizationId, organizationId), gte(modelCalls.createdAt, since)),
+        and(
+          eq(pipelineRuns.organizationId, organizationId),
+          gte(modelCalls.createdAt, since),
+          eq(modelCalls.billing, 'metered'),
+        ),
       );
     const spent = Number(rows[0]?.total ?? 0);
     if (spent >= quotas.monthlyBudgetUsd) {

@@ -452,12 +452,24 @@ export const modelCalls = pgTable(
     inputTokens: integer('input_tokens').notNull().default(0),
     outputTokens: integer('output_tokens').notNull().default(0),
     costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    /**
+     * How this call was paid for: `metered` (an API key, real money) or
+     * `subscription` (a signed-in Codex/Claude CLI, no charge). The two must
+     * never be summed: a subscription call's cost_usd is either zero or the
+     * CLI's own API-equivalent estimate, and reporting that as spend claims a
+     * charge that never happened. Subscription calls are measured in tokens.
+     */
+    billing: text('billing').notNull().default('metered'),
     latencyMs: integer('latency_ms'),
     status: text('status').notNull(),
     error: text('error'),
     createdAt: createdAt(),
   },
-  (t) => [index('model_calls_run_idx').on(t.runId, t.createdAt)],
+  (t) => [
+    index('model_calls_run_idx').on(t.runId, t.createdAt),
+    // Rolling-window usage reads scan by time and split by billing mode.
+    index('model_calls_usage_idx').on(t.createdAt, t.billing),
+  ],
 );
 
 // ── Events, Outbox, Audit ─────────────────────────────────────────────

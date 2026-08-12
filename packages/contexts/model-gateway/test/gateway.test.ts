@@ -130,3 +130,60 @@ describe('ModelGateway', () => {
     await expect(gateway.complete(profile(), req())).rejects.toMatchObject({ reason: 'no_adapter' });
   });
 });
+
+/** An adapter that declares itself subscription-backed, as the CLI ones do. */
+class SubscriptionAdapter implements ProviderAdapter {
+  readonly billing = 'subscription' as const;
+  constructor(readonly provider: string) {}
+  async complete(): Promise<AdapterCompletion> {
+    return { text: 'ok', inputTokens: 1_000_000, outputTokens: 1_000_000 };
+  }
+}
+
+describe('billing classification', () => {
+  it('marks calls through a subscription adapter as subscription', async () => {
+    const ledger = new InMemoryCallLedger();
+    const gateway = new ModelGateway([new SubscriptionAdapter('fake')], ledger, noSleep);
+
+    await gateway.complete(profile(), req({ runId: RUN_ID }));
+
+    expect(ledger.entries[0]).toMatchObject({ billing: 'subscription' });
+  });
+
+  it('defaults an adapter that says nothing to metered', async () => {
+    // An adapter has to declare itself free; silence must never exclude a
+    // provider from spend accounting.
+    const ledger = new InMemoryCallLedger();
+    const adapter = new ScriptedAdapter('fake', () => ({
+      text: 'hi',
+      inputTokens: 10,
+      outputTokens: 10,
+    }));
+    const gateway = new ModelGateway([adapter], ledger, noSleep);
+
+    await gateway.complete(profile(), req({ runId: RUN_ID }));
+
+    expect(ledger.entries[0]).toMatchObject({ billing: 'metered' });
+  });
+
+  it('excludes subscription estimates from the budget guard', async () => {
+    // spentUsd drives the mid-run budget pause. A notional figure must not
+    // pause a run over a charge that will never arrive.
+    const ledger = new InMemoryCallLedger();
+    await ledger.record({
+      runId: RUN_ID,
+      provider: 'cli:claude_code',
+      model: 'sonnet',
+      purpose: 'coding',
+      promptHash: 'n/a',
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 25,
+      billing: 'subscription',
+      latencyMs: 1,
+      status: 'succeeded',
+    });
+
+    expect(await ledger.spentUsd(RUN_ID)).toBe(0);
+  });
+});

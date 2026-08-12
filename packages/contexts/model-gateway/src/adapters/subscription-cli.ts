@@ -172,6 +172,9 @@ function codexOutput(stdout: string): AdapterCompletion {
  */
 export class CodexSubscriptionAdapter implements ProviderAdapter {
   readonly provider = 'codex_cli';
+  // A ChatGPT subscription is not metered: these calls consume plan quota, not
+  // dollars, and are measured in tokens.
+  readonly billing = 'subscription' as const;
   private readonly binary: string;
 
   constructor(private readonly options: SubscriptionCliOptions = {}) {
@@ -263,6 +266,8 @@ function claudeOutput(stdout: string): AdapterCompletion {
 /** Completion adapter backed by `claude -p` and the user's saved Claude login. */
 export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   readonly provider = 'claude_cli';
+  // Same as Codex: a Claude subscription login spends plan quota, not money.
+  readonly billing = 'subscription' as const;
   private readonly binary: string;
 
   constructor(private readonly options: SubscriptionCliOptions = {}) {

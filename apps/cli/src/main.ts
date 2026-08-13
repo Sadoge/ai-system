@@ -9,7 +9,7 @@ process.stdout.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 import { Command } from 'commander';
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import {
   artifacts,
   createDb,
@@ -18,6 +18,7 @@ import {
   gateRequests,
   knowledgeItems,
   migrateDb,
+  modelCalls,
   organizations,
   pipelineRuns,
   projects,
@@ -46,6 +47,10 @@ import {
   InMemoryCallLedger,
   LocalHashEmbeddingAdapter,
   ModelGateway,
+  USAGE_WINDOWS,
+  summarizeUsage,
+  type BillingMode,
+  type UsageRow,
 } from '@ai-system/model-gateway';
 import { CliAgentExecutor } from '@ai-system/agent-execution';
 import {
@@ -76,13 +81,19 @@ import {
   setEndpointActive,
 } from '@ai-system/webhooks';
 import {
+  addSuiteMember,
   cancelRun,
   compareEvalRun,
+  listSuiteMembers,
   listTasks,
+  removeSuiteMember,
+  reportSuite,
   resolveGate,
   retryRun,
   startEvalReplay,
   startRun,
+  startSuiteReplay,
+  SUITE_METRICS,
 } from '@ai-system/orchestration';
 
 // Phase 0: the CLI is the UI before the UI (docs/10). It talks to the same
@@ -706,6 +717,153 @@ function fmt(n: number, digits = 0): string {
   return n > 0 ? `+${v}` : v;
 }
 
+/**
+ * Golden suites. One replay tells you how one ticket went; a suite is how you
+ * find out whether a prompt, model, or rule change helped in general.
+ */
+const suiteCmd = evalCmd
+  .command('suite')
+  .description('golden suites — replay a set of known-good runs and compare in aggregate');
+
+const SUITE_OPT = ['--suite <name>', 'suite name', 'default'] as const;
+/** Digits each metric is worth printing; cost and minutes are not integers. */
+const METRIC_DIGITS: Record<(typeof SUITE_METRICS)[number], number> = {
+  iterations: 0,
+  findingsTotal: 0,
+  findingsBlocking: 0,
+  taskCount: 0,
+  costUsd: 4,
+  durationMinutes: 1,
+};
+
+suiteCmd
+  .command('add <run-id>')
+  .description('mark a run as golden — a baseline worth measuring future changes against')
+  .option(...SUITE_OPT)
+  .option('--note <text>', 'why this run is golden')
+  .action(
+    withDb(async (db, runId: string, opts: { suite: string; note?: string }) => {
+      const rows = await db.select().from(pipelineRuns).where(eq(pipelineRuns.id, runId));
+      if (!rows[0]) throw new Error(`unknown run ${runId}`);
+      await addSuiteMember(db, {
+        organizationId: rows[0].organizationId,
+        suiteName: opts.suite,
+        sourceRunId: runId,
+        ...(opts.note ? { note: opts.note } : {}),
+      });
+      console.log(`added ${runId} to suite "${opts.suite}"`);
+    }),
+  );
+
+suiteCmd
+  .command('list')
+  .description('list golden runs, in every suite or just one')
+  .option('--suite <name>', 'limit to one suite')
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite?: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const members = await listSuiteMembers(db, {
+        organizationId: org.id,
+        ...(opts.suite ? { suiteName: opts.suite } : {}),
+      });
+      if (members.length === 0) {
+        console.log('no golden runs yet — add one with: ai-system eval suite add <run-id>');
+        return;
+      }
+      for (const m of members) {
+        console.log(`${m.suiteName.padEnd(16)} ${m.sourceRunId}  ${m.note ?? ''}`);
+      }
+    }),
+  );
+
+suiteCmd
+  .command('rm <run-id>')
+  .description('drop a run from a suite')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, runId: string, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const removed = await removeSuiteMember(db, {
+        organizationId: org.id,
+        suiteName: opts.suite,
+        sourceRunId: runId,
+      });
+      console.log(removed ? `removed ${runId} from "${opts.suite}"` : `${runId} was not in "${opts.suite}"`);
+    }),
+  );
+
+suiteCmd
+  .command('run')
+  .description('replay every run in the suite through the pipeline as configured today')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const started = await startSuiteReplay(db, {
+        organizationId: org.id,
+        suiteName: opts.suite,
+      });
+      if (started.length === 0) {
+        console.log(`suite "${opts.suite}" is empty — add runs with: ai-system eval suite add <run-id>`);
+        return;
+      }
+      for (const s of started) {
+        console.log(s.evalRunId ? `${s.sourceRunId} → ${s.evalRunId}` : `${s.sourceRunId} → skipped: ${s.error}`);
+      }
+      const ok = started.filter((s) => s.evalRunId).length;
+      console.log(`\n${ok}/${started.length} replays started`);
+      console.log(`compare with: ai-system eval suite report --suite ${opts.suite}`);
+    }),
+  );
+
+suiteCmd
+  .command('report')
+  .description('aggregate each golden run against its most recent replay')
+  .option(...SUITE_OPT)
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .action(
+    withDb(async (db, opts: { suite: string; org?: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const report = await reportSuite(db, { organizationId: org.id, suiteName: opts.suite });
+      if (report.entries.length === 0) {
+        console.log(`suite "${opts.suite}" is empty — add runs with: ai-system eval suite add <run-id>`);
+        return;
+      }
+
+      for (const entry of report.entries) {
+        const label = entry.sourceRunId.slice(-8);
+        if (!entry.comparison) {
+          console.log(`${label}  never replayed`);
+          continue;
+        }
+        const { comparison } = entry;
+        const deltas = SUITE_METRICS.map(
+          (m) => `${m} ${fmt(comparison.deltas[m] ?? 0, METRIC_DIGITS[m])}`,
+        ).join('  ');
+        console.log(`${label}  ${comparison.ready ? 'ready  ' : 'pending'}  ${deltas}`);
+      }
+
+      const { summary } = report;
+      console.log(
+        `\n${summary.readyCount} settled, ${summary.pendingCount} in flight, ${summary.missingCount} never replayed`,
+      );
+      if (summary.readyCount === 0) {
+        console.log('nothing settled yet — totals need at least one finished replay');
+        return;
+      }
+      console.log(`\n${'metric'.padEnd(18)} ${'total'.padEnd(12)} mean`);
+      for (const metric of SUITE_METRICS) {
+        const digits = METRIC_DIGITS[metric];
+        console.log(
+          `${metric.padEnd(18)} ${fmt(summary.totals[metric], digits).padEnd(12)} ${fmt(summary.means[metric], Math.max(digits, 2))}`,
+        );
+      }
+    }),
+  );
+
 knowledgeCmd
   .command('promote <knowledge-item-id>')
   .description('lift an approved project rule to organization scope (all projects)')
@@ -722,6 +880,113 @@ knowledgeCmd
         localEmbedder(),
       );
       console.log('promoted to organization scope');
+    }),
+  );
+
+/**
+ * What the platform consumed, by billing mode. When the agents run on signed-in
+ * Codex and Claude CLIs there is no bill to read, so tokens are the only honest
+ * measure — and the windows match how those plans are actually enforced.
+ */
+function tok(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+program
+  .command('usage')
+  .description('token and spend consumption, split by subscription vs metered')
+  .option('--org <id>', 'organization id (defaults to the only one)')
+  .option('--days <n>', 'window for the per-purpose breakdown', '30')
+  .action(
+    withDb(async (db, opts: { org?: string; days: string }) => {
+      const org = await pickOrganization(db, opts.org);
+      const scope = (since: Date) =>
+        and(
+          eq(pipelineRuns.organizationId, org.id),
+          gte(modelCalls.createdAt, since),
+          // Measuring the platform must not look like using it.
+          isNull(pipelineRuns.evalOfRunId),
+        );
+      const sums = {
+        calls: sql<string>`count(*)`,
+        inputTokens: sql<string>`coalesce(sum(${modelCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${modelCalls.outputTokens}), 0)`,
+        costUsd: sql<string>`coalesce(sum(${modelCalls.costUsd}), 0)`,
+      };
+      const toRow = (r: {
+        provider: string;
+        billing: string;
+        calls: string;
+        inputTokens: string;
+        outputTokens: string;
+        costUsd: string;
+      }): UsageRow => ({
+        provider: r.provider,
+        billing: r.billing as BillingMode,
+        calls: Number(r.calls),
+        inputTokens: Number(r.inputTokens),
+        outputTokens: Number(r.outputTokens),
+        costUsd: Number(r.costUsd),
+      });
+
+      console.log('Consumption per rolling window. Subscription plans reset on these');
+      console.log('boundaries; how much of the plan remains is not something any');
+      console.log('provider reports, so only what was used is shown.');
+      console.log('Work outside a run (background indexing, embeddings) is not counted.\n');
+
+      for (const { label, ms } of USAGE_WINDOWS) {
+        const rows = await db
+          .select({ provider: modelCalls.provider, billing: modelCalls.billing, ...sums })
+          .from(modelCalls)
+          .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
+          .where(scope(new Date(Date.now() - ms)))
+          .groupBy(modelCalls.provider, modelCalls.billing)
+          .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+        const usage = summarizeUsage(rows.map(toRow));
+        console.log(
+          `last ${label.padEnd(4)} ${tok(usage.inputTokens)} in / ${tok(usage.outputTokens)} out over ${usage.calls} calls` +
+            (usage.metered.meteredUsd > 0 ? `  ($${usage.metered.meteredUsd.toFixed(4)} metered)` : ''),
+        );
+        for (const row of rows.map(toRow)) {
+          const mode = row.billing === 'subscription' ? 'subscription' : 'metered';
+          console.log(
+            `  ${row.provider.padEnd(18)} ${mode.padEnd(13)} ${tok(row.inputTokens).padStart(8)} in ${tok(row.outputTokens).padStart(8)} out  ${String(row.calls).padStart(4)} calls`,
+          );
+        }
+        if (rows.length === 0) console.log('  (nothing)');
+      }
+
+      const days = Number(opts.days) || 30;
+      const purposeRows = await db
+        .select({ purpose: modelCalls.purpose, billing: modelCalls.billing, ...sums })
+        .from(modelCalls)
+        .innerJoin(pipelineRuns, eq(modelCalls.runId, pipelineRuns.id))
+        .where(scope(new Date(Date.now() - days * 86_400_000)))
+        .groupBy(modelCalls.purpose, modelCalls.billing)
+        .orderBy(desc(sql`sum(${modelCalls.inputTokens} + ${modelCalls.outputTokens})`));
+      if (purposeRows.length === 0) return;
+
+      console.log(`\nBy purpose, last ${days} days`);
+      for (const r of purposeRows) {
+        const inTok = Number(r.inputTokens);
+        const outTok = Number(r.outputTokens);
+        const usd = Number(r.costUsd);
+        // A subscription's dollar figure is the CLI's own API-equivalent
+        // estimate, never a charge — labelled so it is never read as spend.
+        const money =
+          r.billing === 'metered'
+            ? usd > 0
+              ? `  $${usd.toFixed(4)}`
+              : ''
+            : usd > 0
+              ? `  ~$${usd.toFixed(4)} if metered`
+              : '';
+        console.log(
+          `  ${r.purpose.padEnd(16)} ${(r.billing as string).padEnd(13)} ${tok(inTok).padStart(8)} in ${tok(outTok).padStart(8)} out${money}`,
+        );
+      }
     }),
   );
 

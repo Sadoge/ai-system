@@ -74,7 +74,27 @@ export interface RunDetail extends RunSummary {
     payload: Record<string, unknown>;
     createdAt: string;
   }[];
+  /** Money actually charged through an API key. Zero on a subscription. */
   costUsd: number;
+  /**
+   * What the run consumed. Subscription work has no price, so tokens are the
+   * only honest measure of it; `notionalUsd` is the agent CLI's own estimate
+   * of API-equivalent cost and is never money that was charged.
+   */
+  usage: {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    meteredUsd: number;
+    notionalUsd: number;
+    metered: { calls: number; inputTokens: number; outputTokens: number; meteredUsd: number };
+    subscription: {
+      calls: number;
+      inputTokens: number;
+      outputTokens: number;
+      notionalUsd: number;
+    };
+  };
   tasks: {
     id: string;
     title: string;
@@ -126,6 +146,11 @@ export interface GateRow {
   status: string;
   payload: Record<string, unknown>;
   createdAt: string;
+  // Evidence the queue needs so a decision is not taken blind. `payload` holds
+  // the artifact link snapshotted when the gate opened; these are joined live.
+  ticket: { title: string; source: string; externalKey?: string };
+  runStatus: string;
+  blockingFindings: number;
 }
 
 export interface KnowledgeRow {

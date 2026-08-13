@@ -3,6 +3,7 @@ import { CliAgentExecutor, ScriptedAgentExecutor } from '@ai-system/agent-execut
 import {
   resolveExecutor,
   resolveExecutorCandidates,
+  recordExecutorUsage,
   resumableSessionFrom,
   withAutomaticExecutorFallbacks,
 } from '../src/executors.js';
@@ -149,4 +150,82 @@ describe('resumableSessionFrom', () => {
       ).toBeUndefined();
     },
   );
+});
+
+/** A drizzle insert/update chain that captures what was written. */
+function captureDb() {
+  const inserted: Record<string, unknown>[] = [];
+  const updated: Record<string, unknown>[] = [];
+  const db = {
+    insert: () => ({
+      values: async (row: Record<string, unknown>) => {
+        inserted.push(row);
+      },
+    }),
+    update: () => ({
+      set: (row: Record<string, unknown>) => ({
+        where: async () => {
+          updated.push(row);
+        },
+      }),
+    }),
+  } as unknown as Parameters<typeof recordExecutorUsage>[0];
+  return { db, inserted, updated };
+}
+
+const usageInput = {
+  runId: '01936b00-0000-7000-8000-000000000001',
+  agentRunId: '01936b00-0000-7000-8000-0000000000a1',
+  executorKind: 'cli',
+  status: 'succeeded' as const,
+  latencyMs: 1234,
+};
+
+describe('recordExecutorUsage', () => {
+  it('records a subscription CLI that reports tokens but no cost', async () => {
+    // Codex on a ChatGPT subscription emits input/output tokens and no
+    // total_cost_usd, because nothing was charged. Requiring a dollar figure
+    // discarded the entire row and made the coding stage invisible.
+    const { db, inserted } = captureDb();
+
+    await recordExecutorUsage(db, {
+      ...usageInput,
+      cliName: 'codex',
+      usage: { inputTokens: 120_000, outputTokens: 4_000 },
+    });
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      provider: 'cli:codex',
+      inputTokens: 120_000,
+      outputTokens: 4_000,
+      costUsd: '0.000000',
+      billing: 'subscription',
+    });
+  });
+
+  it('marks a self-reported dollar figure as subscription, not spend', async () => {
+    // Claude Code reports total_cost_usd, but no preset forwards an API key
+    // into the sandbox, so that number is API-equivalent pricing rather than
+    // a charge. Recorded, but never as metered spend.
+    const { db, inserted, updated } = captureDb();
+
+    await recordExecutorUsage(db, {
+      ...usageInput,
+      cliName: 'claude_code',
+      usage: { inputTokens: 900, outputTokens: 100, costUsd: 0.42 },
+    });
+
+    expect(inserted[0]).toMatchObject({ costUsd: '0.420000', billing: 'subscription' });
+    expect(updated).toHaveLength(1);
+  });
+
+  it('skips only when the CLI reported nothing at all', async () => {
+    const { db, inserted } = captureDb();
+
+    await recordExecutorUsage(db, { ...usageInput, usage: undefined });
+    await recordExecutorUsage(db, { ...usageInput, usage: {} });
+
+    expect(inserted).toHaveLength(0);
+  });
 });

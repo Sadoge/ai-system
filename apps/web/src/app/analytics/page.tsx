@@ -1,16 +1,44 @@
 import { apiGet } from '@/lib/api';
-import { Hairpin, System } from '@/lib/ui';
+import { Hairpin, System, formatTokens as tok } from '@/lib/ui';
 
 interface CostPoint {
   day: string;
   provider: string;
+  billing: 'metered' | 'subscription';
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
   calls: number;
 }
 interface PurposeCost {
   purpose: string;
+  billing: 'metered' | 'subscription';
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
 }
+interface UsageTotals {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  meteredUsd: number;
+  notionalUsd: number;
+}
+interface UsageWindow {
+  window: string;
+  since: string;
+  providers: {
+    provider: string;
+    billing: 'metered' | 'subscription';
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+  }[];
+  totals: UsageTotals & { metered: UsageTotals; subscription: UsageTotals };
+}
+
 interface ContextEffectiveness {
   baselineFirstPassRate: number;
   baselineRuns: number;
@@ -86,32 +114,49 @@ function Readout({ items }: { items: { label: string; value: string }[] }) {
 }
 
 export default async function AnalyticsPage() {
-  const [cost, purposes, runs, context] = await Promise.all([
+  const [cost, purposes, runs, context, windows] = await Promise.all([
     apiGet<CostPoint[]>('/analytics/cost?days=30'),
     apiGet<PurposeCost[]>('/analytics/cost-by-purpose?days=30'),
     apiGet<RunAnalytics>('/analytics/runs?days=30'),
     apiGet<ContextEffectiveness>('/analytics/context'),
+    apiGet<UsageWindow[]>('/analytics/usage'),
   ]);
 
+  // Tokens are the common denominator: a subscription call has no price, so a
+  // chart drawn in dollars would render most of the work as nothing.
+  const tokensOf = (r: { inputTokens: number; outputTokens: number }) =>
+    r.inputTokens + r.outputTokens;
+
   const byDay = new Map<string, number>();
-  for (const point of cost) byDay.set(point.day, (byDay.get(point.day) ?? 0) + point.costUsd);
+  for (const point of cost) byDay.set(point.day, (byDay.get(point.day) ?? 0) + tokensOf(point));
   const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
   const maxDay = Math.max(0, ...days.map(([, v]) => v));
-  const total = days.reduce((n, [, v]) => n + v, 0);
+  const totalTokens = days.reduce((n, [, v]) => n + v, 0);
+  const meteredUsd = cost
+    .filter((p) => p.billing === 'metered')
+    .reduce((n, p) => n + p.costUsd, 0);
+  const notionalUsd = cost
+    .filter((p) => p.billing === 'subscription')
+    .reduce((n, p) => n + p.costUsd, 0);
 
   const byProvider = new Map<string, number>();
   for (const point of cost) {
-    byProvider.set(point.provider, (byProvider.get(point.provider) ?? 0) + point.costUsd);
+    byProvider.set(point.provider, (byProvider.get(point.provider) ?? 0) + tokensOf(point));
   }
   const providers = [...byProvider.entries()].sort(([, a], [, b]) => b - a);
-  const maxPurpose = Math.max(0, ...purposes.map((p) => p.costUsd));
+
+  const byPurpose = new Map<string, number>();
+  for (const p of purposes) byPurpose.set(p.purpose, (byPurpose.get(p.purpose) ?? 0) + tokensOf(p));
+  const purposeRows = [...byPurpose.entries()].sort(([, a], [, b]) => b - a);
+  const maxPurpose = Math.max(0, ...purposeRows.map(([, v]) => v));
 
   return (
     <main>
       <System mark="A" title="Last thirty days">
         <Readout
           items={[
-            { label: 'spend', value: `$${total.toFixed(4)}` },
+            { label: 'tokens', value: tok(totalTokens) },
+            { label: 'metered spend', value: `$${meteredUsd.toFixed(4)}` },
             { label: 'finished runs', value: String(runs.finishedRuns) },
             {
               label: 'success rate',
@@ -122,22 +167,54 @@ export default async function AnalyticsPage() {
         />
         <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
           Success rate counts only finished runs — counting in-flight ones would understate it.
+          Metered spend is money actually charged through an API key.
+          {notionalUsd > 0 && (
+            <>
+              {' '}
+              Work done on a Codex or Claude subscription costs nothing and is measured in tokens;
+              the agent CLIs estimate it would have been{' '}
+              <span className="font-mono not-italic">${notionalUsd.toFixed(2)}</span> at API rates,
+              which is not a charge and is never added to spend.
+            </>
+          )}
         </p>
       </System>
 
-      <System mark="B" title="Daily spend">
+      <System mark="B" title="Recent windows">
+        <p className="annot mb-4 max-w-2xl text-sm leading-relaxed text-ink-label">
+          Subscription plans are enforced over rolling windows, so a burst is what gets you
+          limited, not a monthly average. How much of the plan is left is not something any
+          provider reports — this is consumption only.
+        </p>
+        <div className="space-y-1.5">
+          {windows.map((w) => (
+            <Dynamic
+              key={w.window}
+              label={`last ${w.window}`}
+              value={w.totals.inputTokens + w.totals.outputTokens}
+              max={Math.max(
+                0,
+                ...windows.map((x) => x.totals.inputTokens + x.totals.outputTokens),
+              )}
+              right={`${tok(w.totals.inputTokens + w.totals.outputTokens)} · ${w.totals.calls} calls`}
+            />
+          ))}
+        </div>
+      </System>
+
+      <System mark="C" title="Daily tokens">
         {days.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">No model calls recorded yet.</p>
         ) : (
           <div className="space-y-1.5">
             {days.map(([day, value]) => (
-              <Dynamic key={day} label={day} value={value} max={maxDay} right={`$${value.toFixed(4)}`} />
+              <Dynamic key={day} label={day} value={value} max={maxDay} right={tok(value)} />
             ))}
           </div>
         )}
       </System>
 
-      <System mark="C" title="Spend by provider">
+      <System mark="D" title="Tokens by provider">
         {providers.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">Nothing yet.</p>
         ) : (
@@ -148,7 +225,7 @@ export default async function AnalyticsPage() {
                 label={provider}
                 value={value}
                 max={providers[0]?.[1] ?? 0}
-                right={`$${value.toFixed(4)}`}
+                right={tok(value)}
               />
             ))}
           </div>
@@ -156,28 +233,37 @@ export default async function AnalyticsPage() {
         <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
           CLI-driven work appears as <span className="font-mono not-italic">cli:&lt;agent&gt;</span> —
           the coding agent is usually the largest line, so leaving it out would make this chart lie.
+          Subscription-backed CLIs (
+          <span className="font-mono not-italic">codex_cli</span>,{' '}
+          <span className="font-mono not-italic">claude_cli</span>, and every{' '}
+          <span className="font-mono not-italic">cli:</span> row) consume plan quota rather than
+          money.
         </p>
       </System>
 
-      <System mark="D" title="Spend by purpose">
-        {purposes.length === 0 ? (
+      <System mark="E" title="Tokens by purpose">
+        {purposeRows.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">Nothing yet.</p>
         ) : (
           <div className="space-y-1.5">
-            {purposes.map((p) => (
+            {purposeRows.map(([purpose, value]) => (
               <Dynamic
-                key={p.purpose}
-                label={p.purpose}
-                value={p.costUsd}
+                key={purpose}
+                label={purpose}
+                value={value}
                 max={maxPurpose}
-                right={`$${p.costUsd.toFixed(4)}`}
+                right={tok(value)}
               />
             ))}
           </div>
         )}
+        <p className="annot mt-4 max-w-2xl text-sm leading-relaxed text-ink-label">
+          Which stage of a run is actually expensive. Coding is usually the largest by a wide
+          margin.
+        </p>
       </System>
 
-      <System mark="E" title="Runs by outcome">
+      <System mark="F" title="Runs by outcome">
         {runs.byStatus.length === 0 ? (
           <p className="annot py-4 text-sm text-ink-label">No runs in this window.</p>
         ) : (
@@ -210,7 +296,7 @@ export default async function AnalyticsPage() {
         )}
       </System>
 
-      <System mark="F" title="Context effectiveness">
+      <System mark="G" title="Context effectiveness">
         <p className="annot mb-4 max-w-3xl text-sm leading-relaxed text-ink-label">
           How runs that received each piece of Brain context actually fared, against a baseline
           first-pass rate of{' '}

@@ -36,6 +36,30 @@ export default async function GatesPage() {
                     {new Date(gate.createdAt).toLocaleString()}
                   </span>
                 </div>
+
+                {/* What you are actually deciding about. Approving a gate
+                    whose evidence is one more click away is a rubber stamp. */}
+                <p className="mb-2 text-sm text-ink">{gate.ticket.title}</p>
+                <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  {typeof gate.payload.artifactId === 'string' && (
+                    <Link
+                      href={`/runs/${gate.runId}/artifacts/${gate.payload.artifactId}`}
+                      className={`${linkCls} text-sm`}
+                    >
+                      read the {String(gate.payload.artifactKind ?? 'artifact')}
+                    </Link>
+                  )}
+                  {gate.blockingFindings > 0 && (
+                    <Link
+                      href={`/runs/${gate.runId}`}
+                      className={`${linkCls} font-mono text-sm text-mark-bright`}
+                    >
+                      {gate.blockingFindings} blocking{' '}
+                      {gate.blockingFindings === 1 ? 'finding' : 'findings'} open
+                    </Link>
+                  )}
+                  <span className="annot font-mono text-xs text-ink-faint">{gate.runStatus}</span>
+                </div>
                 <form action={resolveGateAction} className="flex flex-wrap items-end gap-3">
                   <input type="hidden" name="gateId" value={gate.id} />
                   <label className="flex min-w-56 flex-1 flex-col gap-1">

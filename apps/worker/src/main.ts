@@ -2,8 +2,7 @@ import { join, resolve } from 'node:path';
 import PgBoss from 'pg-boss';
 import { pino } from 'pino';
 import { z } from 'zod';
-import { and, desc, eq } from 'drizzle-orm';
-import { artifacts, createDb, createPool, migrateDb, type Db } from '@ai-system/db';
+import { createDb, createPool, migrateDb, type Db } from '@ai-system/db';
 import { GateKind } from '@ai-system/domain';
 import { createGateRequest } from '@ai-system/orchestration';
 import {
@@ -27,6 +26,7 @@ import type {
 import type { Embedder } from '@ai-system/brain';
 import { createLlmAgents, createMockAgents, type Agents } from '@ai-system/agents';
 import { ApiLoopAgentExecutor, CliAgentExecutor } from '@ai-system/agent-execution';
+import { enrichGatePayload } from './gate-payload.js';
 import { agentJobLeaseSeconds, OutboxDispatcher } from './outbox-dispatcher.js';
 import { DEFAULT_ORPHAN_HEARTBEAT_GRACE_MS, recoverOrphanedAgentJobs } from './orphan-recovery.js';
 import { WebhookNotifier } from './webhook-notifier.js';
@@ -344,25 +344,6 @@ async function buildServices(db: Db): Promise<StageServices> {
     codingMaxAttempts,
     githubToken: process.env.GITHUB_TOKEN,
   };
-}
-
-/** Attach the artifact a human needs to judge this gate (plan, PR package). */
-async function enrichGatePayload(
-  db: Db,
-  runId: string,
-  gate: GateKind,
-  payload: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const kind =
-    gate === 'plan_approval' ? 'implementation_plan' : gate === 'final_pr' ? 'pr_package' : null;
-  if (!kind) return payload;
-  const rows = await db
-    .select({ id: artifacts.id })
-    .from(artifacts)
-    .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, kind)))
-    .orderBy(desc(artifacts.createdAt))
-    .limit(1);
-  return rows[0] ? { ...payload, artifactId: rows[0].id, artifactKind: kind } : payload;
 }
 
 async function main(): Promise<void> {

@@ -14,6 +14,17 @@ interface StateRead {
   head: 'filled' | 'hollow' | 'cross' | 'rest';
 }
 
+/**
+ * Token counts are the platform's real unit of consumption once the agents run
+ * on subscriptions, and they get large fast — full digits stop a column being
+ * readable at a glance.
+ */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 export function readState(status: string): StateRead {
   if (status.startsWith('awaiting_') || status === 'pending') {
     return { tone: 'await', head: 'hollow' };

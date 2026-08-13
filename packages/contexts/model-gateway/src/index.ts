@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './pricing.js';
 export * from './ledger.js';
+export * from './usage.js';
 export * from './gateway.js';
 export * from './profiles.js';
 export * from './adapters/anthropic.js';

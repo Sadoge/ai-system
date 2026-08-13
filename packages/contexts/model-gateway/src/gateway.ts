@@ -182,6 +182,7 @@ export class ModelGateway {
         inputTokens: completion.inputTokens,
         outputTokens: completion.outputTokens,
         costUsd: callCost,
+        billing: adapter.billing ?? 'metered',
         latencyMs: Date.now() - startedAt,
         status: 'succeeded',
       });
@@ -267,6 +268,7 @@ export class ModelGateway {
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             costUsd,
+            billing: adapter.billing ?? 'metered',
             latencyMs: result.latencyMs,
             status: 'succeeded',
           });
@@ -283,6 +285,7 @@ export class ModelGateway {
             inputTokens: 0,
             outputTokens: 0,
             costUsd: 0,
+            billing: adapter.billing ?? 'metered',
             latencyMs: Date.now() - startedAt,
             status: 'failed',
             error: err instanceof Error ? err.message : String(err),

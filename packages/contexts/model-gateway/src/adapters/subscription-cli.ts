@@ -112,6 +112,13 @@ function runCli(
       );
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
+    // A CLI that exits before draining its stdin — a crash, an auth failure, a
+    // refusal — makes this write fail with EPIPE. An unhandled 'error' on a
+    // stream is thrown, so without this listener an early exit takes the whole
+    // process down instead of rejecting. The child's own exit is already
+    // diagnosed by the 'close'/'error' handlers above, which carry the exit
+    // code and stderr; the write failure itself says nothing extra.
+    child.stdin.on('error', () => {});
     child.stdin.end(stdin);
   });
 }
@@ -165,6 +172,9 @@ function codexOutput(stdout: string): AdapterCompletion {
  */
 export class CodexSubscriptionAdapter implements ProviderAdapter {
   readonly provider = 'codex_cli';
+  // A ChatGPT subscription is not metered: these calls consume plan quota, not
+  // dollars, and are measured in tokens.
+  readonly billing = 'subscription' as const;
   private readonly binary: string;
 
   constructor(private readonly options: SubscriptionCliOptions = {}) {
@@ -256,6 +266,8 @@ function claudeOutput(stdout: string): AdapterCompletion {
 /** Completion adapter backed by `claude -p` and the user's saved Claude login. */
 export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   readonly provider = 'claude_cli';
+  // Same as Codex: a Claude subscription login spends plan quota, not money.
+  readonly billing = 'subscription' as const;
   private readonly binary: string;
 
   constructor(private readonly options: SubscriptionCliOptions = {}) {

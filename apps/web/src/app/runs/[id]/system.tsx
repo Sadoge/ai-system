@@ -57,10 +57,16 @@ function toneClass(tone: ReturnType<typeof readState>['tone'], current: boolean)
   return 'text-ink-faint';
 }
 
-export function RunSystem({ run }: { run: RunDetail }) {
+export function RunSystem({
+  run,
+  tasks = run.tasks,
+}: {
+  run: RunDetail;
+  tasks?: RunDetail['tasks'];
+}) {
   const stages = run.stages;
   const n = Math.max(stages.length, 1);
-  const depth = depths(run.tasks);
+  const depth = depths(tasks);
   const beats = Math.max(1, Math.max(0, ...[...depth.values()]) + 1);
 
   const idxOf = (name: string) => stages.findIndex((s) => s.stage === name);
@@ -70,12 +76,9 @@ export function RunSystem({ run }: { run: RunDetail }) {
   const spanEnd = last >= first && last >= 0 ? last + 1 : n;
 
   const stageFrac = (i: number) => (i + 0.5) / n;
-  const beatFrac = (b: number) =>
-    (spanStart + ((b + 0.5) / beats) * (spanEnd - spanStart)) / n;
+  const beatFrac = (b: number) => (spanStart + ((b + 0.5) / beats) * (spanEnd - spanStart)) / n;
 
-  const ordered = [...run.tasks].sort(
-    (a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0),
-  );
+  const ordered = [...tasks].sort((a, b) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0));
   const rowOf = new Map(ordered.map((t, i) => [t.id, i]));
   const height = STAGE_ROW + ordered.length * VOICE_ROW;
 
@@ -112,10 +115,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
 
           {/* The margin rule: left of it is the part list, right of it is
               plotted space where position carries meaning. */}
-          <span
-            className="absolute top-0 w-px bg-rule-strong"
-            style={{ left: LABEL_W, height }}
-          />
+          <span className="absolute top-0 w-px bg-rule-strong" style={{ left: LABEL_W, height }} />
 
           {/* The run's own voice. */}
           <div className="absolute inset-x-0 top-0" style={{ height: STAGE_ROW }}>
@@ -190,7 +190,10 @@ export function RunSystem({ run }: { run: RunDetail }) {
 
                 <span
                   className={`stave-clear absolute -translate-x-1/2 ${toneClass(tone, false)}`}
-                  style={{ left: plotted(beatFrac(depth.get(task.id) ?? 0)), top: VOICE_ROW / 2 - 6 }}
+                  style={{
+                    left: plotted(beatFrac(depth.get(task.id) ?? 0)),
+                    top: VOICE_ROW / 2 - 6,
+                  }}
                 >
                   <Notehead head={head} />
                 </span>
@@ -269,7 +272,7 @@ export function RunSystem({ run }: { run: RunDetail }) {
           <ul className="mt-5 border-t border-rule">
             {ordered.map((task) => {
               const deps = task.dependsOn
-                .map((d) => run.tasks.find((t) => t.id === d)?.title ?? d.slice(-8))
+                .map((d) => tasks.find((t) => t.id === d)?.title ?? d.slice(-8))
                 .join(', ');
               return (
                 <li key={task.id} className="border-b border-rule px-1 py-2">

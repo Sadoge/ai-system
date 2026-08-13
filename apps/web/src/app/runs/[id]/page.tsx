@@ -39,12 +39,28 @@ function elapsedLabel(start: string, end: string) {
   return `${hours}h ${minutes % 60}m`;
 }
 
-function queryValues(searchParams: SearchParams) {
+function queryValues(searchParams: SearchParams): SearchParams {
   return Object.fromEntries(
-    Object.entries(searchParams).flatMap(([key, value]) =>
-      typeof value === 'string' ? [[key, value]] : [],
-    ),
+    Object.entries(searchParams).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? [...value] : value,
+    ]),
   );
+}
+
+function firstQueryValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function sectionHref(searchParams: SearchParams, section: RunDetailSection) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (key === 'open') continue;
+    if (Array.isArray(value)) value.forEach((entry) => query.append(key, entry));
+    else if (value !== undefined) query.append(key, value);
+  }
+  query.set('open', section);
+  return `?${query.toString()}#run-${section}`;
 }
 
 function MoreLink({
@@ -89,22 +105,26 @@ export default async function RunDetailPage({
   const summary = summariseRun(safeRun);
   const terminal = isTerminalStatus(run.status);
   const diffArtifact = artifacts.filter((artifact) => artifact.kind === 'diff').at(-1);
-  const tasksExpanded = currentQuery.tasks === 'all';
-  const artifactsExpanded = currentQuery.artifacts === 'all';
-  const eventsExpanded = currentQuery.events === 'all';
+  const tasksExpanded = firstQueryValue(currentQuery.tasks) === 'all';
+  const artifactsExpanded = firstQueryValue(currentQuery.artifacts) === 'all';
+  const eventsExpanded = firstQueryValue(currentQuery.events) === 'all';
   const cappedTasks = capRows(tasks, SECTION_CAPS.tasks, tasksExpanded);
   const cappedArtifacts = capRows(artifacts, SECTION_CAPS.artifacts, artifactsExpanded);
   const cappedEvents = capRows(events, SECTION_CAPS.events, eventsExpanded);
-  const visibleRun = {
-    ...safeRun,
-    tasks: cappedTasks.visible,
-    artifacts: cappedArtifacts.visible,
-    events: cappedEvents.visible,
-  };
   const elapsedEnd = terminal ? run.updatedAt : new Date().toISOString();
-  const target = run.repositoryId ? `repository ${run.repositoryId}` : `project ${run.projectId}`;
+  const target = run.repositoryId
+    ? `repository ${run.repositoryId}`
+    : run.projectId
+      ? `project ${run.projectId}`
+      : null;
+  const doneTasks = tasks.filter((task) => task.status === 'completed').length;
+  const activeProcessCount =
+    stages.filter((stage) => stage.status === 'running').length +
+    tasks.filter((task) => task.status === 'running').length +
+    agents.filter((agent) => agent.status === 'running').length;
 
   const sectionOpen = (section: RunDetailSection) =>
+    firstQueryValue(currentQuery[section]) === 'all' ||
     defaultSectionOpen({
       section,
       status: run.status,
@@ -151,10 +171,12 @@ export default async function RunDetailPage({
             <dt>automation</dt>
             <dd>{run.policySnapshot.automationLevel}</dd>
           </div>
-          <div>
-            <dt>target</dt>
-            <dd>{target}</dd>
-          </div>
+          {target && (
+            <div>
+              <dt>target</dt>
+              <dd>{target}</dd>
+            </div>
+          )}
           <div>
             <dt>started</dt>
             <dd>
@@ -183,7 +205,7 @@ export default async function RunDetailPage({
 
         <nav className="run-detail-counts" aria-label="Run detail sections">
           {(['gates', 'tasks', 'artifacts', 'events'] as const).map((section) => (
-            <a key={section} href={`#run-${section}`}>
+            <a key={section} href={sectionHref(currentQuery, section)}>
               <span>{section}</span>
               <strong>{summary.counts[section]}</strong>
             </a>
@@ -199,7 +221,15 @@ export default async function RunDetailPage({
             <ul>
               {summary.needsAttention.map((item) => (
                 <li key={`${item.kind}-${item.id}`}>
-                  <a href={item.kind === 'gate' ? '#run-gates' : '#run-tasks'}>{item.label}</a>
+                  <a
+                    href={
+                      item.kind === 'gate'
+                        ? sectionHref(currentQuery, 'gates')
+                        : sectionHref({ ...currentQuery, tasks: 'all' }, 'tasks')
+                    }
+                  >
+                    {item.label}
+                  </a>
                 </li>
               ))}
             </ul>
@@ -240,6 +270,7 @@ export default async function RunDetailPage({
           label="gate details"
           panelId="run-gates-panel"
           defaultOpen={sectionOpen('gates')}
+          forceOpen={firstQueryValue(currentQuery.open) === 'gates'}
         >
           {gates.length === 0 ? (
             <p className="run-detail-empty">No gates have been requested.</p>
@@ -315,22 +346,25 @@ export default async function RunDetailPage({
       <section id="run-tasks" className="run-detail-section" data-section="tasks">
         <header>
           <h2>Tasks</h2>
-          <span>{tasks.length}</span>
+          <span>
+            {doneTasks}/{tasks.length} done · {activeProcessCount} active
+          </span>
         </header>
         <SectionDisclosure
           label="task progress"
           panelId="run-tasks-panel"
           defaultOpen={sectionOpen('tasks')}
+          forceOpen={firstQueryValue(currentQuery.open) === 'tasks'}
         >
           <h3 className="run-detail-subheading">Task score</h3>
-          <RunSystem run={visibleRun} />
+          <RunSystem run={safeRun} tasks={cappedTasks.visible} />
           {tasks.length === 0 && <p className="run-detail-empty">No task voices were created.</p>}
           <SectionDisclosure
             label="execution ledger"
             panelId="run-execution-panel"
             defaultOpen={!terminal}
           >
-            <ExecutionMonitor run={visibleRun} />
+            <ExecutionMonitor run={safeRun} visibleTasks={cappedTasks.visible} />
           </SectionDisclosure>
           {cappedTasks.remaining > 0 && (
             <MoreLink
@@ -351,13 +385,16 @@ export default async function RunDetailPage({
           <h2>Artifacts</h2>
           <span>{artifacts.length}</span>
         </header>
+        <div className="run-detail-primary-output">
+          <h3 className="run-detail-subheading">Code changes</h3>
+          <RunCodeChanges runId={run.id} artifactId={diffArtifact?.id} />
+        </div>
         <SectionDisclosure
-          label="artifact outputs"
+          label="artifact index and findings"
           panelId="run-artifacts-panel"
           defaultOpen={sectionOpen('artifacts')}
+          forceOpen={firstQueryValue(currentQuery.open) === 'artifacts'}
         >
-          <RunCodeChanges runId={run.id} artifactId={diffArtifact?.id} embedded />
-
           {findings.length > 0 && (
             <div className="run-detail-findings">
               <h3 className="run-detail-subheading">Editorial marks</h3>
@@ -420,6 +457,7 @@ export default async function RunDetailPage({
           label="event telemetry"
           panelId="run-events-panel"
           defaultOpen={sectionOpen('events')}
+          forceOpen={firstQueryValue(currentQuery.open) === 'events'}
         >
           {events.length === 0 ? (
             <p className="run-detail-empty">No run events have been recorded.</p>
@@ -439,7 +477,9 @@ export default async function RunDetailPage({
                       panelId={`run-event-${event.id}`}
                       defaultOpen={false}
                     >
-                      <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                      <pre tabIndex={0} role="region" aria-label={`${event.name} payload content`}>
+                        {JSON.stringify(event.payload, null, 2)}
+                      </pre>
                     </SectionDisclosure>
                   )}
                 </li>

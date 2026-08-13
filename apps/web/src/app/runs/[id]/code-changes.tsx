@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
 import { parseUnifiedDiff } from '@/lib/unified-diff';
-import { System, linkCls } from '@/lib/ui';
+import { linkCls } from '@/lib/ui';
 import { DiffViewer } from './diff-viewer';
 
 interface CodeChangesProps {
@@ -13,7 +13,6 @@ interface CodeChangesProps {
   error?: string | null;
   loading?: boolean;
   showArtifactLink?: boolean;
-  embedded?: boolean;
 }
 
 export function DiffPresentation({
@@ -129,21 +128,5 @@ export function DiffPresentation({
 
       <DiffViewer key={artifactId} files={parsed.files} />
     </>
-  );
-}
-
-export function CodeChanges({ embedded = false, ...props }: CodeChangesProps) {
-  if (embedded) {
-    return (
-      <div>
-        <h3 className="annot mb-4 text-base text-ink">Code changes</h3>
-        <DiffPresentation {...props} />
-      </div>
-    );
-  }
-  return (
-    <System mark="Δ" title="Code changes">
-      <DiffPresentation {...props} />
-    </System>
   );
 }

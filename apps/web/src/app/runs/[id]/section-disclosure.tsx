@@ -6,20 +6,26 @@ export function SectionDisclosure({
   label,
   panelId,
   defaultOpen,
+  forceOpen = false,
   children,
 }: {
   label: string;
   panelId: string;
   defaultOpen: boolean;
+  forceOpen?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
   const previousDefault = useRef(defaultOpen);
 
   useEffect(() => {
     if (!previousDefault.current && defaultOpen) setOpen(true);
     previousDefault.current = defaultOpen;
   }, [defaultOpen]);
+
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
 
   return (
     <div className="run-detail-disclosure">

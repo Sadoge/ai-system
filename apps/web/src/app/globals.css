@@ -949,10 +949,13 @@ table thead {
   font-weight: 400;
 }
 .run-detail-section > header span {
+  min-width: 0;
   color: color-mix(in oklab, var(--run-detail-accent) 62%, var(--color-ink-secondary));
   font-family: var(--font-mono);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  text-align: end;
+  overflow-wrap: anywhere;
 }
 .run-detail-disclosure > button {
   display: flex;
@@ -986,6 +989,9 @@ table thead {
   font-size: 1rem;
   font-style: italic;
   font-weight: 400;
+}
+.run-detail-primary-output {
+  margin-top: 16px;
 }
 .run-detail-empty {
   border-bottom: 1px solid var(--color-rule);
@@ -1098,6 +1104,10 @@ table thead {
   font-size: 0.75rem;
   line-height: 1.625;
   white-space: pre;
+}
+.run-detail-events pre:focus-visible {
+  outline: 2px solid var(--color-cue-bright);
+  outline-offset: 2px;
 }
 .run-detail-more {
   display: inline-block;

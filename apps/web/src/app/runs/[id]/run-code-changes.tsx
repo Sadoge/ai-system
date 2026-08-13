@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
-import { CodeChanges } from './code-changes';
+import { DiffPresentation } from './code-changes';
 
 interface DiffLoadResult {
   artifactId?: string;
@@ -50,11 +50,22 @@ export function RunCodeChanges({ runId, artifactId }: { runId: string; artifactI
 
   if (artifactId && (loading || result.artifactId !== artifactId)) {
     return (
-      <CodeChanges runId={runId} artifactId={artifactId} content={null} error={undefined} loading />
+      <DiffPresentation
+        runId={runId}
+        artifactId={artifactId}
+        content={null}
+        error={undefined}
+        loading
+      />
     );
   }
 
   return (
-    <CodeChanges runId={runId} artifactId={artifactId} content={result.data} error={result.error} />
+    <DiffPresentation
+      runId={runId}
+      artifactId={artifactId}
+      content={result.data}
+      error={result.error}
+    />
   );
 }

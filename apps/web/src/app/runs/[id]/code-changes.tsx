@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DiffArtifactContent } from '@/lib/diff-artifact';
 import { parseUnifiedDiff } from '@/lib/unified-diff';
-import { System, linkCls } from '@/lib/ui';
+import { linkCls } from '@/lib/ui';
 import { DiffViewer } from './diff-viewer';
 
 interface CodeChangesProps {
@@ -128,13 +128,5 @@ export function DiffPresentation({
 
       <DiffViewer key={artifactId} files={parsed.files} />
     </>
-  );
-}
-
-export function CodeChanges(props: CodeChangesProps) {
-  return (
-    <System mark="Δ" title="Code changes">
-      <DiffPresentation {...props} />
-    </System>
   );
 }

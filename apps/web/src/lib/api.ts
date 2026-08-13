@@ -35,6 +35,10 @@ export function apiStreamUrl(runId: string): string {
 
 export interface RunSummary {
   id: string;
+  // GET /runs/:id currently returns both via ApiController.getRun ->
+  // ApiService.getRun. Keep these optional for an older API during rollout.
+  projectId?: string;
+  repositoryId?: string | null;
   status: string;
   currentStage: string | null;
   complexity: string | null;

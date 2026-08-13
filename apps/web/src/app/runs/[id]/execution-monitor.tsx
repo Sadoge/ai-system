@@ -122,7 +122,13 @@ function eventLabel(event: RunEvent, run: RunDetail): string | null {
   }
 }
 
-export function ExecutionMonitor({ run }: { run: RunDetail }) {
+export function ExecutionMonitor({
+  run,
+  visibleTasks = run.tasks,
+}: {
+  run: RunDetail;
+  visibleTasks?: RunDetail['tasks'];
+}) {
   // Old API processes can briefly serve the previous response shape while a
   // new web build is already live. Keep the ledger useful during that rollout.
   const events = run.events ?? [];
@@ -208,7 +214,7 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
             (event) => event.payload.stage === stage,
             true,
           );
-          const tasks = stage === 'code' ? run.tasks : [];
+          const tasks = stage === 'code' ? visibleTasks : [];
           const agents = agentsForRun.filter((agent) => {
             if (agent.taskId) return false;
             if (agent.stageExecutionId && attempt) return agent.stageExecutionId === attempt.id;
@@ -326,11 +332,11 @@ export function ExecutionMonitor({ run }: { run: RunDetail }) {
                           </span>
                           <span className="ml-auto font-mono text-micro text-ink-faint">
                             {agent.executorKind} ·{' '}
-                              {duration(
-                                agent.startedAt,
-                                agent.finishedAt ?? (stale ? run.updatedAt : null),
-                                now,
-                              )}
+                            {duration(
+                              agent.startedAt,
+                              agent.finishedAt ?? (stale ? run.updatedAt : null),
+                              now,
+                            )}
                           </span>
                         </div>
                         <p className="ml-5 mt-1 text-xs text-ink-muted">

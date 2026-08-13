@@ -10,7 +10,15 @@ interface DiffLoadResult {
   error?: string;
 }
 
-export function RunCodeChanges({ runId, artifactId }: { runId: string; artifactId?: string }) {
+export function RunCodeChanges({
+  runId,
+  artifactId,
+  embedded = false,
+}: {
+  runId: string;
+  artifactId?: string;
+  embedded?: boolean;
+}) {
   const [result, setResult] = useState<DiffLoadResult>({ data: null });
   const [loading, setLoading] = useState(Boolean(artifactId));
 
@@ -50,11 +58,24 @@ export function RunCodeChanges({ runId, artifactId }: { runId: string; artifactI
 
   if (artifactId && (loading || result.artifactId !== artifactId)) {
     return (
-      <CodeChanges runId={runId} artifactId={artifactId} content={null} error={undefined} loading />
+      <CodeChanges
+        runId={runId}
+        artifactId={artifactId}
+        content={null}
+        error={undefined}
+        loading
+        embedded={embedded}
+      />
     );
   }
 
   return (
-    <CodeChanges runId={runId} artifactId={artifactId} content={result.data} error={result.error} />
+    <CodeChanges
+      runId={runId}
+      artifactId={artifactId}
+      content={result.data}
+      error={result.error}
+      embedded={embedded}
+    />
   );
 }

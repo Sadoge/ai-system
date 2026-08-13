@@ -35,6 +35,8 @@ export function apiStreamUrl(runId: string): string {
 
 export interface RunSummary {
   id: string;
+  projectId: string;
+  repositoryId: string | null;
   status: string;
   currentStage: string | null;
   complexity: string | null;

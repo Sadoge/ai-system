@@ -13,6 +13,7 @@ interface CodeChangesProps {
   error?: string | null;
   loading?: boolean;
   showArtifactLink?: boolean;
+  embedded?: boolean;
 }
 
 export function DiffPresentation({
@@ -131,7 +132,15 @@ export function DiffPresentation({
   );
 }
 
-export function CodeChanges(props: CodeChangesProps) {
+export function CodeChanges({ embedded = false, ...props }: CodeChangesProps) {
+  if (embedded) {
+    return (
+      <div>
+        <h3 className="annot mb-4 text-base text-ink">Code changes</h3>
+        <DiffPresentation {...props} />
+      </div>
+    );
+  }
   return (
     <System mark="Δ" title="Code changes">
       <DiffPresentation {...props} />
